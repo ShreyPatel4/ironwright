@@ -25,6 +25,7 @@ CONSOLE_DIST = pathlib.Path(__file__).resolve().parents[1] / "console" / "dist"
 
 import re
 
+from . import ask as ask_mod
 from . import verification
 from .cli import STAGES
 from .lake import Lakehouse
@@ -59,6 +60,14 @@ class DecideBody(BaseModel):
 class QueryBody(BaseModel):
     sql: str
     limit: int = 200
+
+
+class AskBody(BaseModel):
+    question: str
+
+
+class ReplayBody(BaseModel):
+    index: int
 
 
 def _guard_select_only(sql: str) -> str:
@@ -248,6 +257,31 @@ def create_platform_app() -> FastAPI:
         if not path.exists():
             raise HTTPException(404, f"no report {report}")
         return json.loads(path.read_text())
+
+    @app.post("/workspaces/{name}/ask")
+    def ask(name: str, body: AskBody) -> dict[str, Any]:
+        pack = _pack(name)
+        with _ontology(pack) as ont:
+            entry = ask_mod.ask(pack, ont, body.question, principal=CONSOLE_PRINCIPAL)
+            entry["verification"] = verification.derive(pack)
+            return entry
+
+    @app.get("/workspaces/{name}/ask/log")
+    def ask_log(name: str) -> list[dict[str, Any]]:
+        return ask_mod.read_log(_pack(name))
+
+    @app.get("/workspaces/{name}/ask/metrics")
+    def ask_metrics(name: str) -> dict[str, Any]:
+        return ask_mod.metrics(_pack(name))
+
+    @app.post("/workspaces/{name}/ask/replay")
+    def ask_replay(name: str, body: ReplayBody) -> dict[str, Any]:
+        pack = _pack(name)
+        with _ontology(pack) as ont:
+            try:
+                return ask_mod.replay(pack, ont, body.index)
+            except IndexError as e:
+                raise HTTPException(404, str(e))
 
     # The console is a committed build (console/dist), so a git clone needs
     # uv and nothing else at runtime. Absent (e.g. a bare pip install of the

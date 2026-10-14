@@ -27,4 +27,8 @@ export const api = {
   lakeTables: (ws) => req(`/workspaces/${ws}/lake/tables`),
   lakeQuery: (ws, sql, limit = 200) => post(`/workspaces/${ws}/lake/query`, { sql, limit }),
   report: (ws, name) => req(`/workspaces/${ws}/reports/${name}`),
+  ask: (ws, question) => post(`/workspaces/${ws}/ask`, { question }),
+  askLog: (ws) => req(`/workspaces/${ws}/ask/log`),
+  askMetrics: (ws) => req(`/workspaces/${ws}/ask/metrics`),
+  askReplay: (ws, index) => post(`/workspaces/${ws}/ask/replay`, { index }),
 };

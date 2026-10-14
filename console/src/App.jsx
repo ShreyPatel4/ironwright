@@ -6,11 +6,13 @@ import Explorer from "./views/Explorer.jsx";
 import Ontology from "./views/Ontology.jsx";
 import Approvals from "./views/Approvals.jsx";
 import Audit from "./views/Audit.jsx";
+import Ask from "./views/Ask.jsx";
 
 const VIEWS = [
   ["pipeline", "Pipeline", Pipeline],
   ["explorer", "Data explorer", Explorer],
   ["ontology", "Ontology", Ontology],
+  ["ask", "Ask", Ask],
   ["approvals", "Approvals", Approvals],
   ["audit", "Audit", Audit],
 ];
