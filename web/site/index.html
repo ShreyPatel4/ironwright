@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OntoForge</title>
+<meta name="description" content="OntoForge, a Coconut Labs project: learn your business as it is, then act on it. Legacy systems to an ontology, with agents that are safe to let act.">
+<meta property="og:title" content="OntoForge">
+<meta property="og:description" content="Legacy systems to an ontology, with agents you can trust. A Coconut Labs project.">
+<meta property="og:image" content="media/intro-poster.jpg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one centered column, 1120px max. Console look: flat panels, 1px borders, 6px corners, one blue accent. */
+:root{
+  --bg:#F6F7F9; --panel:#FFFFFF; --sunk:#EDEFF2; --ink:#1C2127; --sub:#5F6B7C; --dim:#8A94A2; --line:#DCE0E5;
+  --accent:#2D72D2; --ok:#238551; --warn:#C87619;
+  --sans:"Geist","Segoe UI",system-ui,sans-serif; --mono:"Geist Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#111418;--panel:#1C2127;--sunk:#20262D;--ink:#F6F7F9;--sub:#ABB3BF;--dim:#738091;--line:#2F343C;--accent:#4C90F0;--ok:#32A467;--warn:#EC9A3C;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#111418;--panel:#1C2127;--sunk:#20262D;--ink:#F6F7F9;--sub:#ABB3BF;--dim:#738091;--line:#2F343C;--accent:#4C90F0;--ok:#32A467;--warn:#EC9A3C;color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink)}
+body{font:16px/1.6 var(--sans);padding-inline:20px;padding-block:0 64px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+a:focus-visible,button:focus-visible,video:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+.wrap{max-width:1120px;margin:0 auto}
+nav.top{display:flex;align-items:center;gap:20px;flex-wrap:wrap;padding-block:20px;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:10px;font:500 18px/1 var(--sans);color:var(--ink)}
+.brand svg{width:26px;height:26px}
+nav.top .links{display:flex;gap:18px;flex-wrap:wrap;margin-left:auto;font-size:15px}
+nav.top .links a{color:var(--sub)}
+nav.top .links a:hover{color:var(--ink);text-decoration:none}
+.tag{display:inline-block;font:500 13px/1 var(--sans);padding:6px 9px;border-radius:4px;background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
+.tag.blue{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent)}
+.tag.ok{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+header.hero{padding-block:72px 40px;display:grid;gap:22px;max-width:860px}
+h1{font:500 clamp(40px,6vw,68px)/1.04 var(--sans);letter-spacing:-.035em;margin:0;text-wrap:balance}
+.lede{font-size:clamp(18px,2vw,21px);color:var(--sub);margin:0;max-width:62ch}
+.cta{display:flex;gap:12px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;font:500 15px/1 var(--sans);padding:13px 18px;border-radius:6px;border:1px solid var(--line);background:var(--panel);color:var(--ink)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn:hover{text-decoration:none;border-color:var(--sub)}
+.btn.primary:hover{filter:brightness(1.08)}
+.film{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#111418}
+.film video{display:block;width:100%;height:auto;aspect-ratio:16/9;max-width:100%}
+.caption{font-size:14px;color:var(--dim);margin-top:10px}
+section{padding-top:84px;scroll-margin-top:20px}
+section>h2{font:500 clamp(28px,3.4vw,38px)/1.1 var(--sans);letter-spacing:-.025em;margin:0 0 10px;text-wrap:balance}
+section>p.sub{color:var(--sub);margin:0 0 28px;max-width:66ch}
+.steps{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.steps li{list-style:none;padding:20px 18px;border-right:1px solid var(--line);min-width:0}
+.steps li:last-child{border-right:0}
+.steps .n{font:400 13px var(--mono);color:var(--dim)}
+.steps h3{font:500 18px/1.2 var(--sans);margin:10px 0 6px}
+.steps p{margin:0;font-size:14.5px;color:var(--sub)}
+.steps{padding:0;margin:0}
+@media (max-width:900px){.steps{grid-template-columns:repeat(2,minmax(0,1fr))}.steps li:nth-child(2n){border-right:0}.steps li{border-bottom:1px solid var(--line)}}
+@media (max-width:520px){.steps{grid-template-columns:1fr}.steps li{border-right:0}}
+.cases{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+@media (max-width:900px){.cases{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.cases{grid-template-columns:1fr}}
+.case{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--ink);overflow:hidden;min-width:0}
+.case:hover{text-decoration:none;border-color:var(--sub)}
+.case img{display:block;width:100%;height:auto;aspect-ratio:16/9;object-fit:cover;max-width:100%;background:#111418;border-bottom:1px solid var(--line)}
+.case .body{padding:16px 18px 18px;display:grid;gap:8px}
+.case h3{font:500 19px/1.2 var(--sans);margin:0}
+.case p{margin:0;color:var(--sub);font-size:14.5px}
+.case .meta{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.gov{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:0;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.gov div{padding:20px 18px;border-right:1px solid var(--line);min-width:0}
+.gov div:last-child{border-right:0}
+.gov h3{font:500 17px/1.2 var(--sans);margin:0 0 6px}
+.gov p{margin:0;font-size:14.5px;color:var(--sub)}
+@media (max-width:900px){.gov{grid-template-columns:1fr}.gov div{border-right:0;border-bottom:1px solid var(--line)}.gov div:last-child{border-bottom:0}}
+.status{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+@media (max-width:800px){.status{grid-template-columns:1fr}}
+.col{border:1px solid var(--line);border-radius:6px;background:var(--panel);padding:20px 22px;min-width:0}
+.col h3{font:500 18px/1.2 var(--sans);margin:12px 0 10px}
+.col ul{margin:0;padding-left:18px;color:var(--sub);font-size:15px;display:grid;gap:6px}
+.code{font:400 14px/1.7 var(--mono);background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:16px 18px;overflow-x:auto;white-space:pre;color:var(--ink)}
+footer{margin-top:96px;padding-top:24px;border-top:1px solid var(--line);color:var(--dim);font-size:14px;display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
+@media (prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="top" aria-label="Main">
+    <a class="brand" href="./"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="11.5" cy="17.6" r="1.7" fill="currentColor"/><circle cx="16" cy="13.6" r="1.7" fill="currentColor"/><circle cx="20.5" cy="17.6" r="1.7" fill="currentColor"/></svg>OntoForge</a>
+    <span class="tag">Ideation phase</span>
+    <div class="links"><a href="#film">Film</a><a href="#journey">How it works</a><a href="#use-cases">Use cases</a><a href="demo/">Live demo</a><a href="#status">Status</a></div>
+  </nav>
+
+  <header class="hero">
+    <h1>Learn your business as it is. Then act on it.</h1>
+    <p class="lede">OntoForge connects the systems a business already runs, maps every object and link into one ontology, and lets AI agents act only through governed, approved actions. No backend rebuild, and AI only where it pays.</p>
+    <div class="cta"><a class="btn primary" href="#film">Watch the film</a><a class="btn" href="demo/">Explore the live demo</a><a class="btn" href="films/">Use-case films</a></div>
+  </header>
+
+  <div id="film" class="film"><video controls preload="metadata" playsinline poster="media/intro-poster.jpg" src="media/ontoforge-intro.mp4" aria-label="OntoForge film"></video></div>
+  <p class="caption">The OntoForge film, 3:41. One stuck question, the six steps that fix it, the small-business platform in ideation, and governance for regulated work. <a href="film/">Open the interactive version</a>.</p>
+
+  <section id="journey">
+    <h2>From the old estate to answers you can trust</h2>
+    <p class="sub">Every business in OntoForge goes through the same six steps. Each step makes a promise, and each promise has a test that runs on every build.</p>
+    <ol class="steps">
+      <li><span class="n">1</span><h3>Land</h3><p>Every file kept exactly as it arrived, every run kept.</p></li>
+      <li><span class="n">2</span><h3>Check</h3><p>Writes go to a branch first. Bad rows are held back.</p></li>
+      <li><span class="n">3</span><h3>Reconcile</h3><p>New numbers matched or explained against the old reports.</p></li>
+      <li><span class="n">4</span><h3>Unify</h3><p>One object per real thing, with field-level provenance.</p></li>
+      <li><span class="n">5</span><h3>Act</h3><p>Agents propose. Policy and people decide.</p></li>
+      <li><span class="n">6</span><h3>Prove</h3><p>Evals at every layer, against planted ground truth.</p></li>
+    </ol>
+  </section>
+
+  <section id="use-cases">
+    <h2>Use cases</h2>
+    <p class="sub">Four industries run end to end on the real engine, plus two scenarios in ideation. Each has its own film.</p>
+    <div class="cases" id="cases"></div>
+  </section>
+
+  <section id="governance">
+    <h2>Built for regulated work</h2>
+    <p class="sub">One ontology, a different lens for every role. Designed first for healthcare and finance.</p>
+    <div class="gov">
+      <div><h3>Lenses</h3><p>Care, billing, compliance and agents see the same model through their own role.</p></div>
+      <div><h3>Fields</h3><p>Sensitive fields are masked by role, at read time.</p></div>
+      <div><h3>Actions</h3><p>Permissions per role, with limits and separation of duties.</p></div>
+      <div><h3>Traceability</h3><p>Every agent step: inputs, rule, model, approver.</p></div>
+      <div><h3>Evidence</h3><p>Access reviews and control tests straight from the audit log.</p></div>
+    </div>
+  </section>
+
+  <section id="status">
+    <h2>Where it is</h2>
+    <p class="sub">An honest status. The engine is real and tested. The platform is being designed in the open.</p>
+    <div class="status">
+      <div class="col"><span class="tag ok">Built</span><h3>The engine</h3><ul><li>Iceberg lakehouse with Write Audit Publish</li><li>Reconciliation with explained differences</li><li>Ontology with identity resolution</li><li>LangGraph agents, policy, approvals, traces</li><li>Four industry packs, all evals passing</li></ul></div>
+      <div class="col"><span class="tag blue">Next</span><h3>The platform</h3><ul><li>Scenario engine: generate any company from a seed</li><li>Platform console with live traces</li><li>Approvals inbox and role lenses</li><li>Staging behind sign-in</li></ul></div>
+      <div class="col"><span class="tag">Ideation</span><h3>Where it is going</h3><ul><li>A workspace for small businesses</li><li>Healthcare and finance governance</li><li>An investing pack for a personal portfolio</li><li>Agents trained on your own ontology</li></ul></div>
+    </div>
+  </section>
+
+  <section id="run">
+    <h2>Run it yourself, free</h2>
+    <p class="sub">Everything runs on a laptop with no keys and no cloud account.</p>
+    <div class="code">pip install -e ".[dev]"
+ontoforge run --pack all     # generate, migrate, reconcile, ontology, agents, evals
+ontoforge serve --pack retail  # REST API
+ontoforge mcp --pack retail    # MCP tools for any agent</div>
+  </section>
+
+  <footer><span>OntoForge is a Coconut Labs project by Shrey Patel. All companies, people and numbers shown are fictional.</span><span><a href="https://coconutlabs.org">coconutlabs.org</a></span></footer>
+</div>
+<script>
+// Use-case cards. Posters and films are generated by scripts/build_site.py.
+const CASES=[["retail","Brightline Retail","Retail","Why is this item underperforming in this store?",1],["supply_chain","Corvane Distribution","Supply chain","This shipment is late. Rush it, reroute it, or tell the customer?",1],["banking_aml","Harborview Bank","Banking AML","Escalate this alert, or recommend closing it?",1],["insurance_claims","Granite Mutual","Insurance","Fast track, coverage review, or special investigation?",1],["healthcare","Riverbend Health","Healthcare","Why was this claim denied, and how do we get it paid?",0],["investing","Your SIP portfolio","Investing","Is my reason for owning this company still true?",0]];
+document.getElementById("cases").innerHTML=CASES.map(([id,co,ind,q,real])=>`<a class="case" href="films/#${id}"><img src="media/films/${id}.jpg" alt="" loading="lazy" width="1280" height="720"><div class="body"><div class="meta"><span class="tag ${real?"blue":""}">${real?"Real engine run":"Ideation"}</span><span style="color:var(--dim);font-size:14px">${ind}</span></div><h3>${co}</h3><p>${q}</p></div></a>`).join("");
+</script>
+</body>
+</html>
