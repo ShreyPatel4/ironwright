@@ -155,3 +155,21 @@ traces, audit chain). The work is a role model, a canvas that renders per-role l
 ### Other domains
 
 - [Investing pack](investing-pack.md): the same engine pointed at public companies you invest in, with point-in-time data, thesis tracking and proposal-only agents.
+
+## Phase 1 decisions pinned by slice 1 (2026-10-13)
+
+Slice 1 (spec schema + the regional retail org generator) forced choices the
+plan above left open. They are now the contract for later slices:
+
+- The scenario spec is {name, archetype, size, seed}, strict: unknown keys fail loud.
+- "Byte-identical" means sha256 over json.dumps(to_dict(), sort_keys=True). Every
+  later layer inherits this serialization.
+- Seeds live in 0..2^63-1 so signed 64-bit JSON consumers survive them.
+- size means stores for regional_retail_chain (4..64); each archetype defines its own
+  meaning and bounds.
+- Generated orgs contain roles, never named people. If the Phase 2 console wants
+  humans on the org chart, that is a deliberate later addition.
+- Approver chains are org-layer facts; the governance slice generates policies.yaml
+  from them, not the other way around.
+- The 20-random-seed eval gate applies once an archetype emits a runnable pack; until
+  then the org layer carries structural-invariant tests across seeds instead.
