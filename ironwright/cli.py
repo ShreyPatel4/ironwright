@@ -112,7 +112,7 @@ STAGES = {"generate": stage_generate, "migrate": stage_migrate, "reconcile": sta
 
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="ironwright", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["list", "run", "trace", "serve", "mcp", *STAGES])
+    ap.add_argument("command", choices=["list", "run", "trace", "serve", "platform", "mcp", *STAGES])
     ap.add_argument("--id", dest="trace_id", default=None, help="trace id for the trace command")
     ap.add_argument("--pack", default="retail")
     ap.add_argument("--seed", type=int, default=None, help="generator seed (default: the pack's own)")
@@ -154,6 +154,10 @@ def main(argv: list[str] | None = None) -> None:
             import uvicorn
             from .api import create_app
             uvicorn.run(create_app(name), host="0.0.0.0", port=args.port)
+        elif args.command == "platform":
+            import uvicorn
+            from .platform_api import create_platform_app
+            uvicorn.run(create_platform_app(), host="127.0.0.1", port=args.port)
         elif args.command == "mcp":
             from .mcp_server import build_server
             build_server(name).run()

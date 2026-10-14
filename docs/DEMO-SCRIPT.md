@@ -24,5 +24,9 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
 - 1:15  The audit log. "Every action lands in a hash-chained audit log. On
         the public site your browser recomputes all 59 digests; rewrite one
         row and the chain catches it one link later."
-- 1:30  Done. If asked for depth: `uv run pytest -q` (56 tests), or the
-        REST API at :8000/docs on any pack.
+- 1:30  Done. If asked for depth: `uv run pytest -q` (62 tests), the
+        pack API at :8000/docs, or the platform spine:
+        `uv run ironwright platform` then `curl :8000/workspaces` shows
+        every workspace with its derived verification level, and the
+        approvals inbox and audit verify live at
+        /workspaces/retail/approvals and /workspaces/retail/audit/verify.
