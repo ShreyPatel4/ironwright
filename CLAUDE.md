@@ -40,6 +40,10 @@ Set `IRONWRIGHT_DATA` to keep generated data out of the repo (the Makefile does 
   ground truth before changing engine code (see `docs/build-log.md` #4).
 - **Ground truth comes from generators.** Every planted problem must be written to `_ground_truth.json`
   and checked by an eval. No planted problem without an eval, no eval without a planted problem.
+  This contract applies to GENERATED workspaces (verification level L3, and L2 once scenario packs
+  run). A local workspace built from the user's own files (L1) has no planted problems, so it
+  carries structural and reconciliation checks only; the ground-truth contract is not vacuous
+  there, it is explicitly out of scope, and the UI badge says so.
 - **Order inside `act()` is fixed:** idempotency, policy, params, preconditions, approval, edits,
   outbox, audit. Policy always runs before validation.
 - **Rules decide, the LLM narrates.** Never let model output pick an action. Narration must cite
@@ -48,8 +52,11 @@ Set `IRONWRIGHT_DATA` to keep generated data out of the repo (the Makefile does 
 - **Default deny.** New actions need an explicit permit in the pack's `policies.yaml`.
 - **Packs are data, the engine is generic.** Industry logic goes in `ironwright/packs/<pack>/`, never
   in engine modules.
-- **Synthetic data only.** The platform never ingests real company or personal data. See the
-  security section of `docs/ROADMAP.md`.
+- **Synthetic demos; local-first real data.** The DEMOS are synthetic and the platform never
+  uploads anything anywhere. A user may point their LOCAL instance at their own files (an L1
+  workspace); those bytes stay on their machine, never reach a hosted service of ours, and are
+  treated as untrusted at every prompt boundary. Hosted multi-tenant ingestion of real data
+  remains out of scope. See the security section of `docs/ROADMAP.md`.
 
 ## Writing style for docs and UI copy
 

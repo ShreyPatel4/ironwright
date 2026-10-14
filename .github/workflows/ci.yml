@@ -14,6 +14,19 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q
 
+  # The 90-second demo path (docs/DEMO-SCRIPT.md) is a required check: the
+  # full narrative must run in one command and under a stated wall clock, or
+  # a refactor has broken the user-visible path.
+  demo:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      - run: make demo-check
+
   site:
     needs: test
     runs-on: ubuntu-latest

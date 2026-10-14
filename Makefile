@@ -15,6 +15,23 @@ test:
 demo: run
 	cd web && python -m http.server 8001
 
+# The CI gate behind docs/DEMO-SCRIPT.md: the whole demo path, headless,
+# bounded by wall clock. Fails loudly if the one-command narrative breaks.
+# Locally: make demo-check IRONWRIGHT="uv run ironwright" PY="uv run python"
+IRONWRIGHT ?= ironwright
+PY ?= python
+demo-check:
+	@start=$$(date +%s); \
+	$(IRONWRIGHT) run --pack all || exit 1; \
+	for p in retail supply_chain banking_aml insurance_claims; do \
+	  test -s web/data/$$p.json || { echo "missing export: $$p"; exit 1; }; \
+	  $(PY) -c "import json,sys; d=json.load(open('web/data/$$p.json')); sys.exit(0 if d['evals']['passed'] else 1)" \
+	    || { echo "evals not green in $$p export"; exit 1; }; \
+	done; \
+	test -s web/index.html || { echo "showcase missing"; exit 1; }; \
+	end=$$(date +%s); took=$$((end-start)); echo "demo path: $$took s"; \
+	test $$took -le 300 || { echo "demo path exceeded 300 s"; exit 1; }
+
 bundle:
 	ironwright export --pack all --web-dir web
 	python scripts/bundle.py
