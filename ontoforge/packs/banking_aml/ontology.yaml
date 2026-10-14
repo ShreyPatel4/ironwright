@@ -1,0 +1,166 @@
+object_types:
+  Customer:
+    prefix: CUS
+    owner: customer-data
+    description: A bank customer. Same name is not same person; date of birth is part of identity.
+    title: full_name
+    sensitive: [dob, address, email]
+    sources:
+      - {system: core, table: silver.customers_core, key: cust_nbr,
+         fields: {full_name: full_name, match_key: match_key, dob: dob, address: address, cust_type: cust_type,
+                  industry: industry, risk_rating: risk_rating, kyc_date: kyc_date}}
+      - {system: olb, table: silver.customers_olb, key: ob_user_id,
+         fields: {full_name: full_name, match_key: match_key, dob: dob, email: email}}
+    resolution:
+      exact: [match_key]
+      normalize: {match_key: lower, full_name: name}
+      fuzzy: {field: full_name, threshold: 0.9, review_from: 0.8, veto_if_conflict: [dob]}
+    precedence:
+      full_name: [core, olb]
+      default: [core, olb]
+  Account:
+    prefix: ACC
+    owner: deposit-operations
+    description: A deposit account on the core banking system.
+    title: label
+    sources:
+      - {system: core, table: silver.accounts, key: acct_nbr,
+         fields: {label: "product || ' ' || right(acct_nbr, 4)", product: product, open_date: open_date, status: status}}
+  Alert:
+    prefix: ALR
+    owner: financial-crimes
+    description: An AML alert raised by the legacy rules engine.
+    title: label
+    sources:
+      - {system: aml_engine, table: silver.alerts, key: alert_id,
+         fields: {label: "alert_id || ' ' || rule_code", rule_code: rule_code, score: score, alert_date: alert_date, status: status}}
+  Counterparty:
+    prefix: CPT
+    owner: financial-crimes
+    description: Someone our customers send money to. Free text in the source, so the same party has many spellings.
+    title: name
+    sources:
+      - {system: txn, table: silver.counterparties, key: counterparty_name,
+         fields: {name: counterparty_name, country: country, high_risk_jurisdiction: high_risk_jurisdiction}}
+    resolution:
+      exact: [name]
+      normalize: {name: name}
+      fuzzy: {field: name, threshold: 0.9, review_from: 0.8, within_system: true, require_same_digits: true}
+
+created_types:
+  Case: {owner: financial-crimes, description: An investigation opened from an alert.}
+
+link_types:
+  owns:
+    from: Customer
+    to: Account
+    description: Customer owns account
+    sql: select 'core' from_system, cust_nbr from_key, 'core' to_system, acct_nbr to_key from silver_accounts
+  alert_on:
+    from: Alert
+    to: Account
+    description: Alert was raised on account
+    sql: select 'aml_engine' from_system, alert_id from_key, 'core' to_system, acct_nbr to_key from silver_alerts
+  paid:
+    from: Account
+    to: Counterparty
+    description: Account sent wires to counterparty
+    sql: >
+      select 'core' from_system, acct_nbr from_key, 'txn' to_system, counterparty_name to_key,
+             count(*) as wires, round(sum(amount), 2) as amount
+      from silver_transactions where direction = 'DR' and channel = 'WIRE' and counterparty_name is not null
+      group by 1, 2, 3, 4
+
+functions:
+  alert_details:
+    description: The alert, the account and customer profile behind it.
+    params: {alert_id: Alert}
+    returns: one
+    sql: >
+      select rule_code, score, cast(alert_date as varchar) alert_date, cust_type, industry, risk_rating, tenure_days,
+             ont_id('Customer', 'core', cust_nbr) as customer_id, ont_id('Account', 'core', acct_nbr) as account_id
+      from gold_alert_features where alert_id = src_key('Alert', $alert_id, 'aml_engine')
+  structuring_signal:
+    description: Cash deposits just under $10,000 in the 14 days around the alert, and the same pattern in prior months.
+    params: {alert_id: Alert}
+    returns: one
+    sql: >
+      select structuring_recent_count as recent_count, structuring_recent_total as recent_total,
+             structuring_history_count as history_count_prior_75d
+      from gold_alert_features where alert_id = src_key('Alert', $alert_id, 'aml_engine')
+  movement_signal:
+    description: Money in by wire vs money out within days, and how many places it went.
+    params: {alert_id: Alert}
+    returns: one
+    sql: >
+      select inbound_wire_total, outbound_total, distinct_out_counterparties,
+             round(outbound_total / nullif(inbound_wire_total, 0), 3) as passthrough_ratio
+      from gold_alert_features where alert_id = src_key('Alert', $alert_id, 'aml_engine')
+  counterparty_network:
+    description: High-risk jurisdiction exposure and whether this account's counterparties are shared with other customers.
+    params: {alert_id: Alert}
+    returns: one
+    sql: >
+      with acct as (select ont_id('Account', 'core', acct_nbr) as account_id, high_risk_amount
+                    from gold_alert_features where alert_id = src_key('Alert', $alert_id, 'aml_engine')),
+      mine as (select l.to_id as cp from links l, acct where l.link_type = 'paid' and l.from_id = acct.account_id),
+      shared as (
+        select m.cp, count(distinct o.from_id) as owners
+        from mine m join links p on p.link_type = 'paid' and p.to_id = m.cp
+        join links o on o.link_type = 'owns' and o.to_id = p.from_id
+        group by 1)
+      select (select high_risk_amount from acct) as high_risk_amount,
+             coalesce(max(owners), 0) as max_shared_customers,
+             arg_max((select title from objects where id = cp), owners) as most_shared_counterparty,
+             arg_max(cp, owners) as most_shared_counterparty_id
+      from shared
+  customer_profile:
+    description: Accounts, prior alerts and KYC age for a customer. No sensitive fields.
+    params: {customer_id: Customer}
+    returns: one
+    sql: >
+      select (select count(*) from links where link_type = 'owns' and from_id = $customer_id) as accounts,
+             (select count(*) from links a join links o on o.link_type = 'owns' and o.to_id = a.to_id
+              where a.link_type = 'alert_on' and o.from_id = $customer_id) as alerts_on_file
+
+actions:
+  escalate_to_case:
+    description: Open an investigation case from the alert. Written to the case management system.
+    params:
+      alert_id: {type: Alert}
+      typology: {type: str, values: [structuring, pass_through, counterparty_network, other]}
+      priority: {type: str, values: [HIGH, MEDIUM, LOW]}
+    preconditions:
+      - {when: "alert.status == 'OPEN'", message: alert must be open}
+    edits:
+      - {object: alert_id, set: {status: "'ESCALATED'"}}
+    creates:
+      type: Case
+      prefix: CASE
+      title: label
+      props: {label: "'Case for ' + str(alert._title) + ' (' + str(params.typology) + ')'", alert_id: params.alert_id,
+              typology: params.typology, priority: params.priority, status: "'OPEN'"}
+      links: [{link: opened_from, to_type: Alert, param: alert_id}]
+    side_effect:
+      system: case_management
+      payload: {alert: "alert_keys.aml_engine", typology: params.typology, priority: params.priority}
+  recommend_close:
+    description: Recommend closing the alert as not suspicious. Only a human analyst can approve it.
+    params:
+      alert_id: {type: Alert}
+      rationale: {type: str}
+    preconditions:
+      - {when: "alert.status == 'OPEN'", message: alert must be open}
+    requires_approval: true
+    approver_roles: [aml_analyst]
+    edits:
+      - {object: alert_id, set: {status: "'CLOSED_NOT_SUSPICIOUS'", close_rationale: params.rationale}}
+    side_effect:
+      system: aml_alerts
+      payload: {alert: "alert_keys.aml_engine", disposition: "'CLOSED_NOT_SUSPICIOUS'", rationale: params.rationale}
+  close_alert:
+    description: Close an alert directly. Regulated decision, humans only.
+    params:
+      alert_id: {type: Alert}
+    edits:
+      - {object: alert_id, set: {status: "'CLOSED'"}}

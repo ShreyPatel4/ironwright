@@ -1,0 +1,308 @@
+{
+ "id": "retail",
+ "tag": "Use case",
+ "industry": "Retail and CPG",
+ "company": "Brightline Retail",
+ "short": "Retail",
+ "question": "Why is this item underperforming in this store, and what should we do about it?",
+ "tagline": "Vendor to retailer to customer and back, with planograms in the middle.",
+ "sources": [
+  [
+   "Mainframe",
+   "Mainframe item master",
+   "fixed width"
+  ],
+  [
+   "Mainframe",
+   "Mainframe store master",
+   "fixed width"
+  ],
+  [
+   "Mainframe",
+   "Mainframe vendor master",
+   "fixed width"
+  ],
+  [
+   "Vendor portal",
+   "Vendor portal database",
+   "database"
+  ],
+  [
+   "Vendor portal",
+   "Vendor portal catalog",
+   "database"
+  ],
+  [
+   "Planogram tool",
+   "Space planning system, planogram headers",
+   "database"
+  ],
+  [
+   "Planogram tool",
+   "Space planning system, positions",
+   "database"
+  ],
+  [
+   "Store POS",
+   "Store POS drops",
+   "CSV drop"
+  ]
+ ],
+ "problems": [
+  [
+   "identity",
+   "Harbor Pet Foods registered twice in the vendor portal (V-HAR02, V-HAR99)"
+  ],
+  [
+   "identity",
+   "PureLeaf and BrightPaws have no tax id in the portal, must match by name"
+  ],
+  [
+   "identity",
+   "Kestrel Lab Supply looks like Kestrel Labs but has a different tax id"
+  ],
+  [
+   "time",
+   "Planogram A v2 on 2026-08-15 removes items ['400000507', '400000078']; joins must use the version in effect"
+  ],
+  [
+   "business",
+   "8 item-store pairs out of stock for 14 to 17 days"
+  ]
+ ],
+ "gate": [
+  "gold.region_day_coverage",
+  "Every region reported every day",
+  "warn",
+  "a region's POS feed went quiet"
+ ],
+ "recon": {
+  "title": "Daily units and net sales vs the mainframe nightly report",
+  "labels": [
+   "Legacy report",
+   "New platform"
+  ],
+  "a": "4,282",
+  "b": "3,329",
+  "measure": "Units",
+  "key": "2026-09-10",
+  "reason": "MW POS file for 2026-09-10 was sent twice. The legacy nightly job never deduplicated re-sends, so the old report double counts that file. The new pipeline keeps one row per store, item and day.",
+  "verdict": "Cutover ready, 0 unexplained differences"
+ },
+ "merge": {
+  "type": "Vendor",
+  "title": "Harbor Pet Foods LLC",
+  "id": "VEN-9245f9e5",
+  "method": "exact match on tax_id",
+  "members": [
+   [
+    "mainframe",
+    "100207"
+   ],
+   [
+    "portal",
+    "V-HAR02"
+   ],
+   [
+    "portal",
+    "V-HAR99"
+   ]
+  ],
+  "props": [
+   [
+    "email",
+    "Vendor portal"
+   ],
+   [
+    "name",
+    "Vendor portal"
+   ],
+   [
+    "tax_id",
+    "Mainframe"
+   ],
+   [
+    "terms",
+    "Mainframe"
+   ]
+  ]
+ },
+ "run": {
+  "agent": "agent:retail-triage",
+  "target": "Harbor Pet Food 14 (12 ct) \u00b7 Brightline #107",
+  "diagnosis": "Weak demand",
+  "confidence": 0.75,
+  "narrative": "Demand for Harbor Pet Food 14 (12 ct) fell chain-wide: 2.02 units per store-day now vs 8.27 before, across 10 stores. This store is not the problem; the item is.",
+  "cites": [
+   "item_chain_trend",
+   "item_store_sales"
+  ],
+  "attempts": [
+   [
+    "delist_item",
+    "denied",
+    "forbidden by no-agent-delisting"
+   ],
+   [
+    "flag_for_review",
+    "applied",
+    "applied"
+   ]
+  ],
+  "review": null,
+  "outcome": "applied",
+  "created": "Review",
+  "trace": [
+   [
+    "agent.run",
+    0.0,
+    1.0,
+    0,
+    null
+   ],
+   [
+    "node.intake",
+    0.0786,
+    0.1082,
+    1,
+    null
+   ],
+   [
+    "node.gather",
+    0.1285,
+    0.4897,
+    1,
+    null
+   ],
+   [
+    "tool.item_store_sales",
+    0.1302,
+    0.2362,
+    2,
+    null
+   ],
+   [
+    "tool.item_store_stock",
+    0.2378,
+    0.3091,
+    2,
+    null
+   ],
+   [
+    "node.diagnose",
+    0.5027,
+    0.5056,
+    1,
+    null
+   ],
+   [
+    "node.propose",
+    0.5369,
+    0.9308,
+    1,
+    null
+   ],
+   [
+    "action delist_item",
+    0.5381,
+    0.6225,
+    2,
+    "bad"
+   ],
+   [
+    "action flag_for_review",
+    0.6267,
+    0.9274,
+    2,
+    null
+   ]
+  ],
+  "trace_id": "b3b18383631841ab"
+ },
+ "policies": [
+  [
+   "forbid",
+   "agent:*",
+   "action:delist_item",
+   ""
+  ],
+  [
+   "permit",
+   "agent:retail-triage",
+   "action:create_replenishment_order",
+   "params.qty <= 200"
+  ],
+  [
+   "permit",
+   "vendor:*",
+   "function:vendor_sell_through",
+   "principal == 'vendor:' + params.vendor_id"
+  ],
+  [
+   "permit",
+   "agent:retail-triage",
+   "function:*",
+   ""
+  ],
+  [
+   "permit",
+   "user:*",
+   "function:*",
+   ""
+  ],
+  [
+   "permit",
+   "agent:retail-triage",
+   "action:flag_*",
+   ""
+  ]
+ ],
+ "results": {
+  "mode": "measured",
+  "layers": [
+   [
+    "pipeline",
+    "22 checks on 23 tables, 1 flagged, 0 blocking failures leaked to main",
+    true
+   ],
+   [
+    "migration",
+    "3 reconciliation rules, 1 explained differences, 0 unexplained, cutover ready",
+    true
+   ],
+   [
+    "ontology",
+    "identity Vendor P=1.00 R=1.00, Item P=1.00 R=1.00, Store P=1.00 R=1.00; 0 orphan link rows",
+    true
+   ],
+   [
+    "actions",
+    "20/20 safety tests pass, audit hash chain intact",
+    true
+   ],
+   [
+    "agents",
+    "sku_triage: accuracy 100%, grounded 100%, 0 violations, 10 denials held",
+    true
+   ]
+  ],
+  "stats": [
+   [
+    "27",
+    "decisions"
+   ],
+   [
+    "100%",
+    "match ground truth"
+   ],
+   [
+    "100%",
+    "grounded in evidence"
+   ],
+   [
+    "10",
+    "denials held"
+   ]
+  ]
+ }
+}

@@ -1,0 +1,316 @@
+{
+ "id": "healthcare",
+ "tag": "Ideation",
+ "industry": "Healthcare revenue cycle",
+ "company": "Riverbend Health",
+ "short": "Healthcare",
+ "question": "Why was this claim denied, and what is the fastest compliant way to get it paid?",
+ "tagline": "Care, billing and compliance working from one model, each seeing only what they should.",
+ "sources": [
+  [
+   "EHR",
+   "Charts, encounters, orders",
+   "database"
+  ],
+  [
+   "Practice management",
+   "Patient accounts, charges",
+   "database"
+  ],
+  [
+   "Clearinghouse",
+   "835 remittances, 277 status",
+   "file drop"
+  ],
+  [
+   "Payer portals",
+   "Prior authorizations",
+   "web export"
+  ],
+  [
+   "Scheduling",
+   "Appointments and referrals",
+   "database"
+  ],
+  [
+   "Finance",
+   "Write-offs and adjustments",
+   "spreadsheet"
+  ]
+ ],
+ "problems": [
+  [
+   "identity",
+   "The same patient has an EHR record number and a different billing account number"
+  ],
+  [
+   "denials",
+   "11% of claims denied, a third for missing prior authorization"
+  ],
+  [
+   "feeds",
+   "Remittance files are sometimes resent, so denials get counted twice"
+  ],
+  [
+   "privacy",
+   "Billing staff can open full charts today, far beyond what a claim needs"
+  ],
+  [
+   "controls",
+   "Write-offs over $5,000 approved by the same person who created them"
+  ]
+ ],
+ "gate": [
+  "silver.remittances",
+  "No duplicate remittance lines",
+  "quarantine",
+  "25 resent lines held back"
+ ],
+ "recon": {
+  "title": "Denied claims per week vs the clearinghouse report",
+  "labels": [
+   "Clearinghouse report",
+   "New platform"
+  ],
+  "a": "312",
+  "b": "287",
+  "measure": "Denials",
+  "key": "week 38",
+  "reason": "25 remittance lines were resent by the payer. The old report counted them as new denials.",
+  "verdict": "Explained, numbers agree after dedupe"
+ },
+ "merge": {
+  "type": "Patient",
+  "title": "Patient P-4821",
+  "id": "PAT-4821",
+  "method": "match on name, date of birth and insurance id",
+  "members": [
+   [
+    "EHR",
+    "MRN 004821"
+   ],
+   [
+    "Practice management",
+    "PA-77120"
+   ],
+   [
+    "Payer portal",
+    "member NL-55190"
+   ]
+  ],
+  "props": [
+   [
+    "clinical record",
+    "EHR"
+   ],
+   [
+    "balance due",
+    "Practice management"
+   ],
+   [
+    "coverage",
+    "Payer portal"
+   ],
+   [
+    "identity shown to billing",
+    "masked"
+   ]
+  ]
+ },
+ "run": {
+  "agent": "agent:claims-agent",
+  "target": "Claim C-2291 \u00b7 Northline PPO",
+  "diagnosis": "Missing prior authorization",
+  "confidence": 0.9,
+  "narrative": "The payer denied the claim with code CO-197. The authorization was approved two days after the visit, so an appeal with the authorization attached should resolve it.",
+  "cites": [
+   "remittance_835",
+   "prior_auth",
+   "claim_details"
+  ],
+  "attempts": [
+   [
+    "submit_appeal",
+    "denied",
+    "forbid: agents never submit appeals on their own"
+   ],
+   [
+    "draft_appeal",
+    "needs_approval",
+    "a revenue cycle lead must approve"
+   ]
+  ],
+  "review": [
+   "user:m.lee (revenue cycle lead)",
+   true
+  ],
+  "outcome": "applied",
+  "created": "Appeal",
+  "trace": [
+   [
+    "agent.run",
+    0,
+    1,
+    0,
+    null
+   ],
+   [
+    "node.gather",
+    0.05,
+    0.4,
+    1,
+    null
+   ],
+   [
+    "tool.claim_details",
+    0.06,
+    0.18,
+    2,
+    null
+   ],
+   [
+    "tool.remittance_835",
+    0.2,
+    0.3,
+    2,
+    null
+   ],
+   [
+    "tool.prior_auth",
+    0.31,
+    0.39,
+    2,
+    null
+   ],
+   [
+    "node.diagnose",
+    0.42,
+    0.45,
+    1,
+    null
+   ],
+   [
+    "node.narrate",
+    0.46,
+    0.55,
+    1,
+    null
+   ],
+   [
+    "node.propose",
+    0.56,
+    0.8,
+    1,
+    null
+   ],
+   [
+    "action submit_appeal",
+    0.57,
+    0.65,
+    2,
+    "bad"
+   ],
+   [
+    "action draft_appeal",
+    0.67,
+    0.79,
+    2,
+    null
+   ],
+   [
+    "node.approval",
+    0.82,
+    0.85,
+    1,
+    "warn"
+   ]
+  ],
+  "trace_id": "run A-1187"
+ },
+ "policies": [
+  [
+   "forbid",
+   "agent:*",
+   "submit_appeal",
+   ""
+  ],
+  [
+   "forbid",
+   "role:billing",
+   "read_sensitive:Patient",
+   ""
+  ],
+  [
+   "permit",
+   "role:billing",
+   "write_off",
+   "params.amount <= 500"
+  ],
+  [
+   "permit",
+   "role:rev_cycle_lead",
+   "approve_write_off",
+   "approver != creator"
+  ],
+  [
+   "permit",
+   "role:care_team",
+   "read_sensitive:Patient",
+   "patient in care_team.panel"
+  ],
+  [
+   "permit",
+   "agent:claims-agent",
+   "draft_appeal",
+   ""
+  ]
+ ],
+ "results": {
+  "mode": "planned",
+  "layers": [
+   [
+    "access",
+    "Every chart view matches the viewer's role",
+    null
+   ],
+   [
+    "controls",
+    "Every large write-off has a second approver",
+    null
+   ],
+   [
+    "traceability",
+    "Every agent step has inputs, rule, model and approver",
+    null
+   ],
+   [
+    "agents",
+    "Appeal drafts graded against coder decisions",
+    null
+   ],
+   [
+    "evidence",
+    "Access review exportable in one click",
+    null
+   ]
+  ],
+  "stats": [
+   [
+    "< 1 day",
+    "to draft an appeal"
+   ],
+   [
+    "100%",
+    "PHI access checked by role"
+   ],
+   [
+    "0",
+    "self-approved write-offs"
+   ],
+   [
+    "1 click",
+    "evidence pack"
+   ]
+  ]
+ }
+}

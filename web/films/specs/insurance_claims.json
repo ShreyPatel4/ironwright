@@ -1,0 +1,294 @@
+{
+ "id": "insurance_claims",
+ "tag": "Use case",
+ "industry": "Insurance (property and casualty)",
+ "company": "Granite Mutual",
+ "short": "Insurance",
+ "question": "How should this new claim be handled, fast-track, adjuster, coverage review or special investigation?",
+ "tagline": "The week after a hail storm, with duplicate reports, coverage gaps and a few claims that smell wrong.",
+ "sources": [
+  [
+   "Mainframe",
+   "Policy admin system",
+   "fixed width"
+  ],
+  [
+   "Claims intake",
+   "First notice of loss drops",
+   "CSV drop"
+  ],
+  [
+   "Claims history",
+   "Prior claims history",
+   "database"
+  ],
+  [
+   "Catastrophe feed",
+   "Catastrophe events",
+   "database"
+  ],
+  [
+   "Adjuster roster",
+   "Adjuster roster",
+   "CSV drop"
+  ],
+  [
+   "Mainframe",
+   "Mainframe claims reported per day",
+   "fixed width"
+  ]
+ ],
+ "problems": [
+  [
+   "identity",
+   "4 hail losses were reported twice (phone and app) with different claim numbers"
+  ],
+  [
+   "formats",
+   "Policies are 0000012345 on the mainframe and GM-POL-0012345 in FNOL"
+  ],
+  [
+   "surge",
+   "CAT-26-HL07 hail event on 2026-09-18 to 2026-09-19 floods intake"
+  ],
+  [
+   "coverage",
+   "3 losses before the policy start date, 3 flood losses on policies without flood cover"
+  ],
+  [
+   "fraud",
+   "4 new policies with a large loss inside 30 days and 2 or more prior claims"
+  ]
+ ],
+ "gate": [
+  "silver.claims_fnol",
+  "Loss before report",
+  "quarantine",
+  "2 rows moved to silver.claims_fnol__quarantine: report dated before the loss (app clock bug)"
+ ],
+ "recon": {
+  "title": "Claims reported per day vs the mainframe claims report",
+  "labels": [
+   "Legacy report",
+   "New platform"
+  ],
+  "a": "3",
+  "b": "2",
+  "measure": "Claims",
+  "key": "2026-09-18",
+  "reason": "The same loss was reported twice (phone and app). The legacy report counts every report; the new platform counts one claim per policy, loss date and peril.",
+  "verdict": "Cutover ready, 0 unexplained differences"
+ },
+ "merge": {
+  "type": "Claim",
+  "title": "HAIL loss 2026-09-19",
+  "id": "CLM-2d57871f",
+  "method": "exact match on dedupe_key",
+  "members": [
+   [
+    "fnol",
+    "FN-26-100036"
+   ],
+   [
+    "fnol",
+    "FN-26-100039"
+   ]
+  ],
+  "props": [
+   [
+    "est_amount",
+    "Claims intake"
+   ],
+   [
+    "loss_date",
+    "Claims intake"
+   ],
+   [
+    "loss_zip",
+    "Claims intake"
+   ],
+   [
+    "peril",
+    "Claims intake"
+   ]
+  ]
+ },
+ "run": {
+  "agent": "agent:claims-triage",
+  "target": "WND loss 2026-09-14",
+  "diagnosis": "Coverage question",
+  "confidence": 0.85,
+  "narrative": "Coverage does not line up: loss date 2026-09-14 vs policy period 2026-09-24 to 2027-09-24 (in period: False), peril WND vs covered perils WND,HAIL,FIRE. A person has to make this call.",
+  "cites": [
+   "claim_details",
+   "coverage_check"
+  ],
+  "attempts": [
+   [
+    "deny_claim",
+    "denied",
+    "forbidden by agents-never-deny"
+   ],
+   [
+    "route_coverage_review",
+    "applied",
+    "applied"
+   ]
+  ],
+  "review": null,
+  "outcome": "applied",
+  "created": "CoverageReview",
+  "trace": [
+   [
+    "agent.run",
+    0.0,
+    1.0,
+    0,
+    null
+   ],
+   [
+    "node.intake",
+    0.0595,
+    0.0754,
+    1,
+    null
+   ],
+   [
+    "node.gather",
+    0.0858,
+    0.4805,
+    1,
+    null
+   ],
+   [
+    "tool.claim_details",
+    0.0865,
+    0.236,
+    2,
+    null
+   ],
+   [
+    "tool.coverage_check",
+    0.2373,
+    0.2804,
+    2,
+    null
+   ],
+   [
+    "node.diagnose",
+    0.5003,
+    0.5033,
+    1,
+    null
+   ],
+   [
+    "node.propose",
+    0.5353,
+    0.9438,
+    1,
+    null
+   ],
+   [
+    "action deny_claim",
+    0.5368,
+    0.6166,
+    2,
+    "bad"
+   ],
+   [
+    "action route_coverage_review",
+    0.6206,
+    0.9403,
+    2,
+    null
+   ]
+  ],
+  "trace_id": "92deb3fd95e8454e"
+ },
+ "policies": [
+  [
+   "forbid",
+   "agent:*",
+   "action:deny_claim",
+   ""
+  ],
+  [
+   "permit",
+   "agent:claims-triage",
+   "action:fast_track_payment",
+   "params.amount <= 5000"
+  ],
+  [
+   "permit",
+   "agent:claims-triage",
+   "function:*",
+   ""
+  ],
+  [
+   "permit",
+   "user:*",
+   "function:*",
+   ""
+  ],
+  [
+   "permit",
+   "agent:claims-triage",
+   "action:assign_adjuster",
+   ""
+  ],
+  [
+   "permit",
+   "agent:claims-triage",
+   "action:route_coverage_review",
+   ""
+  ]
+ ],
+ "results": {
+  "mode": "measured",
+  "layers": [
+   [
+    "pipeline",
+    "9 checks on 14 tables, 2 flagged, 0 blocking failures leaked to main",
+    true
+   ],
+   [
+    "migration",
+    "2 reconciliation rules, 4 explained differences, 0 unexplained, cutover ready",
+    true
+   ],
+   [
+    "ontology",
+    "identity Claim P=1.00 R=1.00; 0 orphan link rows",
+    true
+   ],
+   [
+    "actions",
+    "16/16 safety tests pass, audit hash chain intact",
+    true
+   ],
+   [
+    "agents",
+    "claim_triage: accuracy 100%, grounded 100%, 0 violations, 6 denials held",
+    true
+   ]
+  ],
+  "stats": [
+   [
+    "40",
+    "decisions"
+   ],
+   [
+    "100%",
+    "match ground truth"
+   ],
+   [
+    "100%",
+    "grounded in evidence"
+   ],
+   [
+    "6",
+    "denials held"
+   ]
+  ]
+ }
+}

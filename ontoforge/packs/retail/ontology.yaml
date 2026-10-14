@@ -1,0 +1,217 @@
+# Brightline ontology, defined as code. Reviewed like a schema, one owner per object type.
+
+object_types:
+  Vendor:
+    prefix: VEN
+    owner: vendor-management
+    description: A company that supplies items. Exists on the mainframe and, often more than once, in the vendor portal.
+    title: name
+    sources:
+      - {system: mainframe, table: silver.vendor_mainframe, key: vendor_nbr,
+         fields: {name: vendor_name, tax_id: tax_id, terms: terms}}
+      - {system: portal, table: silver.vendor_portal, key: vendor_code,
+         fields: {name: legal_name, tax_id: tax_id, email: contact_email}}
+    resolution:
+      exact: [tax_id]
+      normalize: {tax_id: digits, name: name}
+      fuzzy: {field: name, threshold: 0.9, review_from: 0.72, veto_if_conflict: [tax_id]}
+    precedence:
+      name: [portal, mainframe]        # legal name from the portal is cleaner
+      default: [mainframe, portal]
+
+  Item:
+    prefix: ITM
+    owner: merchandising
+    description: A sellable product. Mainframe item number, UPC-12 at the register, GTIN-14 in the portal.
+    title: description
+    sources:
+      - {system: mainframe, table: silver.items_mainframe, key: item_nbr,
+         fields: {gtin: upc, description: description, dept: dept, unit_cost_usd: unit_cost_usd,
+                  vendor_nbr: vendor_nbr, status: status}}
+      - {system: portal, table: silver.items_portal, key: gtin14,
+         fields: {gtin: gtin14, description: item_name, list_price_usd: list_price_usd, case_pack: case_pack}}
+    resolution:
+      exact: [gtin]
+      normalize: {gtin: digits}         # UPC-12 and GTIN-14 normalize to the same digits
+    precedence:
+      description: [portal, mainframe]
+      default: [mainframe, portal]
+
+  Store:
+    prefix: STR
+    owner: store-operations
+    description: A physical store. Belongs to a planogram cluster.
+    title: store_name
+    sources:
+      - {system: mainframe, table: silver.stores, key: store_nbr,
+         fields: {store_name: store_name, region: region, cluster: cluster, status: status, open_date: open_date}}
+
+  Planogram:
+    prefix: POG
+    owner: space-planning
+    description: A shelf layout version for a store cluster, with an effective date.
+    title: pog_key
+    sources:
+      - {system: spaceman, table: silver.planogram_versions, key: "pog_id || ':v' || version",
+         fields: {pog_key: "pog_id || ' v' || version", cluster: cluster, version: version,
+                  effective_date: effective_date, status: status}}
+
+created_types:
+  ReplenishmentOrder: {owner: supply-chain, description: Created by an action, written back to the mainframe order queue.}
+  PlanogramChangeRequest: {owner: space-planning, description: A proposed facing change awaiting space-planning.}
+  StoreTask: {owner: store-operations, description: A task for store staff, for example fix a shelf.}
+  Review: {owner: merchandising, description: A decision handed to a human category manager.}
+
+link_types:
+  supplied_by:
+    from: Item
+    to: Vendor
+    description: Item is supplied by vendor
+    sql: >
+      select 'mainframe' from_system, item_nbr from_key, 'mainframe' to_system, vendor_nbr to_key
+      from silver_items_mainframe
+      union all
+      select 'portal', gtin14, 'portal', vendor_code from silver_items_portal
+  placed_on:
+    from: Item
+    to: Planogram
+    description: Item has a position on a planogram version
+    multi: true
+    sql: >
+      select 'mainframe' from_system, m.item_nbr from_key, 'spaceman' to_system,
+             p.pog_id || ':v' || p.version to_key, p.facings, p.fixture, p.shelf
+      from silver_planogram_positions p join silver_items_mainframe m on m.upc = p.upc
+  uses_planogram:
+    from: Store
+    to: Planogram
+    description: Store's cluster uses this planogram version
+    multi: true
+    sql: >
+      select 'mainframe' from_system, s.store_nbr from_key, 'spaceman' to_system,
+             v.pog_id || ':v' || v.version to_key, v.effective_date
+      from silver_stores s join silver_planogram_versions v on v.cluster = s.cluster
+
+functions:
+  item_store_sales:
+    description: Units, sales and expectation for an item in a store over the last 28 days.
+    params: {item_id: Item, store_id: Store}
+    returns: one
+    sql: >
+      select units_28d, expected_units, ratio, avg_daily_units, sales_28d, days_on_pog
+      from gold_item_store_perf
+      where item_nbr = src_key('Item', $item_id, 'mainframe') and store_nbr = src_key('Store', $store_id, 'mainframe')
+  item_store_stock:
+    description: Out-of-stock days, zero-sales streak and on-hand for an item in a store (last 28 days).
+    params: {item_id: Item, store_id: Store}
+    returns: one
+    sql: >
+      select oos_days, zero_sales_streak, last_on_hand
+      from gold_item_store_perf
+      where item_nbr = src_key('Item', $item_id, 'mainframe') and store_nbr = src_key('Store', $store_id, 'mainframe')
+  planogram_placement:
+    description: The planogram version in effect for the store today and the item's facings on it.
+    params: {item_id: Item, store_id: Store}
+    returns: one
+    sql: >
+      select pog_version_now as pog_version, facings_now as facings,
+             (select cluster from silver_stores where store_nbr = src_key('Store', $store_id, 'mainframe')) as cluster
+      from gold_item_store_perf
+      where item_nbr = src_key('Item', $item_id, 'mainframe') and store_nbr = src_key('Store', $store_id, 'mainframe')
+  item_chain_trend:
+    description: Is the item weak chain-wide (demand) or only in some stores (execution)?
+    params: {item_id: Item}
+    returns: one
+    sql: >
+      select chain_ratio, window_daily, baseline_daily, stores
+      from gold_item_chain_trend where item_nbr = src_key('Item', $item_id, 'mainframe')
+  item_store_daily:
+    description: Daily units and on-hand for the last 28 days (for charts and narratives).
+    params: {item_id: Item, store_id: Store}
+    returns: many
+    sql: >
+      select cast(d as varchar) d, units, on_hand, facings, pog_version from gold_item_store_daily
+      where item_nbr = src_key('Item', $item_id, 'mainframe') and store_nbr = src_key('Store', $store_id, 'mainframe')
+        and d > (select max(d) - interval 28 day from gold_item_store_daily)
+      order by d
+  vendor_sell_through:
+    description: What a vendor would see in their share, last 28 days. Vendor-scoped only.
+    params: {vendor_id: Vendor}
+    returns: one
+    sql: >
+      select items, stores, units_28d, sales_28d, oos_store_days
+      from gold_vendor_sell_through where vendor_nbr = src_key('Vendor', $vendor_id, 'mainframe')
+
+actions:
+  create_replenishment_order:
+    description: Order more stock for an item in a store. Written back to the mainframe order queue.
+    params:
+      item_id: {type: Item}
+      store_id: {type: Store}
+      qty: {type: int, min: 1, max: 500}
+    preconditions:
+      - {when: "store.status == 'OPEN'", message: store must be open}
+      - {when: "item.status == 'A'", message: item must be active on the mainframe}
+    creates:
+      type: ReplenishmentOrder
+      prefix: RPO
+      title: label
+      props: {label: "'Order ' + str(params.qty) + ' x ' + str(item._title)", item_id: params.item_id,
+              store_id: params.store_id, qty: params.qty, status: "'SUBMITTED'"}
+      links: [{link: for_item, to_type: Item, param: item_id}]
+    side_effect:
+      system: mainframe_orders
+      payload: {item: "item_keys.mainframe", store: "store_keys.mainframe", qty: params.qty}
+    approver_roles: []
+  propose_facing_change:
+    description: Ask space planning to change an item's facings in one store. Needs a category manager.
+    params:
+      item_id: {type: Item}
+      store_id: {type: Store}
+      new_facings: {type: int, min: 1, max: 6}
+    preconditions:
+      - {when: "store.status == 'OPEN'", message: store must be open}
+    requires_approval: true
+    approver_roles: [category_manager]
+    creates:
+      type: PlanogramChangeRequest
+      prefix: PCR
+      title: label
+      props: {label: "'Facings to ' + str(params.new_facings) + ' for ' + str(item._title)",
+              item_id: params.item_id, store_id: params.store_id, new_facings: params.new_facings, status: "'APPROVED'"}
+    side_effect:
+      system: spaceman
+      payload: {upc: "item.gtin", store: "store_keys.mainframe", facings: params.new_facings}
+  flag_compliance_gap:
+    description: Item is in stock but not selling, likely not on the shelf. Creates a store task.
+    params:
+      item_id: {type: Item}
+      store_id: {type: Store}
+    preconditions:
+      - {when: "store.status == 'OPEN'", message: store must be open}
+    creates:
+      type: StoreTask
+      prefix: TSK
+      title: label
+      props: {label: "'Check shelf for ' + str(item._title)", item_id: params.item_id, store_id: params.store_id,
+              status: "'OPEN'"}
+    side_effect:
+      system: store_ops
+      payload: {store: "store_keys.mainframe", item: "item_keys.mainframe", task: "'shelf_check'"}
+  delist_item:
+    description: Remove an item from the assortment. Irreversible in practice, so humans only.
+    params:
+      item_id: {type: Item}
+    edits:
+      - {object: item_id, set: {status: "'D'"}}
+  flag_for_review:
+    description: Hand the decision to a category manager with the evidence attached.
+    params:
+      item_id: {type: Item}
+      store_id: {type: Store}
+      reason: {type: str}
+    creates:
+      type: Review
+      prefix: REV
+      title: label
+      props: {label: "'Review ' + str(item._title)", item_id: params.item_id, store_id: params.store_id,
+              reason: params.reason, status: "'OPEN'"}

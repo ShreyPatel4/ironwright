@@ -1,0 +1,16 @@
+# Serves the same Pages site under a path on the main domain: coconutlabs.org/ontoforge/
+# Deploy:  cd deploy/route-worker && npx wrangler deploy
+name = "ontoforge-route"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# The Pages project's production hostname. Use the custom subdomain once it is live.
+[vars]
+ORIGIN = "https://ontoforge.pages.dev"
+PREFIX = "/ontoforge"
+
+# coconutlabs.org must be a zone on the same Cloudflare account.
+routes = [
+  { pattern = "coconutlabs.org/ontoforge", zone_name = "coconutlabs.org" },
+  { pattern = "coconutlabs.org/ontoforge/*", zone_name = "coconutlabs.org" },
+]

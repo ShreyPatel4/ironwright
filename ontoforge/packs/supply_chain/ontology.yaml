@@ -1,0 +1,209 @@
+object_types:
+  Customer:
+    prefix: CUS
+    owner: customer-operations
+    description: A B2B customer. In the ERP with a DUNS number, in the CRM sometimes twice and sometimes without one.
+    title: name
+    sources:
+      - {system: erp, table: silver.customers_erp, key: customer_id,
+         fields: {name: customer_name, duns: duns, city: city, tier: tier}}
+      - {system: crm, table: silver.customers_crm, key: account_id,
+         fields: {name: account_name, duns: duns, account_owner: owner}}
+    resolution:
+      exact: [duns]
+      normalize: {duns: digits, name: name}
+      fuzzy: {field: name, threshold: 0.9, review_from: 0.75, veto_if_conflict: [duns]}
+    precedence:
+      name: [erp, crm]
+      default: [erp, crm]
+  Order:
+    prefix: ORD
+    owner: order-management
+    description: A customer order from the ERP.
+    title: label
+    sources:
+      - {system: erp, table: silver.orders_erp, key: order_no,
+         fields: {label: "'Order ' || order_no", priority: priority, order_value_usd: order_value_usd,
+                  requested_date: requested_date, customer_id_erp: customer_id}}
+  Shipment:
+    prefix: SHP
+    owner: transportation
+    description: One shipment. The TMS and the WMS each have a record with a different key; the order digits tie them.
+    title: label
+    sources:
+      - {system: tms, table: silver.shipments_tms, key: tms_shipment_id,
+         fields: {label: "'Shipment ' || tms_shipment_id", order_digits: order_digits, carrier_scac: carrier_scac,
+                  origin_dc: origin_dc, dest_city: dest_city, mode: mode, promised_eta: promised_eta,
+                  weight_lb: weight_lb, status: "'IN_NETWORK'"}}
+      - {system: wms, table: silver.shipments_wms, key: wms_ref,
+         fields: {order_digits: order_digits, cartons: cartons, dc_code: dc_code}}
+    resolution:
+      exact: [order_digits]
+      normalize: {order_digits: digits}
+    precedence: {default: [tms, wms]}
+  Carrier:
+    prefix: CAR
+    owner: transportation
+    description: A freight carrier.
+    title: carrier_name
+    sources:
+      - {system: tms, table: silver.carriers, key: scac,
+         fields: {carrier_name: carrier_name, scac: scac, on_time_rate: on_time_rate}}
+
+created_types:
+  ExpediteRequest: {owner: transportation, description: Upgrade service level on the current carrier.}
+  RerouteRequest: {owner: transportation, description: Move a shipment to another carrier.}
+  Notification: {owner: customer-operations, description: A proactive message to the customer.}
+  CustomerTask: {owner: customer-operations, description: A task for the account team, for example confirm an address.}
+  Watch: {owner: transportation, description: Keep an eye on a shipment, no action yet.}
+
+link_types:
+  for_order:
+    from: Shipment
+    to: Order
+    description: Shipment fulfils order
+    sql: >
+      select 'tms' from_system, s.tms_shipment_id from_key, 'erp' to_system, o.order_no to_key
+      from silver_shipments_tms s join silver_orders_erp o on o.order_digits = s.order_digits
+  placed_by:
+    from: Order
+    to: Customer
+    description: Order was placed by customer
+    sql: select 'erp' from_system, order_no from_key, 'erp' to_system, customer_id to_key from silver_orders_erp
+  carried_by:
+    from: Shipment
+    to: Carrier
+    description: Shipment is carried by carrier
+    sql: select 'tms' from_system, tms_shipment_id from_key, 'tms' to_system, carrier_scac to_key from silver_shipments_tms
+
+functions:
+  shipment_status:
+    description: Promised vs latest ETA, delay, latest carrier issue and whether the TMS ETA is stale.
+    params: {shipment_id: Shipment}
+    returns: one
+    sql: >
+      select cast(promised_eta as varchar) promised_eta, cast(latest_eta as varchar) latest_eta,
+             cast(tms_eta as varchar) tms_eta, delay_hours, delivered, latest_event_type, issue_type,
+             latest_reason, tms_eta_stale
+      from gold_shipment_status where tms_shipment_id = src_key('Shipment', $shipment_id, 'tms')
+  shipment_order:
+    description: The order behind a shipment, its priority, value and customer.
+    params: {shipment_id: Shipment}
+    returns: one
+    sql: >
+      select priority, order_value_usd, ont_id('Customer', 'erp', customer_id) as customer_id,
+             ont_id('Order', 'erp', (select order_no from silver_orders_erp o where o.order_digits = g.order_digits)) as order_id
+      from gold_shipment_status g where tms_shipment_id = src_key('Shipment', $shipment_id, 'tms')
+  reroute_options:
+    description: Expedite cost on the current carrier and the best alternative carrier.
+    params: {shipment_id: Shipment}
+    returns: one
+    sql: >
+      select expedite_cost_usd, alternatives, best_alternative_scac,
+             ont_id('Carrier', 'tms', best_alternative_scac) as best_alternative_id, best_alternative_on_time
+      from gold_reroute_options where tms_shipment_id = src_key('Shipment', $shipment_id, 'tms')
+  customer_impact:
+    description: How many of this customer's open shipments are late.
+    params: {customer_id: Customer}
+    returns: one
+    sql: >
+      select open_shipments, late_open_shipments, open_value_usd
+      from gold_customer_impact where customer_id = src_key('Customer', $customer_id, 'erp')
+
+actions:
+  expedite_shipment:
+    description: Upgrade the service level with the current carrier. Written back to TMS dispatch.
+    params:
+      shipment_id: {type: Shipment}
+      cost_usd: {type: float, min: 0, max: 5000}
+    creates:
+      type: ExpediteRequest
+      prefix: EXP
+      title: label
+      props: {label: "'Expedite ' + str(shipment._title)", shipment_id: params.shipment_id, cost_usd: params.cost_usd,
+              status: "'REQUESTED'"}
+    side_effect:
+      system: tms_dispatch
+      payload: {shipment: "shipment_keys.tms", service: "'EXPEDITE'", cost_usd: params.cost_usd}
+  propose_expedite:
+    description: Ask a planner to approve an expedite above the agent's spending limit.
+    params:
+      shipment_id: {type: Shipment}
+      cost_usd: {type: float, min: 0, max: 5000}
+    requires_approval: true
+    approver_roles: [transport_planner]
+    creates:
+      type: ExpediteRequest
+      prefix: EXP
+      title: label
+      props: {label: "'Expedite ' + str(shipment._title) + ' (approved)'", shipment_id: params.shipment_id,
+              cost_usd: params.cost_usd, status: "'APPROVED'"}
+    side_effect:
+      system: tms_dispatch
+      payload: {shipment: "shipment_keys.tms", service: "'EXPEDITE'", cost_usd: params.cost_usd}
+  reroute_shipment:
+    description: Move the shipment to another carrier. Needs a transport planner.
+    params:
+      shipment_id: {type: Shipment}
+      to_carrier_id: {type: Carrier}
+    preconditions:
+      - {when: "shipment.carrier_scac != to_carrier.scac", message: must be a different carrier}
+    requires_approval: true
+    approver_roles: [transport_planner]
+    edits:
+      - {object: shipment_id, set: {carrier_scac: to_carrier.scac}}
+    creates:
+      type: RerouteRequest
+      prefix: RRT
+      title: label
+      props: {label: "'Reroute ' + str(shipment._title) + ' to ' + str(to_carrier._title)",
+              shipment_id: params.shipment_id, to_carrier_id: params.to_carrier_id, status: "'APPROVED'"}
+    side_effect:
+      system: tms_dispatch
+      payload: {shipment: "shipment_keys.tms", new_carrier: "to_carrier.scac"}
+  notify_customer:
+    description: Tell the customer about the delay and the new ETA.
+    params:
+      shipment_id: {type: Shipment}
+      customer_id: {type: Customer}
+      message: {type: str}
+    creates:
+      type: Notification
+      prefix: NTF
+      title: label
+      props: {label: "'Delay notice to ' + str(customer._title)", shipment_id: params.shipment_id,
+              customer_id: params.customer_id, message: params.message}
+    side_effect:
+      system: crm_email
+      payload: {account: "customer_keys.crm", shipment: "shipment_keys.tms", message: params.message}
+  create_customer_task:
+    description: Ask the account team to fix something with the customer, for example confirm an address.
+    params:
+      shipment_id: {type: Shipment}
+      customer_id: {type: Customer}
+      task: {type: str}
+    creates:
+      type: CustomerTask
+      prefix: CTK
+      title: label
+      props: {label: "str(params.task) + ' for ' + str(customer._title)", shipment_id: params.shipment_id,
+              customer_id: params.customer_id, status: "'OPEN'"}
+    side_effect:
+      system: crm_tasks
+      payload: {account: "customer_keys.crm", task: params.task, shipment: "shipment_keys.tms"}
+  add_watch:
+    description: Keep watching the shipment; no action yet.
+    params:
+      shipment_id: {type: Shipment}
+      note: {type: str}
+    creates:
+      type: Watch
+      prefix: WCH
+      title: label
+      props: {label: "'Watch ' + str(shipment._title)", shipment_id: params.shipment_id, note: params.note}
+  cancel_shipment:
+    description: Cancel a shipment. Commercial impact, humans only.
+    params:
+      shipment_id: {type: Shipment}
+    edits:
+      - {object: shipment_id, set: {status: "'CANCELLED'"}}

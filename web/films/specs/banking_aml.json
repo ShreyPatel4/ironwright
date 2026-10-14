@@ -1,0 +1,297 @@
+{
+ "id": "banking_aml",
+ "tag": "Use case",
+ "industry": "Banking (anti-money laundering)",
+ "company": "Harborview Bank",
+ "short": "Banking AML",
+ "question": "Is this alert suspicious enough to escalate to an investigation, or can it be recommended for closure?",
+ "tagline": "Alerts in, evidence gathered, a narrative a regulator can replay, and an agent that can never close an alert.",
+ "sources": [
+  [
+   "Core banking",
+   "Core banking customer master",
+   "fixed width"
+  ],
+  [
+   "Core banking",
+   "Core banking account master",
+   "fixed width"
+  ],
+  [
+   "Online banking",
+   "Online banking users",
+   "database"
+  ],
+  [
+   "Core banking",
+   "Monthly transaction extracts",
+   "CSV drop"
+  ],
+  [
+   "AML engine",
+   "Legacy AML rules engine alerts",
+   "database"
+  ],
+  [
+   "Core banking",
+   "Mainframe monthly CTR count",
+   "fixed width"
+  ]
+ ],
+ "problems": [
+  [
+   "identity",
+   "Two different customers are both named Maria Garcia, with different dates of birth"
+  ],
+  [
+   "identity",
+   "One customer has two online banking logins"
+  ],
+  [
+   "identity",
+   "A shell counterparty is spelled four ways across unrelated customers"
+  ],
+  [
+   "alerts",
+   "19 open alerts: 13 true positives (structuring, pass-through, shell network) and false positives"
+  ],
+  [
+   "compliance",
+   "Legacy CTR job counted single cash transactions over $10,000 instead of the daily aggregate per customer"
+  ]
+ ],
+ "gate": null,
+ "recon": {
+  "title": "Monthly CTR count vs the mainframe CTR report",
+  "labels": [
+   "Legacy report",
+   "New platform"
+  ],
+  "a": "0",
+  "b": "9",
+  "measure": "Ctrs",
+  "key": "2026-07",
+  "reason": "The legacy CTR job flagged single cash transactions over $10,000. The reporting rule is the daily cash total per customer, so same-day deposits that add up past $10,000 were missed. The new count is correct; compliance has been notified.",
+  "verdict": "Cutover ready, 0 unexplained differences"
+ },
+ "merge": {
+  "type": "Customer",
+  "title": "Anthony Hill",
+  "id": "CUS-90c99d81",
+  "method": "exact match on match_key",
+  "members": [
+   [
+    "core",
+    "4400000296"
+   ],
+   [
+    "olb",
+    "OB-30024"
+   ],
+   [
+    "olb",
+    "OB-99008"
+   ]
+  ],
+  "props": [
+   [
+    "address",
+    "Core banking"
+   ],
+   [
+    "cust_type",
+    "Core banking"
+   ],
+   [
+    "dob",
+    "Core banking"
+   ],
+   [
+    "email",
+    "Online banking"
+   ]
+  ]
+ },
+ "run": {
+  "agent": "agent:aml-triage",
+  "target": "AML-26014 STRUCTURING",
+  "diagnosis": "Business as usual",
+  "confidence": 0.75,
+  "narrative": "The customer is a business (industry code 5812) and the flagged activity matches its normal operations: 24 similar cash deposits in prior months, or money out spread across 0 payees.",
+  "cites": [
+   "alert_details",
+   "structuring_signal",
+   "movement_signal"
+  ],
+  "attempts": [
+   [
+    "close_alert",
+    "denied",
+    "forbidden by agents-never-close-alerts"
+   ],
+   [
+    "recommend_close",
+    "needs_approval",
+    "this action needs human approval"
+   ]
+  ],
+  "review": [
+   "user:aml.analyst.queue1",
+   true
+  ],
+  "outcome": "applied_pending_sync",
+  "created": null,
+  "trace": [
+   [
+    "agent.run",
+    0.0,
+    1.0,
+    0,
+    null
+   ],
+   [
+    "node.intake",
+    0.0308,
+    0.0487,
+    1,
+    null
+   ],
+   [
+    "node.gather",
+    0.062,
+    0.6857,
+    1,
+    null
+   ],
+   [
+    "tool.alert_details",
+    0.063,
+    0.2178,
+    2,
+    null
+   ],
+   [
+    "node.diagnose",
+    0.6956,
+    0.6992,
+    1,
+    null
+   ],
+   [
+    "node.propose",
+    0.7446,
+    0.9451,
+    1,
+    null
+   ],
+   [
+    "action close_alert",
+    0.7459,
+    0.8427,
+    2,
+    "bad"
+   ],
+   [
+    "action recommend_close",
+    0.8493,
+    0.9424,
+    2,
+    "warn"
+   ],
+   [
+    "node.approval",
+    0.96,
+    0.9607,
+    1,
+    "warn"
+   ]
+  ],
+  "trace_id": "597098a313794c56"
+ },
+ "policies": [
+  [
+   "forbid",
+   "agent:*",
+   "action:close_alert",
+   ""
+  ],
+  [
+   "permit",
+   "agent:aml-triage",
+   "function:*",
+   ""
+  ],
+  [
+   "permit",
+   "user:aml.analyst*",
+   "function:*",
+   ""
+  ],
+  [
+   "permit",
+   "agent:aml-triage",
+   "action:escalate_to_case",
+   ""
+  ],
+  [
+   "permit",
+   "agent:aml-triage",
+   "action:recommend_close",
+   ""
+  ],
+  [
+   "permit",
+   "user:aml.analyst*",
+   "action:*",
+   ""
+  ]
+ ],
+ "results": {
+  "mode": "measured",
+  "layers": [
+   [
+    "pipeline",
+    "12 checks on 14 tables, 0 flagged, 0 blocking failures leaked to main",
+    true
+   ],
+   [
+    "migration",
+    "2 reconciliation rules, 3 explained differences, 0 unexplained, cutover ready",
+    true
+   ],
+   [
+    "ontology",
+    "identity Customer P=1.00 R=1.00, Counterparty P=1.00 R=1.00; 0 orphan link rows",
+    true
+   ],
+   [
+    "actions",
+    "8/8 safety tests pass, audit hash chain intact",
+    true
+   ],
+   [
+    "agents",
+    "alert_triage: accuracy 100%, grounded 100%, 0 violations, 6 denials held",
+    true
+   ]
+  ],
+  "stats": [
+   [
+    "19",
+    "decisions"
+   ],
+   [
+    "100%",
+    "match ground truth"
+   ],
+   [
+    "100%",
+    "grounded in evidence"
+   ],
+   [
+    "6",
+    "denials held"
+   ]
+  ]
+ }
+}

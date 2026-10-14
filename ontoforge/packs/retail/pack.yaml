@@ -1,0 +1,149 @@
+name: retail
+title: Brightline Retail
+industry: Retail and CPG
+tagline: Vendor to retailer to customer and back, with planograms in the middle.
+story: >
+  Brightline is a 16-store regional chain selling personal care and pet products. Its item,
+  store and vendor masters live on a mainframe, planograms in a separate space-planning system,
+  vendors in a portal, and POS arrives as CSV drops per region. Nobody can answer "why is this
+  item underperforming in this store" without four systems and a spreadsheet. The program moves
+  everything onto a lakehouse, builds an ontology of vendors, items, stores and planograms, and
+  puts an agent on the first decision: triage underperforming item-store pairs.
+decision: Why is this item underperforming in this store, and what should we do about it?
+aws_mapping:
+  legacy landing: S3 raw zone (Transfer Family for mainframe drops)
+  lakehouse: S3 Tables (Iceberg) + Glue Data Catalog
+  transforms: Glue Spark or Athena (DuckDB locally)
+  quality: Glue Data Quality
+  ontology store: Aurora Postgres + S3 Object Lock audit
+  agents: Bedrock AgentCore Runtime, Gateway (MCP), Policy (Cedar)
+
+sources:
+  - name: item_master
+    system: mainframe
+    label: Mainframe item master (COBOL fixed width)
+    kind: fixed_width
+    file: ITEMMAST.dat
+    layout: [[item_nbr, 9], [upc, 12], [description, 30], [vendor_nbr, 6], [dept, 3], [cost_cents, 9], [status, 1]]
+  - name: store_master
+    system: mainframe
+    label: Mainframe store master (fixed width)
+    kind: fixed_width
+    file: STORMAST.dat
+    layout: [[store_nbr, 4], [store_name, 20], [region, 2], [cluster, 1], [status, 1], [open_date, 8]]
+  - name: vendor_master
+    system: mainframe
+    label: Mainframe vendor master (fixed width)
+    kind: fixed_width
+    file: VENDMAST.dat
+    layout: [[vendor_nbr, 6], [vendor_name, 22], [tax_id, 10], [terms, 3]]
+  - name: portal_vendors
+    system: portal
+    label: Vendor portal database
+    kind: sqlite
+    db: vendor_portal.db
+    query: select * from vendors
+  - name: portal_catalog
+    system: portal
+    label: Vendor portal catalog (GTIN-14, USD)
+    kind: sqlite
+    db: vendor_portal.db
+    query: select * from catalog
+  - name: planograms
+    system: spaceman
+    label: Space planning system, planogram headers
+    kind: sqlite
+    db: spaceman.db
+    query: select * from planograms
+  - name: planogram_positions
+    system: spaceman
+    label: Space planning system, positions
+    kind: sqlite
+    db: spaceman.db
+    query: select * from positions
+  - name: pos_sales
+    system: pos
+    label: Store POS drops (CSV per region per day)
+    kind: csv
+    glob: pos/*.csv
+  - name: inventory
+    system: inventory
+    label: Nightly on-hand snapshots (CSV)
+    kind: csv
+    glob: inv/*.csv
+
+legacy_reports:
+  - name: daily_sales_report
+    system: mainframe
+    label: Mainframe nightly sales report
+    kind: fixed_width
+    file: reports/DLYSLSRP.dat
+    layout: [[sale_date, 10], [units, 9], [net_sales_cents, 12]]
+
+writeback:
+  transient_failure_rate: 0.15
+  reject_when: "system == 'store_ops' and payload.store == '0108'"
+
+quality:
+  bronze.item_master:
+    - {check: not_null, column: item_nbr, owner: merchandising-data}
+    - {check: type_castable, column: cost_cents, type: integer, owner: merchandising-data}
+  bronze.pos_sales:
+    - {check: not_null, column: upc, owner: store-systems}
+    - {check: type_castable, column: units, type: integer, owner: store-systems}
+  bronze.inventory:
+    - {check: type_castable, column: ON_HAND_QTY, type: integer, owner: supply-chain-data}
+  silver.items_mainframe:
+    - {check: unique, column: item_nbr, owner: merchandising-data}
+    - {check: range, column: unit_cost_usd, min: 0.1, max: 200, kind: semantic, owner: merchandising-data,
+       name: cost_in_dollars_not_cents}
+  silver.items_portal:
+    - {check: unique, column: gtin14, owner: vendor-management}
+    - {check: range, column: list_price_usd, min: 0.1, max: 500, kind: semantic, owner: vendor-management}
+  silver.stores:
+    - {check: unique, column: store_nbr, owner: store-ops}
+    - {check: accepted_values, column: status, values: [OPEN, CLOSED], owner: store-ops}
+  silver.pos_sales:
+    - {check: unique, column: [store_nbr, upc, sale_date], owner: store-systems, name: one_row_per_store_item_day}
+    - {check: expression, condition: "units >= 0 and units < 500", kind: semantic, owner: store-systems,
+       name: plausible_units}
+    - {check: expression, condition: "item_nbr is not null", kind: semantic, severity: warn,
+       owner: merchandising-data, name: every_sale_maps_to_an_item, description: "POS UPC not found in item master"}
+  silver.inventory:
+    - {check: unique, column: [store_nbr, item_nbr, snapshot_date], owner: supply-chain-data}
+    - {check: expression, condition: "on_hand >= 0", kind: semantic, owner: supply-chain-data}
+  silver.planogram_positions:
+    - {check: unique, column: [pog_id, version, upc], owner: space-planning}
+    - {check: range, column: facings, min: 1, max: 12, kind: semantic, owner: space-planning}
+  gold.region_day_coverage:
+    - {check: expression, condition: "pos_rows > 0", kind: semantic, severity: warn, owner: store-systems,
+       name: every_region_reported_every_day, description: "a region's POS feed went quiet"}
+  gold.item_store_daily:
+    - {check: unique, column: [store_nbr, item_nbr, d], owner: data-platform}
+  gold.item_store_perf:
+    - {check: row_count_min, min: 100, owner: data-platform}
+    - {check: expression, condition: "expected_units >= 0", kind: semantic, owner: data-platform}
+
+reconcile:
+  - name: Daily units and net sales vs the mainframe nightly report
+    legacy_sql: >
+      select sale_date, cast(units as bigint) units, cast(net_sales_cents as bigint) / 100.0 net_sales
+      from legacy_daily_sales_report
+    lake_sql: >
+      select cast(sale_date as varchar) sale_date, sum(units) units, round(sum(net_sales), 2) net_sales
+      from silver_pos_sales group by 1
+    key: [sale_date]
+    measures: {units: 0, net_sales: 0.05}
+    known_differences:
+      - when: "key.sale_date == '2026-09-10' and legacy.units > new.units"
+        reason: "MW POS file for 2026-09-10 was sent twice. The legacy nightly job never deduplicated re-sends, so the old report double counts that file. The new pipeline keeps one row per store, item and day."
+  - name: Store count vs mainframe store master
+    legacy_sql: "select 'all' k, count(*) stores from legacy_store_master"
+    lake_sql: "select 'all' k, count(*) stores from silver_stores"
+    key: [k]
+    measures: {stores: 0}
+  - name: Item count vs mainframe item master
+    legacy_sql: "select 'all' k, count(*) items from legacy_item_master"
+    lake_sql: "select 'all' k, count(*) items from silver_items_mainframe"
+    key: [k]
+    measures: {items: 0}

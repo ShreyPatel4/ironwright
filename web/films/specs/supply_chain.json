@@ -1,0 +1,312 @@
+{
+ "id": "supply_chain",
+ "tag": "Use case",
+ "industry": "Supply chain and logistics",
+ "company": "Corvane Distribution",
+ "short": "Supply chain",
+ "question": "This shipment is running late. Why, and what should we do about it?",
+ "tagline": "One shipment, three systems, three order numbers, and an ETA nobody updated.",
+ "sources": [
+  [
+   "Transport system",
+   "TMS shipments",
+   "database"
+  ],
+  [
+   "Transport system",
+   "TMS carrier table",
+   "database"
+  ],
+  [
+   "Warehouse system",
+   "WMS shipment confirmations",
+   "fixed width"
+  ],
+  [
+   "ERP",
+   "ERP orders",
+   "CSV drop"
+  ],
+  [
+   "ERP",
+   "ERP customer master",
+   "CSV drop"
+  ],
+  [
+   "CRM",
+   "CRM accounts",
+   "database"
+  ],
+  [
+   "Carrier feeds",
+   "Carrier status events",
+   "event stream"
+  ],
+  [
+   "Warehouse system",
+   "WMS nightly shipped-by-DC report",
+   "fixed width"
+  ]
+ ],
+ "problems": [
+  [
+   "identity",
+   "CRM has a duplicate account for Delta Office Supply (ACC-00004, ACC-90003)"
+  ],
+  [
+   "identity",
+   "6 CRM accounts have no DUNS and must match on name; 'Allied Hardwood Flooring' must not merge with 'Allied Hardware'"
+  ],
+  [
+   "identity",
+   "Orders appear as SO-0012345 (TMS), 000012345 (WMS) and 12345 (ERP)"
+  ],
+  [
+   "feeds",
+   "About 5% of carrier events arrive twice (same event_id)"
+  ],
+  [
+   "time",
+   "TMS current_eta was never updated after the delay for about 60% of delayed shipments"
+  ]
+ ],
+ "gate": [
+  "gold.shipment_status",
+  "Tms eta current",
+  "warn",
+  "TMS ETA was not updated after a carrier delay"
+ ],
+ "recon": {
+  "title": "Shipments per DC per day vs the WMS nightly report",
+  "labels": [
+   "Legacy report",
+   "New platform"
+  ],
+  "a": "7",
+  "b": "4",
+  "measure": "Shipments",
+  "key": "20260915 RNO4",
+  "reason": "The WMS nightly report counts three test orders (order numbers 9999xxxxx) on 2026-09-15. The new pipeline filters test orders in silver.",
+  "verdict": "Cutover ready, 0 unexplained differences"
+ },
+ "merge": {
+  "type": "Customer",
+  "title": "Delta Office Supply Inc",
+  "id": "CUS-dc2d2aa4",
+  "method": "exact match on duns",
+  "members": [
+   [
+    "crm",
+    "ACC-00004"
+   ],
+   [
+    "crm",
+    "ACC-90003"
+   ],
+   [
+    "erp",
+    "10049"
+   ]
+  ],
+  "props": [
+   [
+    "account_owner",
+    "CRM"
+   ],
+   [
+    "city",
+    "ERP"
+   ],
+   [
+    "duns",
+    "ERP"
+   ],
+   [
+    "name",
+    "ERP"
+   ]
+  ]
+ },
+ "run": {
+  "agent": "agent:shipment-triage",
+  "target": "Shipment TMS-70209",
+  "diagnosis": "Capacity delay",
+  "confidence": 0.8,
+  "narrative": "A EXP order is 21.5 hours late on a carrier capacity delay. Expediting on the same carrier costs about $658.98.",
+  "cites": [
+   "shipment_status",
+   "shipment_order",
+   "reroute_options"
+  ],
+  "attempts": [
+   [
+    "expedite_shipment",
+    "denied",
+    "default deny: no rule permits this"
+   ],
+   [
+    "propose_expedite",
+    "needs_approval",
+    "this action needs human approval"
+   ]
+  ],
+  "review": [
+   "user:transport.planner.central",
+   true
+  ],
+  "outcome": "applied_pending_sync",
+  "created": "ExpediteRequest",
+  "trace": [
+   [
+    "agent.run",
+    0.0,
+    1.0,
+    0,
+    null
+   ],
+   [
+    "node.intake",
+    0.0361,
+    0.0576,
+    1,
+    null
+   ],
+   [
+    "node.gather",
+    0.073,
+    0.5279,
+    1,
+    null
+   ],
+   [
+    "tool.shipment_status",
+    0.0743,
+    0.1802,
+    2,
+    null
+   ],
+   [
+    "node.diagnose",
+    0.5449,
+    0.55,
+    1,
+    null
+   ],
+   [
+    "node.propose",
+    0.6082,
+    0.9352,
+    1,
+    null
+   ],
+   [
+    "action expedite_shipment",
+    0.6096,
+    0.7596,
+    2,
+    "bad"
+   ],
+   [
+    "action propose_expedite",
+    0.7638,
+    0.9319,
+    2,
+    "warn"
+   ],
+   [
+    "node.approval",
+    0.955,
+    0.9559,
+    1,
+    "warn"
+   ]
+  ],
+  "trace_id": "1bd0123cdf1b4d10"
+ },
+ "policies": [
+  [
+   "forbid",
+   "agent:*",
+   "action:cancel_shipment",
+   ""
+  ],
+  [
+   "permit",
+   "agent:shipment-triage",
+   "action:expedite_shipment",
+   "params.cost_usd <= 500"
+  ],
+  [
+   "permit",
+   "agent:shipment-triage",
+   "function:*",
+   ""
+  ],
+  [
+   "permit",
+   "user:*",
+   "function:*",
+   ""
+  ],
+  [
+   "permit",
+   "agent:shipment-triage",
+   "action:propose_expedite",
+   ""
+  ],
+  [
+   "permit",
+   "agent:shipment-triage",
+   "action:reroute_shipment",
+   ""
+  ]
+ ],
+ "results": {
+  "mode": "measured",
+  "layers": [
+   [
+    "pipeline",
+    "13 checks on 17 tables, 1 flagged, 0 blocking failures leaked to main",
+    true
+   ],
+   [
+    "migration",
+    "2 reconciliation rules, 1 explained differences, 0 unexplained, cutover ready",
+    true
+   ],
+   [
+    "ontology",
+    "identity Customer P=1.00 R=1.00, Shipment P=1.00 R=1.00; 0 orphan link rows",
+    true
+   ],
+   [
+    "actions",
+    "26/26 safety tests pass, audit hash chain intact",
+    true
+   ],
+   [
+    "agents",
+    "late_shipment_triage: accuracy 100%, grounded 100%, 0 violations, 4 denials held",
+    true
+   ]
+  ],
+  "stats": [
+   [
+    "30",
+    "decisions"
+   ],
+   [
+    "100%",
+    "match ground truth"
+   ],
+   [
+    "100%",
+    "grounded in evidence"
+   ],
+   [
+    "4",
+    "denials held"
+   ]
+  ]
+ }
+}

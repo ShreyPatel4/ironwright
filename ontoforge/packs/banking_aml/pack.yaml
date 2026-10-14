@@ -1,0 +1,82 @@
+name: banking_aml
+title: Harborview Bank
+industry: Banking (anti-money laundering)
+tagline: Alerts in, evidence gathered, a narrative a regulator can replay, and an agent that can never close an alert.
+story: >
+  Harborview is a community bank whose customer and account masters run on a mainframe, online banking on a
+  separate system, transactions arrive as monthly extracts, and a legacy rules engine raises AML alerts that
+  analysts triage by hand across five screens. The program lands everything in a governed lakehouse, resolves
+  customers (carefully: same name is not same person), accounts and counterparties in an ontology, and puts an
+  agent on alert triage. The agent gathers evidence and writes the case narrative with every claim cited. It can
+  escalate. It can only recommend closing, and a human decides.
+decision: Is this alert suspicious enough to escalate to an investigation, or can it be recommended for closure?
+aws_mapping:
+  legacy landing: S3 raw zone with SSE-KMS, Transfer Family for mainframe drops
+  lakehouse: S3 Tables (Iceberg) + Lake Formation tag-based access
+  transforms: Glue Spark or Athena (DuckDB locally)
+  quality: Glue Data Quality
+  ontology store: Aurora Postgres + S3 Object Lock (compliance mode) audit archive
+  agents: Bedrock AgentCore Runtime, Gateway (MCP), Policy (Cedar), Identity passthrough
+
+sources:
+  - name: customer_master
+    system: core
+    label: Core banking customer master (fixed width)
+    kind: fixed_width
+    file: CUSTMAST.dat
+    layout: [[cust_nbr, 10], [cust_name, 30], [dob, 8], [address, 30], [cust_type, 1], [industry, 4], [risk_rating, 1], [kyc_date, 8]]
+  - name: account_master
+    system: core
+    label: Core banking account master (fixed width)
+    kind: fixed_width
+    file: ACCTMAST.dat
+    layout: [[acct_nbr, 12], [cust_nbr, 10], [product, 4], [open_date, 8], [status, 1]]
+  - {name: olb_users, system: olb, label: Online banking users (SQLite), kind: sqlite, db: olb.db, query: select * from users}
+  - {name: transactions, system: core, label: Monthly transaction extracts (CSV), kind: csv, glob: txns/TXN_*.csv}
+  - {name: alerts, system: aml_engine, label: Legacy AML rules engine alerts (SQLite), kind: sqlite, db: aml_alerts.db, query: select * from alerts}
+
+legacy_reports:
+  - name: ctr_report
+    system: core
+    label: Mainframe monthly CTR count
+    kind: fixed_width
+    file: reports/CTRRPT.dat
+    layout: [[ym, 7], [ctr_count, 5]]
+
+writeback:
+  transient_failure_rate: 0.1
+
+quality:
+  bronze.transactions:
+    - {check: not_null, column: txn_id, owner: core-banking-data}
+    - {check: type_castable, column: amount, type: double, owner: core-banking-data}
+  silver.customers_core:
+    - {check: unique, column: cust_nbr, owner: customer-data}
+    - {check: not_null, column: dob, owner: customer-data}
+  silver.customers_olb:
+    - {check: unique, column: ob_user_id, owner: digital-banking}
+  silver.transactions:
+    - {check: unique, column: txn_id, owner: core-banking-data}
+    - {check: accepted_values, column: direction, values: [CR, DR], owner: core-banking-data}
+    - {check: expression, condition: "amount > 0", kind: semantic, owner: core-banking-data}
+    - {check: expression, condition: "cust_nbr is not null", kind: semantic, owner: core-banking-data, name: every_txn_has_a_customer}
+  silver.alerts:
+    - {check: unique, column: alert_id, owner: financial-crimes}
+    - {check: accepted_values, column: rule_code, values: [STRUCTURING, RAPID_MOVEMENT, HIGH_RISK_GEO, LARGE_CASH], owner: financial-crimes}
+  gold.ctr_candidates:
+    - {check: expression, condition: "cash_in_total > 10000", kind: semantic, owner: financial-crimes}
+
+reconcile:
+  - name: Monthly CTR count vs the mainframe CTR report
+    legacy_sql: "select ym, cast(ctr_count as integer) ctrs from legacy_ctr_report"
+    lake_sql: "select strftime(d, '%Y-%m') ym, count(*) ctrs from gold_ctr_candidates group by 1"
+    key: [ym]
+    measures: {ctrs: 0}
+    known_differences:
+      - when: "new.ctrs > legacy.ctrs"
+        reason: "The legacy CTR job flagged single cash transactions over $10,000. The reporting rule is the daily cash total per customer, so same-day deposits that add up past $10,000 were missed. The new count is correct; compliance has been notified."
+  - name: Accounts vs mainframe account master
+    legacy_sql: "select 'all' k, count(*) n from legacy_account_master"
+    lake_sql: "select 'all' k, count(*) n from silver_accounts"
+    key: [k]
+    measures: {n: 0}

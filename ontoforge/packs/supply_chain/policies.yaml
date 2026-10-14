@@ -1,0 +1,16 @@
+default: deny
+rules:
+  - {id: triage-agent-reads, effect: permit, principal: "agent:shipment-triage", action: "function:*"}
+  - {id: humans-read, effect: permit, principal: "user:*", action: "function:*"}
+  - id: small-expedites-only
+    effect: permit
+    principal: "agent:shipment-triage"
+    action: "action:expedite_shipment"
+    when: "params.cost_usd <= 500"
+  - {id: agent-may-propose-expedites, effect: permit, principal: "agent:shipment-triage", action: "action:propose_expedite"}
+  - {id: agent-may-propose-reroutes, effect: permit, principal: "agent:shipment-triage", action: "action:reroute_shipment"}
+  - {id: agent-may-notify, effect: permit, principal: "agent:shipment-triage", action: "action:notify_customer"}
+  - {id: agent-may-create-tasks, effect: permit, principal: "agent:shipment-triage", action: "action:create_customer_task"}
+  - {id: agent-may-watch, effect: permit, principal: "agent:shipment-triage", action: "action:add_watch"}
+  - {id: no-agent-cancellations, effect: forbid, principal: "agent:*", action: "action:cancel_shipment"}
+  - {id: planners-act, effect: permit, principal: "user:transport.planner*", action: "action:*"}

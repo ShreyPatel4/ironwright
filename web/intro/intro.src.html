@@ -1,0 +1,316 @@
+<title>OntoForge Intro</title>
+<style>
+/*FONTS*/
+/* Layout: one 16:9 stage, transport and chapters below. Operator-console look: flat graphite panels, 1px borders, 6px corners, one blue accent. */
+:root{
+  --page:#EDEFF2; --panel:#FFFFFF; --ink:#1C2127; --sub:#5F6B7C; --line:#D3D8DE; --accent:#2D72D2;
+  --sans:"Geist","Segoe UI",system-ui,sans-serif; --mono:"Geist Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--page:#0B0D10;--panel:#1C2127;--ink:#F6F7F9;--sub:#ABB3BF;--line:#2F343C;--accent:#4C90F0;color-scheme:dark}}
+:root[data-theme="dark"]{--page:#0B0D10;--panel:#1C2127;--ink:#F6F7F9;--sub:#ABB3BF;--line:#2F343C;--accent:#4C90F0;color-scheme:dark}
+html,body{background:var(--page);color:var(--ink)}
+body{font:15px/1.5 var(--sans);padding-inline:16px;padding-block:28px 48px}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+.stage{width:100%;aspect-ratio:16/9;max-width:100%;border-radius:6px;overflow:hidden;background:#111418;border:1px solid var(--line)}
+canvas{display:block;width:100%;height:100%}
+.bar{display:flex;align-items:center;gap:12px}
+.bar button{font:500 13px/1 var(--sans);color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:9px 16px;cursor:pointer;min-width:84px}
+.bar button:hover{border-color:var(--sub)}
+.bar button:focus-visible,.bar input:focus-visible,.chapters button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bar input[type=range]{flex:1;min-width:0;accent-color:var(--accent)}
+.bar .t{font:400 12.5px var(--mono);color:var(--sub);font-variant-numeric:tabular-nums;white-space:nowrap}
+.chapters{display:flex;flex-wrap:wrap;gap:6px}
+.chapters button{font:500 13px/1 var(--sans);color:var(--sub);background:none;border:1px solid transparent;border-radius:6px;padding:8px 10px;cursor:pointer}
+.chapters button:hover{color:var(--ink)}
+.chapters button[aria-current="true"]{color:var(--ink);background:var(--panel);border-color:var(--line)}
+</style>
+<div class="wrap">
+  <div class="stage"><canvas id="c" width="1920" height="1080" aria-label="OntoForge film"></canvas></div>
+  <div class="bar">
+    <button id="play" type="button">Pause</button>
+    <input id="scrub" type="range" min="0" max="221" step="0.01" value="0" aria-label="Position">
+    <span class="t" id="time">0:00 / 3:41</span>
+  </div>
+  <div class="chapters" id="chapters"></div>
+</div>
+<script>
+(function(){
+const W=1920,H=1080,DUR=221;
+const C={bg:"#111418",panel:"#1C2127",head:"#20262D",line:"#2F343C",ink:"#F6F7F9",sub:"#ABB3BF",dim:"#738091",blue:"#4C90F0",ok:"#32A467",warn:"#EC9A3C",bad:"#E76A6E",vio:"#9D7FEA"};
+const F={s:(w,z)=>`${w} ${z}px Geist, "Segoe UI", sans-serif`,m:(w,z)=>`${w} ${z}px "Geist Mono", monospace`};
+const cv=document.getElementById("c"),x=cv.getContext("2d");
+
+const cl=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
+const p=(t,a,b)=>cl((t-a)/(b-a));
+const ease=v=>v>=1?1:1-Math.pow(1-v,4);              // quart out: calm settle
+const eio=v=>v<.5?8*v*v*v*v:1-Math.pow(-2*v+2,4)/2;
+const lerp=(a,b,v)=>a+(b-a)*v;
+const inn=(t,a,d=1.1)=>ease(p(t,a,a+d));
+const beat=(t,a,b)=>Math.min(p(t,a,a+.9),1-p(t,b-.8,b));
+
+function T(s,X,Y,o){o=o||{};x.save();x.globalAlpha*=o.a==null?1:o.a;x.font=o.f||F.s(400,28);x.fillStyle=o.c||C.ink;x.textAlign=o.al||"left";x.letterSpacing=(o.ls||0)+"px";x.fillText(s,X,Y);x.restore()}
+function MW(s,f,ls){x.save();x.font=f;x.letterSpacing=(ls||0)+"px";const w=x.measureText(s).width;x.restore();return w}
+function wrap(s,f,max){const out=[];let cur="";s.split(" ").forEach(w=>{if(cur&&MW(cur+" "+w,f)>max){out.push(cur);cur=w}else cur=cur?cur+" "+w:w});out.push(cur);return out}
+function rr(X,Y,w,h,r){x.beginPath();x.roundRect(X,Y,w,h,r)}
+function hl(X,Y,w,a){x.save();x.globalAlpha*=a;x.fillStyle=C.line;x.fillRect(X,Y,w,1.5);x.restore()}
+function dot(X,Y,r,col,a){x.save();x.globalAlpha*=a==null?1:a;x.fillStyle=col;x.beginPath();x.arc(X,Y,r,0,7);x.fill();x.restore()}
+function seg(a,b,col,w,v,al){if(v<=0)return;x.save();x.globalAlpha*=al==null?1:al;x.strokeStyle=col;x.lineWidth=w;x.lineCap="round";x.beginPath();x.moveTo(a[0],a[1]);x.lineTo(lerp(a[0],b[0],v),lerp(a[1],b[1],v));x.stroke();x.restore()}
+function tick(X,Y,s,v,col){if(v<=0)return;x.save();x.strokeStyle=col;x.lineWidth=2.4;x.lineCap="round";x.lineJoin="round";x.beginPath();const P=[[-.32,0],[-.08,.24],[.36,-.26]],n=v*2;x.moveTo(X+P[0][0]*s,Y+P[0][1]*s);for(let i=1;i<=2;i++){const k=cl(n-(i-1));if(k<=0)break;x.lineTo(X+lerp(P[i-1][0],P[i][0],k)*s,Y+lerp(P[i-1][1],P[i][1],k)*s)}x.stroke();x.restore()}
+function mark(X,Y,r,v,col){x.save();x.strokeStyle=col;x.lineWidth=r*.1;x.lineCap="round";x.beginPath();x.arc(X,Y,r,-Math.PI/2,-Math.PI/2+Math.PI*2*v);x.stroke();x.restore();[[-.32,-.14],[0,-.38],[.32,-.14]].forEach((d,i)=>dot(X+d[0]*r,Y+(d[1]+.24)*r,r*.1*ease(p(v,.7+i*.08,.95+i*.05)),col))}
+// flat console panel: 1px border, 6px corners, header strip
+function panel(X,Y,w,h,title,meta,a){if(a<=0)return;x.save();x.globalAlpha*=a;rr(X,Y,w,h,6);x.fillStyle=C.panel;x.fill();x.save();rr(X,Y,w,h,6);x.clip();x.fillStyle=C.head;x.fillRect(X,Y,w,56);x.restore();x.strokeStyle=C.line;x.lineWidth=1.5;rr(X,Y,w,h,6);x.stroke();x.fillStyle=C.line;x.fillRect(X,Y+56,w,1.5);x.restore();
+  T(title,X+24,Y+36,{f:F.s(500,20),a});if(meta)T(meta,X+w-24,Y+36,{f:F.m(400,16),c:C.dim,al:"right",a})}
+function tag(s,X,Y,col,a,o){o=o||{};const f=F.s(500,16),w=MW(s,f)+24,h=30;if(o.r)X-=w;x.save();x.globalAlpha*=a;rr(X,Y-h/2,w,h,4);x.fillStyle=col+"26";x.fill();x.restore();T(s,X+12,Y+6,{f,c:col,a});return w}
+function head(lines,X,Y,t0,t,a){lines.forEach((l,i)=>{const v=inn(t,t0+i*.12,1.3);T(l,X,Y+i*84+(1-v)*18,{f:F.s(500,72),ls:-2,a:v*a})});return Y+(lines.length-1)*84}
+function para(s,X,Y,max,t0,t,a,o){o=o||{};const f=o.f||F.s(400,28);wrap(s,f,max).forEach((l,i)=>{const v=inn(t,t0+i*.1,1.3);T(l,X,Y+i*42+(1-v)*10,{f,c:o.c||C.sub,a:v*a,al:o.al})})}
+function search(X,Y,w,s,n,a,caret){x.save();x.globalAlpha*=a;rr(X,Y,w,84,6);x.fillStyle=C.panel;x.fill();x.strokeStyle=C.line;x.lineWidth=1.5;x.stroke();x.strokeStyle=C.dim;x.lineWidth=2.5;x.beginPath();x.arc(X+40,Y+40,11,0,7);x.moveTo(X+48,Y+48);x.lineTo(X+56,Y+56);x.stroke();x.restore();
+  const sh=s.slice(0,n);T(sh,X+80,Y+52,{f:F.s(400,30),a});if(caret!=null&&Math.floor(caret*1.6)%2===0){x.save();x.globalAlpha*=a;x.fillStyle=C.blue;x.fillRect(X+80+MW(sh,F.s(400,30))+4,Y+24,2.5,38);x.restore()}}
+
+const Q="Why is Harbor Pet Food out of stock at store 0108?";
+const ST=["Land","Check","Reconcile","Unify","Act","Prove"],S0=28,SD=10.5;
+const CH=[["The question",0],["The cost",14],["The journey",S0],["The answer",91],["Before and after",101],["What is next",111],["Platform preview",117],["Governance",165],["OntoForge",214]];
+
+function render(t){
+  x.setTransform(1,0,0,1,0,0);x.globalAlpha=1;x.letterSpacing="0px";
+  x.fillStyle=C.bg;x.fillRect(0,0,W,H);
+  x.fillStyle="rgba(255,255,255,.025)";for(let gx=0;gx<W;gx+=96)x.fillRect(gx,0,1,H);for(let gy=0;gy<H;gy+=96)x.fillRect(0,gy,W,1);
+
+  // ---- 1. The question (0 to 14)
+  if(t<14.4){const a=1-p(t,13.5,14.4);const up=eio(p(t,5,6.4));
+    const fw=1100,fx=410,fy=lerp(470,140,up);
+    search(fx,fy,fw,Q,Math.floor(Q.length*p(t,.8,3.6)),a*inn(t,0,.9),t<5?t:null);
+    T("A store manager asks a simple question.",960,fy+150,{f:F.s(400,28),c:C.sub,al:"center",a:a*inn(t,3.9)*(1-up)});
+    const sys=[["Mainframe","Ask IT for an extract"],["Planogram tool","Export it to Excel"],["Vendor portal","Email the vendor team"],["POS files","Wait for the nightly drop"]];
+    const L=380,R=1540,Y=500,hop=p(t,7,11.6);
+    seg([L,Y],[R,Y],C.line,2,inn(t,6.4,1.2),a);
+    sys.forEach((s,i)=>{const sx=lerp(L,R,i/3),vis=hop*3>=i-.02,v=inn(t,6.6+i*.15);dot(sx,Y,vis?8:6,vis?C.ink:C.line,v*a);T(s[0],sx,Y-36,{f:F.s(500,28),al:"center",c:vis?C.ink:C.dim,a:v*a});T(s[1],sx,Y+52,{f:F.s(400,22),al:"center",c:C.dim,a:v*a})});
+    if(hop>0)dot(lerp(L,R,eio(hop)),Y,12,C.blue,a);
+    const day=Math.max(1,Math.round(1+10*eio(hop)));
+    T("Day "+day,960,770,{f:F.s(500,132),al:"center",ls:-4,a:a*inn(t,7),c:t>11.6?C.warn:C.ink});
+    T("to answer one question",960,830,{f:F.s(400,28),al:"center",c:C.sub,a:a*inn(t,11.8)});
+  }
+  // ---- 2. The cost (14 to 23)
+  if(t>14&&t<23.4){const a=beat(t,14,23.4);
+    T("And when it arrives, the two reports disagree.",960,280,{f:F.s(500,56),al:"center",ls:-1.5,a:a*inn(t,14.3,1.3)});
+    [["Store ops report","100,401",560,15.6],["Finance","77,821",1360,16.2]].forEach(r=>{const v=inn(t,r[3],1.3);T(r[1],r[2],580+(1-v)*16,{f:F.s(500,150),al:"center",ls:-5,a:v*a});T(r[0],r[2],650,{f:F.s(400,28),al:"center",c:C.sub,a:v*a})});
+    const nv=inn(t,17.2);T("≠",960,560,{f:F.s(400,110),al:"center",c:C.bad,a:a*nv});
+    para("Same sales, same day, $22,580 apart. Two teams spend the week arguing about which one is right.",960,820,1100,18.4,t,a,{al:"center",f:F.s(400,30)});
+  }
+  // ---- 3. Turn (23 to 28)
+  if(t>23.2&&t<28.4){const a=beat(t,23.2,28.4);
+    T("Modernization should end this.",960,500,{f:F.s(500,76),al:"center",ls:-2,a:a*inn(t,23.4,1.3)});
+    T("Here is the path from the old estate to answers you can trust.",960,580,{f:F.s(400,30),al:"center",c:C.sub,a:a*inn(t,24.4,1.3)});
+  }
+
+  // ---- 4. The journey (28 to 91)
+  if(t>S0-.4&&t<91.4){const ja=Math.min(p(t,S0-.4,S0+.5),1-p(t,90.6,91.4));
+    const L=200,R=1720,TY=980;const cur=cl(Math.floor((t-S0)/SD),0,5);
+    seg([L,TY],[R,TY],C.line,2,1,ja);
+    const pv=eio(cl(((t-S0)%SD)/1.4));if(cur>0)seg([L,TY],[lerp(L,R,(cur-1+pv)/5),TY],C.blue,2.5,1,ja);
+    ST.forEach((s,i)=>{const sx=lerp(L,R,i/5),done=i<cur,now=i===cur;dot(sx,TY,now?8:5,now?C.blue:done?C.ink:C.line,ja);T(s,sx,TY+40,{f:F.s(now?500:400,20),al:"center",c:now?C.ink:C.dim,a:ja})});
+    const VX=1000,VW=720,PY=230;
+    const sc=(i,draw)=>{const a0=S0+i*SD,a1=a0+SD;if(t>a0-.1&&t<a1+.1){const a=Math.min(p(t,a0,a0+.8),1-p(t,a1-.7,a1))*ja;x.save();x.translate(0,14*(1-ease(p(t,a0,a0+1)))-14*eio(p(t,a1-.7,a1)));draw(a0,a);x.restore()}};
+    const left=(a0,a,lines,body)=>{const yb=head(lines,200,330,a0+.2,t,a);para(body,200,yb+80,640,a0+1,t,a)};
+
+    sc(0,(a0,a)=>{left(a0,a,["Keep every file","as it arrived."],"Mainframe extracts, file drops and old databases land untouched. Every run is kept, so nothing is ever overwritten or lost.");
+      const pa=inn(t,a0+1.6);panel(VX,PY,VW,450,"Sources","run 0412",a*pa);
+      T("File",VX+24,PY+96,{f:F.s(400,18),c:C.dim,a:a*pa});T("System",VX+380,PY+96,{f:F.s(400,18),c:C.dim,a:a*pa});T("Rows",VX+VW-24,PY+96,{f:F.s(400,18),c:C.dim,al:"right",a:a*pa});
+      [["ITEMMAST.dat","Mainframe","1,184"],["STORMAST.dat","Mainframe","16"],["vendor_portal.db","Vendor portal","42"],["POS_*.csv","Store POS","112,640"],["DLYSLSRP.dat","Nightly report","4,071"]].forEach((r,k)=>{const v=inn(t,a0+2.4+k*.45),Y=PY+150+k*62;hl(VX+24,Y-36,VW-48,a*v);T(r[0],VX+24,Y,{f:F.m(400,20),a:a*v});T(r[1],VX+380,Y,{f:F.s(400,20),c:C.sub,a:a*v});T(r[2],VX+VW-24,Y,{f:F.m(400,20),al:"right",a:a*v})});
+      const n=Math.round(117953*eio(p(t,a0+5,a0+7)));const fv=inn(t,a0+5);T(n.toLocaleString("en-US")+" rows landed",VX,PY+530,{f:F.s(500,34),a:a*fv});T("Raw and unchanged. Typing and cleanup happen in the next layer.",VX,PY+574,{f:F.s(400,22),c:C.dim,a:a*inn(t,a0+6)})});
+
+    sc(1,(a0,a)=>{left(a0,a,["Nothing reaches the","business until it","passes its checks."],"Every write goes to a branch first. If a check fails, the main tables never see it. Bad rows are held back and good rows go through.");
+      const pa=inn(t,a0+1.6);panel(VX,PY,VW,560,"claims_fnol","branch wap_run_0412",a*pa);
+      const mY=PY+420,b0=VX+70,b1=VX+VW-70,bY=PY+190;seg([VX+40,mY],[VX+VW-40,mY],C.line,3,inn(t,a0+2.2,1.4),a);T("main",VX+40,mY+40,{f:F.m(400,16),c:C.dim,a:a*inn(t,a0+2.4)});
+      const bv=eio(p(t,a0+2.6,a0+4));x.save();x.globalAlpha=a;x.strokeStyle=C.blue;x.lineWidth=2.5;x.lineCap="round";x.beginPath();const N=60;for(let i=0;i<=N*bv;i++){const s=i/N;let X,Y;if(s<.18){const k=s/.18;X=lerp(b0,b0+70,k);Y=lerp(mY,bY,eio(k))}else{const k=(s-.18)/.82;X=lerp(b0+70,b1-70,k);Y=bY}i?x.lineTo(X,Y):x.moveTo(X,Y)}x.stroke();x.restore();
+      T("wap_run_0412",b0+80,bY-24,{f:F.m(400,16),c:C.blue,a:a*inn(t,a0+3.4)});
+      ["Filled","Unique","Typed","Dates"].forEach((s,i)=>{const cx=lerp(b0+170,b1-130,i/3),v=inn(t,a0+4.2+i*.5,.8);const q=i===3;dot(cx,bY,16,q?C.vio:C.ok,a*v);if(!q)tick(cx,bY,18,v,C.panel);else T("!",cx,bY+7,{f:F.s(600,20),al:"center",c:C.panel,a:a*v});T(s,cx,bY+48,{f:F.s(400,18),al:"center",c:C.sub,a:a*v})});
+      const dv=eio(p(t,a0+6.4,a0+7.4)),qx=b1-130;if(dv>0){dot(qx,lerp(bY,PY+520,dv),8,C.vio,a);T("2 rows held for review",qx-22,PY+527,{f:F.s(400,18),c:C.vio,al:"right",a:a*inn(t,a0+7.1)})}
+      const mv=eio(p(t,a0+7.4,a0+8.4));if(mv>0){x.save();x.globalAlpha=a;x.strokeStyle=C.ok;x.lineWidth=2.5;x.lineCap="round";x.beginPath();x.moveTo(b1-70,bY);x.quadraticCurveTo(b1,bY,lerp(b1-70,b1,mv),lerp(bY,mY,mv*mv));x.stroke();x.restore();tag("Published",VX+VW-40,mY+36,C.ok,a*inn(t,a0+8.2),{r:1})}});
+
+    sc(2,(a0,a)=>{left(a0,a,["Prove the new","numbers against","the old ones."],"Before cutover, every difference with the legacy report is matched or explained. Nothing is waved through.");
+      const pa=inn(t,a0+1.6);panel(VX,PY,VW,620,"Reconciliation","DLYSLSRP, 2026-09-10",a*pa);
+      [["Legacy report","100,401",a0+2.4],["New platform","77,821",a0+3.1]].forEach((r,i)=>{const v=inn(t,r[2]),Y=PY+130+i*96;T(r[0],VX+24,Y,{f:F.s(400,22),c:C.sub,a:a*v});T(r[1],VX+VW-24,Y+4,{f:F.s(500,52),al:"right",ls:-1.5,a:a*v});hl(VX+24,Y+40,VW-48,a*v)});
+      const dv=inn(t,a0+4);const exd=t>a0+5.6;T("Difference",VX+24,PY+330,{f:F.s(400,22),c:C.sub,a:a*dv});T("22,580",VX+VW-24,PY+332,{f:F.s(500,40),al:"right",c:exd?C.sub:C.bad,a:a*dv});
+      const ev=inn(t,a0+5.6);if(ev>0){x.save();x.globalAlpha=a*ev;rr(VX+24,PY+370,VW-48,120,6);x.fillStyle=C.ok+"14";x.fill();x.restore();tag("Explained",VX+44,PY+404,C.ok,a*ev);para("The Sep 10 POS file was sent twice. The old nightly job counted it twice.",VX+44,PY+452,VW-90,a0+6,t,a,{c:C.ink,f:F.s(400,22)})}
+      const cr=inn(t,a0+7.4);dot(VX+40,PY+570,12,C.ok,a*cr);tick(VX+40,PY+570,14,cr,C.panel);T("Cutover ready. 0 unexplained differences.",VX+64,PY+578,{f:F.s(500,22),c:C.ok,a:a*cr})});
+
+    sc(3,(a0,a)=>{left(a0,a,["One vendor,","not three."],"Records from every system resolve into one object. Each field remembers which system it came from, so anyone can check.");
+      const pa=inn(t,a0+1.6);panel(VX,PY,VW,620,"Object explorer","Vendor",a*pa);
+      const src=[["portal","V-HAR02",PY+130],["portal","V-HAR99",PY+215],["mainframe","004417",PY+300]],cx=VX+500,cy=PY+215,m=eio(p(t,a0+3.6,a0+5));
+      src.forEach((s,i)=>{const v=inn(t,a0+2.3+i*.35);const X=lerp(VX+40,cx-60,m),Y=lerp(s[2],cy,m);seg([VX+260,s[2]],[cx-30,cy],C.line,1.5,inn(t,a0+3)*(1-m),a*v);x.save();x.globalAlpha=a*v*(1-m);rr(X,Y-26,210,52,6);x.fillStyle=C.head;x.fill();x.strokeStyle=C.line;x.lineWidth=1.5;x.stroke();x.restore();T(s[1],X+16,Y+8,{f:F.m(500,20),a:a*v*(1-m)});T(s[0],X+196,Y+8,{f:F.s(400,16),c:C.dim,al:"right",a:a*v*(1-m)})});
+      const ov=inn(t,a0+4.8);if(ov>0){x.save();x.globalAlpha=a*ov;rr(cx-150,cy-36,300,72,6);x.fillStyle=C.blue+"1F";x.fill();x.strokeStyle=C.blue;x.lineWidth=1.5;x.stroke();x.restore();T("Harbor Pet Foods",cx,cy+9,{f:F.s(500,24),al:"center",a:a*ov})}
+      const props=[["name","Harbor Pet Foods Inc.","portal"],["tax_id","41-2290871","portal"],["terms","NET45","mainframe"],["source keys","V-HAR02, V-HAR99, 004417","crosswalk"]];
+      props.forEach((r,k)=>{const v=inn(t,a0+5.8+k*.4),Y=PY+380+k*56;hl(VX+24,Y-34,VW-48,a*v);T(r[0],VX+24,Y,{f:F.m(400,18),c:C.dim,a:a*v});T(r[1],VX+200,Y,{f:F.s(400,20),a:a*v});tag(r[2],VX+VW-24,Y-6,r[2]==="mainframe"?C.warn:C.blue,a*v,{r:1})})});
+
+    sc(4,(a0,a)=>{left(a0,a,["Agents act through","rules, not","hunches."],"The agent proposes. Policy decides what it may do. Risky actions wait for a person, and forbidden ones never happen.");
+      const pa=inn(t,a0+1.6);panel(VX,PY,VW,500,"Action log","agent:aml-triage",a*pa);
+      const appr=t>a0+6.8;
+      const rows=[["close_alert",a0+2.6,"Denied by policy",C.bad,"forbid: agents never close alerts"],["recommend_close",a0+4,appr?"Approved":"Waiting for analyst",appr?C.ok:C.warn,appr?"approved by user:aml.analyst":"checkpointed until a person decides"],["writeback",a0+7.6,"Applied",C.ok,"logged as audit #1042, hash chained"]];
+      rows.forEach((r,i)=>{const v=inn(t,r[1]);if(v<=0)return;const Y=PY+130+i*140;if(i)hl(VX+24,Y-62,VW-48,a*v);T(r[0],VX+24,Y,{f:F.m(500,24),a:a*v});const pulse=i===1&&!appr?.7+.3*Math.sin(t*4):1;tag(r[2],VX+VW-24,Y-8,r[3],a*v*pulse,{r:1});T(r[4],VX+24,Y+44,{f:F.s(400,20),c:C.dim,a:a*v})})});
+
+    sc(5,(a0,a)=>{left(a0,a,["Every step is","tested, every","run."],"Ground truth comes from the problems planted in the data. If one layer slips, the run fails before anyone relies on it.");
+      const pa=inn(t,a0+1.6);panel(VX,PY,VW,510,"Evals","run 0412",a*pa);
+      [["Pipeline","No bad rows published"],["Migration","No unexplained differences"],["Ontology","Every duplicate found"],["Actions","26 of 26 safety tests"],["Agents","Every claim cites evidence"]].forEach((r,i)=>{const v=inn(t,a0+2.4+i*.3),ok=inn(t,a0+3.8+i*.7,.7),Y=PY+130+i*86;if(i)hl(VX+24,Y-46,VW-48,a*v);T(r[0],VX+24,Y,{f:F.s(500,24),a:a*v});T(r[1],VX+260,Y,{f:F.s(400,20),c:C.sub,a:a*v});if(ok>0)tag("Pass",VX+VW-24,Y-8,C.ok,a*ok,{r:1})})});
+  }
+
+  // ---- 5. The answer (91 to 101)
+  if(t>91&&t<101.4){const a=beat(t,91,101.4);
+    search(410,110,1100,Q,Q.length,a*inn(t,91.2));
+    const pv=inn(t,92.2);panel(410,236,1100,520,"Answer","4.1 s",a*pv);
+    T("Out of stock 14 of the last 17 days.",450,350,{f:F.s(500,36),a:a*inn(t,92.8)});
+    para("The Aug 15 planogram removed its backup facing, and the vendor ships every 12 days. Suggested action: reorder 120 units.",450,410,1000,93.6,t,a,{c:C.sub,f:F.s(400,26)});
+    T("Sources",450,530,{f:F.s(400,18),c:C.dim,a:a*inn(t,94.8)});let sx=450;["stock_history","planogram_a_v2","vendor_lead_time"].forEach((s,i)=>{const v=inn(t,95+i*.3);const w=MW(s,F.m(400,18))+28;x.save();x.globalAlpha=a*v;rr(sx,552,w,40,6);x.strokeStyle=C.line;x.lineWidth=1.5;x.stroke();x.restore();T(s,sx+14,578,{f:F.m(400,18),c:C.blue,a:a*v});sx+=w+12});
+    hl(434,630,1052,a*inn(t,96.3));const okv=inn(t,96.6);tag("Approved",450,690,C.ok,a*okv);T("Reorder approved by store ops, written back to the order system.",580,696,{f:F.s(400,22),c:C.sub,a:a*okv});
+    const tv=inn(t,97.8,1.3);T("4 seconds instead of 11 days.",960,890,{f:F.s(500,60),al:"center",ls:-1.5,a:a*tv});
+  }
+  // ---- 6. Before and after (101 to 111)
+  if(t>101&&t<111.4){const a=beat(t,101,111.4);
+    const pa=inn(t,101.3);panel(200,150,1520,520,"What changes","before and after",a*pa);
+    T("Before",240,256,{f:F.s(400,20),c:C.dim,a:a*pa});T("With OntoForge",980,256,{f:F.s(400,20),c:C.blue,a:a*pa});
+    [["11 days to answer one question","4 seconds, with sources"],["Two teams, two numbers","One number, every difference explained"],["Nobody knows who changed it","Every action approved and logged"]].forEach((r,i)=>{const v=inn(t,102+i*.8),Y=360+i*100;hl(240,Y-58,1440,a*v);T(r[0],240,Y,{f:F.s(400,32),c:C.sub,a:a*v});T(r[1],980,Y,{f:F.s(500,32),a:a*v})});
+    T("The trade",200,780,{f:F.s(400,22),c:C.dim,a:a*inn(t,105)});
+    para("You model your business once, up front, and risky actions wait for a person. After that, every answer is faster and safer.",200,830,1300,105.4,t,a,{c:C.ink,f:F.s(400,34)});
+  }
+  // ---- 7. What's next (111 to 117.4)
+  if(t>111&&t<117.4){const a=beat(t,111,117.4);
+    tag("Ideation phase",200,250,C.warn,a*inn(t,111.2));
+    head(["Learn your business as it is.","Then act on it."],200,380,111.4,t,a);
+    para("Big ontology platforms ask for months of restructuring and a large budget. We are building a lighter layer for small businesses. Connect what you already run, see every object and link, and add AI only where it actually pays.",200,580,1060,112.4,t,a,{f:F.s(400,30)});
+    [["No rebuild of your backend or production systems"],["AI where it pays, plain automation where it does not"],["Your own agents, trained on your own ontology"]].forEach((r,i)=>{const v=inn(t,113.6+i*.5),Y=790+i*56;dot(212,Y-9,6,C.blue,a*v);T(r[0],236,Y,{f:F.s(400,28),a:a*v})});
+  }
+
+  // ---- 8. Platform walkthrough (117 to 165)
+  if(t>117&&t<165.4){const ja=Math.min(p(t,117,117.9),1-p(t,164.5,165.4));
+    const W0=117,WD=8;const steps=["Connect","Understand","One place","Find gaps","Decide","Train"];const k=cl(Math.floor((t-W0)/WD),0,5),s0=W0+k*WD;
+    const caps=[["Connect what you already run.","Point of sale, accounting, spreadsheets and your BI tools. Read only. Nothing in production moves."],
+      ["It learns your business as it is.","A general ontology layer maps the objects and links across every source, out of the box."],
+      ["Every tool in one place.","Dashboards and sheets open right inside the workspace, or in their own window."],
+      ["Narrow down to the links that break.","Look at one object or link at a time and see exactly where the business leaks."],
+      ["AI only where it pays.","Some gaps need a simple rule, some need a model. You see which before you spend."],
+      ["Train agents on your own ontology.","They see only your objects and take only the actions you allow, with approvals."]];
+    const cv2=Math.min(p(t,s0,s0+.8),1-p(t,s0+WD-.6,s0+WD))*ja;const hv=inn(t,s0+.1,1);
+    T(caps[k][0],120,96+(1-hv)*12,{f:F.s(500,44),ls:-1,a:cv2*hv});T(caps[k][1],120,140,{f:F.s(400,24),c:C.sub,a:cv2*inn(t,s0+.5,1)});
+    // step tracker
+    const L=200,R=1720,TY=980;seg([L,TY],[R,TY],C.line,2,1,ja);const pv=eio(cl((t-s0)/1.2));if(k>0||pv>0)seg([L,TY],[lerp(L,R,Math.max(0,k-1+pv)/5),TY],C.blue,2.5,k>0?1:0,ja);
+    steps.forEach((s,i)=>{const sx=lerp(L,R,i/5);dot(sx,TY,i===k?8:5,i===k?C.blue:i<k?C.ink:C.line,ja);T(s,sx,TY+40,{f:F.s(i===k?500:400,20),al:"center",c:i===k?C.ink:C.dim,a:ja})});
+    // workspace window
+    const X=120,Y=176,Wd=1680,Hh=740,RL=270,IW=420,CX=X+RL,CW=Wd-RL-IW,IX=X+Wd-IW,top=Y+56;
+    panel(X,Y,Wd,Hh,"OntoForge workspace","Juniper Home Goods, 3 stores and online",ja);
+    tag("Ideation phase",X+260,Y+30,C.warn,ja);
+    x.save();x.globalAlpha=ja;x.fillStyle=C.line;x.fillRect(CX,top,1.5,Hh-56);x.fillRect(IX,top,1.5,Hh-56);x.restore();
+    // left rail: sources
+    T("Sources",X+20,top+40,{f:F.s(500,18),c:C.dim,a:ja});
+    const SRC=[["Point of sale","18,420 rows"],["Online store","6,112 rows"],["Accounting","3,904 rows"],["Inventory sheet","812 rows"],["Supplier inbox","1,240 emails"],["BI dashboards","4 boards"]];
+    SRC.forEach((r,i)=>{const on=t>W0+1.4+i*.8,Yr=top+86+i*62;dot(X+28,Yr-6,5,on?C.ok:C.line,ja);T(r[0],X+44,Yr,{f:F.s(400,20),c:on?C.ink:C.dim,a:ja});T(on?r[1]:"Connecting",X+44,Yr+24,{f:F.m(400,14),c:C.dim,a:ja*(t>W0+.8+i*.8?1:0)})});
+    // canvas tabs
+    const tabs=["Ontology","Sales dashboard","Inventory sheet"];const active=k===2?(t<s0+4.4?1:2):0;const nt=t>W0+2*WD?3:1;let tx=CX+16;
+    for(let i=0;i<nt;i++){const w=MW(tabs[i],F.s(500,17))+(i?52:28);const v=i?inn(t,W0+2*WD+.4+i*.3):1;x.save();x.globalAlpha=ja*v;rr(tx,top+12,w,36,6);x.fillStyle=i===active?C.head:"transparent";x.fill();if(i===active){x.strokeStyle=C.line;x.lineWidth=1.5;x.stroke()}x.restore();T(tabs[i],tx+14,top+36,{f:F.s(500,17),c:i===active?C.ink:C.dim,a:ja*v});if(i){x.save();x.globalAlpha=ja*v;x.strokeStyle=C.dim;x.lineWidth=1.6;const ax=tx+w-26,ay=top+24;x.strokeRect(ax,ay,11,11);x.beginPath();x.moveTo(ax+6,ay-3);x.lineTo(ax+14,ay-3);x.lineTo(ax+14,ay+5);x.moveTo(ax+14,ay-3);x.lineTo(ax+6,ay+5);x.stroke();x.restore()}tx+=w+8}
+    const G0=top+64;
+    if(active===0){
+      const N={Customer:[CX+170,G0+150,"2,914"],Order:[CX+500,G0+110,"24,532"],Invoice:[CX+830,G0+170,"21,098"],Store:[CX+170,G0+470,"4"],Product:[CX+500,G0+500,"1,206"],Supplier:[CX+830,G0+530,"38"]};
+      const E=[["Customer","Order","places"],["Order","Invoice","billed by"],["Order","Product","contains"],["Product","Supplier","supplied by"],["Order","Store","sold at"],["Invoice","Customer","owed by"],["Product","Store","stocked at"],["Customer","Store","shops at"]];
+      const gapE=(k===3||k===4)?["Order|Invoice","Product|Supplier"]:[];
+      E.forEach((e,i)=>{const a2=N[e[0]],b2=N[e[1]],v=inn(t,W0+WD+1+i*.25,.9);const g=gapE.includes(e[0]+"|"+e[1]);const dim=k>=3&&!g;seg([a2[0],a2[1]],[b2[0],b2[1]],g?C.warn:C.line,g?3:2,v,ja*(dim?.35:1));if(v>.9&&!dim&&k<3&&e[2]!=="owed by")T(e[2],(a2[0]+b2[0])/2,(a2[1]+b2[1])/2-10,{f:F.s(400,15),c:C.dim,al:"center",a:ja*inn(t,W0+WD+2.5)})});
+      const scope=k===5?["Order","Product","Supplier"]:[];
+      Object.entries(N).forEach(([n,q],i)=>{const v=inn(t,W0+WD+.4+i*.2,.9);if(v<=0)return;const dim=(k>=3&&k<5)&&!["Order","Invoice","Product","Supplier"].includes(n)||(k===5&&!scope.includes(n));x.save();x.globalAlpha=ja*v;rr(q[0]-90,q[1]-34,180,68,6);x.fillStyle=C.head;x.fill();x.globalAlpha=ja*v*(dim?.4:1);x.strokeStyle=scope.includes(n)?C.blue:C.line;x.lineWidth=scope.includes(n)?2:1.5;x.stroke();x.restore();T(n,q[0],q[1]-2,{f:F.s(500,20),al:"center",a:ja*v*(dim?.4:1)});T(q[2],q[0],q[1]+22,{f:F.m(400,14),c:C.dim,al:"center",a:ja*v*(dim?.4:1)})});
+      if(k>=3&&k<5){[["14% of orders have no invoice after 30 days",N.Order,N.Invoice],["Lead time missing for 38% of products",N.Product,N.Supplier]].forEach((g,i)=>{const v=inn(t,W0+3*WD+1.2+i*1.2);const mx=(g[1][0]+g[2][0])/2,my=(g[1][1]+g[2][1])/2+(i?66:-86);const f=F.s(500,16),w=MW(g[0],f)+28;x.save();x.globalAlpha=ja*v;rr(mx-w/2,my-17,w,34,6);x.fillStyle=C.panel;x.fill();x.strokeStyle=C.warn;x.lineWidth=1.5;x.stroke();x.restore();T(g[0],mx,my+6,{f,c:C.warn,al:"center",a:ja*v})})}
+      if(k<1){T("Waiting for sources to sync",CX+CW/2,G0+330,{f:F.s(400,22),c:C.dim,al:"center",a:ja*(1-inn(t,W0+5))})}
+    } else {
+      const FX=CX+24,FY=G0,FW=CW-48,FH=Hh-56-88;x.save();x.globalAlpha=ja;rr(FX,FY,FW,FH,6);x.strokeStyle=C.line;x.lineWidth=1.5;x.setLineDash([6,6]);x.stroke();x.setLineDash([]);x.restore();
+      T(active===1?"Embedded from your BI tool":"Embedded from your spreadsheet app",FX+20,FY+34,{f:F.s(400,16),c:C.dim,a:ja});
+      const bw=MW("Open in new window",F.s(500,16))+28;x.save();x.globalAlpha=ja;rr(FX+FW-bw-16,FY+12,bw,34,6);x.strokeStyle=C.line;x.lineWidth=1.5;x.stroke();x.restore();T("Open in new window",FX+FW-bw-2,FY+35,{f:F.s(500,16),a:ja});
+      if(active===1){T("Weekly sales by store",FX+20,FY+92,{f:F.s(500,22),a:ja});const vals=[42,51,47,58,61,55,66,72,69,74,81,78];vals.forEach((v,i)=>{const bh=v*4.2*inn(t,s0+.6+i*.06,.8);x.save();x.globalAlpha=ja;x.fillStyle=i===vals.length-1?C.blue:C.line;rr(FX+40+i*((FW-80)/12),FY+FH-40-bh,(FW-80)/12-14,bh,3);x.fill();x.restore()})}
+      else{T("Inventory by product",FX+20,FY+92,{f:F.s(500,22),a:ja});[["SKU","Product","On hand","Reorder at"],["JH-1042","Linen throw, oat","14","20"],["JH-2210","Stoneware mug","212","60"],["JH-3301","Cedar candle","6","24"],["JH-3388","Wool rug 5x7","3","4"],["JH-4120","Glass carafe","48","30"]].forEach((r,i)=>{const Yr=FY+150+i*52;if(i)hl(FX+20,Yr-34,FW-40,ja);r.forEach((c,j)=>T(c,FX+20+[0,160,520,680][j],Yr,{f:j===0||i===0?F.m(400,16):F.s(400,18),c:i===0?C.dim:(j>=2&&i&&+r[2]<+r[3])?C.warn:C.ink,a:ja}))})}
+    }
+    // inspector
+    const insT=["Sync status","Discovered","Open tools","Gaps found","Recommended fixes","Train an agent"][k];T(insT,IX+24,top+40,{f:F.s(500,18),c:C.dim,a:cv2});
+    const iv=(d)=>inn(t,s0+d,.9)*cv2;
+    if(k===0){const prog=cl((t-W0-1)/5);x.save();x.globalAlpha=cv2;rr(IX+24,top+80,IW-48,8,4);x.fillStyle=C.line;x.fill();rr(IX+24,top+80,(IW-48)*prog,8,4);x.fillStyle=C.blue;x.fill();x.restore();T(Math.round(prog*6)+" of 6 sources synced",IX+24,top+128,{f:F.s(400,20),a:cv2});para("Read only access. OntoForge copies what it needs into its own store and never writes to your systems unless you approve an action.",IX+24,top+190,IW-48,s0+1,t,cv2,{f:F.s(400,19)})}
+    if(k===1){[["6 objects"],["8 links"],["4,118 records matched across systems"],["Learned in 3 minutes"]].forEach((r,i)=>{T(r[0],IX+24,top+96+i*54,{f:F.s(i<2?500:400,i<2?26:20),c:i<2?C.ink:C.sub,a:iv(1+i*.5)})});para("Same customer in the store and online? Same product in the sheet and the till? It figures that out first.",IX+24,top+340,IW-48,s0+3.4,t,cv2,{f:F.s(400,19)})}
+    if(k===2){[["In this workspace","Tools stay next to the objects they describe"],["In a new window","For a second screen or a full view"]].forEach((r,i)=>{const Yr=top+100+i*110;x.save();x.globalAlpha=iv(1+i*.4);rr(IX+24,Yr-36,IW-48,92,6);x.strokeStyle=C.line;x.lineWidth=1.5;x.stroke();x.restore();T(r[0],IX+44,Yr,{f:F.s(500,20),a:iv(1+i*.4)});T(r[1],IX+44,Yr+30,{f:F.s(400,17),c:C.dim,a:iv(1+i*.4)})})}
+    if(k===3){[["Order to Invoice","Billing gap","about $41k waiting"],["Product to Supplier","Data gap","reorders are guesses"]].forEach((r,i)=>{const Yr=top+100+i*130;x.save();x.globalAlpha=iv(1.2+i*1.2);rr(IX+24,Yr-36,IW-48,110,6);x.strokeStyle=C.line;x.lineWidth=1.5;x.stroke();x.restore();T(r[0],IX+44,Yr,{f:F.s(500,20),a:iv(1.2+i*1.2)});tag(r[1],IX+IW-44,Yr-6,C.warn,iv(1.2+i*1.2),{r:1});T(r[2],IX+44,Yr+34,{f:F.s(400,18),c:C.sub,a:iv(1.2+i*1.2)})})}
+    if(k===4){[["Missing invoices","A rule and a reminder email","No AI needed",C.ok,"about $0"],["Reorder timing","Forecast from sales history","AI helps",C.blue,"low"],["Supplier emails","Agent drafts, you approve","AI with approval",C.vio,"low"]].forEach((r,i)=>{const Yr=top+96+i*150;const v=iv(1+i*1.3);x.save();x.globalAlpha=v;rr(IX+24,Yr-34,IW-48,128,6);x.strokeStyle=C.line;x.lineWidth=1.5;x.stroke();x.restore();T(r[0],IX+44,Yr,{f:F.s(500,20),a:v});tag(r[2],IX+IW-44,Yr-6,r[3],v,{r:1});T(r[1],IX+44,Yr+34,{f:F.s(400,18),c:C.sub,a:v});T("Running cost "+r[4],IX+44,Yr+66,{f:F.m(400,15),c:C.dim,a:v})})}
+    if(k===5){T("reorder-assistant",IX+24,top+100,{f:F.m(500,24),a:iv(.8)});T("Sees",IX+24,top+160,{f:F.s(400,17),c:C.dim,a:iv(1.2)});let sx=IX+24;["Order","Product","Supplier"].forEach((s,i)=>{sx+=tag(s,sx,top+194,C.blue,iv(1.4+i*.2))+8});T("May do",IX+24,top+260,{f:F.s(400,17),c:C.dim,a:iv(2)});T("draft_purchase_order",IX+24,top+294,{f:F.m(400,18),a:iv(2.2)});T("email_supplier (needs approval)",IX+24,top+326,{f:F.m(400,18),a:iv(2.4)});
+      T("Evals on your own history",IX+24,top+400,{f:F.s(400,17),c:C.dim,a:iv(3)});const sc=cl((t-s0-3.2)/2.6);x.save();x.globalAlpha=iv(3);rr(IX+24,top+426,IW-48,8,4);x.fillStyle=C.line;x.fill();rr(IX+24,top+426,(IW-48)*.94*eio(sc),8,4);x.fillStyle=C.ok;x.fill();x.restore();T(Math.round(94*eio(sc))+"% of decisions match your team",IX+24,top+470,{f:F.s(500,20),a:iv(3.2)});
+      const dv=iv(5.6);x.save();x.globalAlpha=dv;rr(IX+24,top+530,IW-48,52,6);x.fillStyle=C.blue;x.fill();x.restore();T("Deploy with approvals",IX+IW/2,top+563,{f:F.s(500,20),al:"center",a:dv})}
+  }
+
+  // ---- 9. Governance for regulated work (165 to 214)
+  if(t>165&&t<214.4){const ja=Math.min(p(t,165,165.9),1-p(t,213.5,214.4));
+    const GD=[12,9,9,10,9],GS=[165];for(let i=1;i<5;i++)GS.push(GS[i-1]+GD[i-1]);
+    let k=0;for(let i=0;i<5;i++)if(t>=GS[i])k=i;const s0=GS[k],sd=GD[k];
+    const steps=["Lenses","Fields","Actions","Traceability","Evidence"];
+    const caps=[["One ontology, a different lens for every role.","Built for regulated work. Here, a health system where care, billing and compliance share one model."],
+      ["Each role sees only the fields it needs.","Care teams see clinical detail. Billing sees what a claim needs. Everything else stays masked."],
+      ["Each role can do only what it should.","Actions are permissioned per role, with separation of duties. Nobody approves their own write-off."],
+      ["Every agent step is traceable.","What it read, which rule allowed it, which model wrote what, and who approved it. Replayable months later."],
+      ["Compliance evidence on demand.","Access reviews and finance control tests come straight from the audit log, not from a month of screenshots."]];
+    const cv2=Math.min(p(t,s0,s0+.8),1-p(t,s0+sd-.6,s0+sd))*ja;const hv=inn(t,s0+.1,1);
+    T(caps[k][0],120,96+(1-hv)*12,{f:F.s(500,44),ls:-1,a:cv2*hv});T(caps[k][1],120,140,{f:F.s(400,24),c:C.sub,a:cv2*inn(t,s0+.5,1)});
+    const L=200,R=1720,TY=980;seg([L,TY],[R,TY],C.line,2,1,ja);const pv=eio(cl((t-s0)/1.2));if(k>0)seg([L,TY],[lerp(L,R,(k-1+pv)/4),TY],C.blue,2.5,1,ja);
+    steps.forEach((s,i)=>{const sx=lerp(L,R,i/4);dot(sx,TY,i===k?8:5,i===k?C.blue:i<k?C.ink:C.line,ja);T(s,sx,TY+40,{f:F.s(i===k?500:400,20),al:"center",c:i===k?C.ink:C.dim,a:ja})});
+    const X=120,Y=176,Wd=1680,Hh=740,top=Y+56,IW=440,IX=X+Wd-IW;
+    panel(X,Y,Wd,Hh,"OntoForge workspace","Riverbend Health, governance view",ja);tag("Ideation phase",X+260,Y+30,C.warn,ja);
+    const lock=(cx,cy,a)=>{x.save();x.globalAlpha*=a;x.strokeStyle=C.dim;x.lineWidth=2;rr(cx-8,cy-2,16,12,2);x.stroke();x.beginPath();x.arc(cx,cy-3,5,Math.PI,0);x.stroke();x.restore()};
+    if(k===0){
+      const roles=["Care manager","Billing analyst","Compliance officer","claims-agent"];const ri=cl(Math.floor((t-s0-.6)/2.8),0,3);
+      let bx=X+24;roles.forEach((r,i)=>{const f=i===3?F.m(500,17):F.s(500,17),w=MW(r,f)+32;x.save();x.globalAlpha=cv2;rr(bx,top+20,w,40,6);x.fillStyle=i===ri?C.blue+"26":"transparent";x.fill();x.strokeStyle=i===ri?C.blue:C.line;x.lineWidth=1.5;x.stroke();x.restore();T(r,bx+16,top+46,{f,c:i===ri?C.ink:C.sub,a:cv2});bx+=w+10});
+      T("Viewing as",IX-200,top+46,{f:F.s(400,17),c:C.dim,a:0});
+      const VIS=[{Patient:"full",Encounter:"full",Provider:"full",Claim:"part",Payer:"none",Invoice:"none"},{Patient:"part",Encounter:"part",Provider:"full",Claim:"full",Payer:"full",Invoice:"full"},{Patient:"read",Encounter:"read",Provider:"read",Claim:"read",Payer:"read",Invoice:"read"},{Patient:"none",Encounter:"part",Provider:"none",Claim:"full",Payer:"full",Invoice:"part"}][ri];
+      const G0=top+120,CX=X+40;const N={Patient:[CX+170,G0+120],Encounter:[CX+520,G0+80],Provider:[CX+870,G0+120],Claim:[CX+520,G0+330],Payer:[CX+870,G0+420],Invoice:[CX+170,G0+420]};
+      [["Patient","Encounter"],["Encounter","Provider"],["Encounter","Claim"],["Claim","Payer"],["Claim","Invoice"],["Invoice","Patient"]].forEach(e=>{const a2=N[e[0]],b2=N[e[1]];const off=VIS[e[0]]==="none"||VIS[e[1]]==="none";seg(a2,b2,C.line,2,1,cv2*(off?.35:1))});
+      Object.entries(N).forEach(([n,q])=>{const st=VIS[n];x.save();x.globalAlpha=cv2;rr(q[0]-100,q[1]-36,200,72,6);x.fillStyle=C.head;x.fill();x.globalAlpha=cv2*(st==="none"?.45:1);x.strokeStyle=st==="part"?C.warn:st==="full"?C.blue:C.line;x.lineWidth=1.5;if(st==="part")x.setLineDash([6,5]);x.stroke();x.setLineDash([]);x.restore();
+        T(n,q[0],q[1]-2,{f:F.s(500,20),al:"center",a:cv2*(st==="none"?.4:1)});T({full:"full access",part:"masked fields",read:"read only",none:"no access"}[st],q[0],q[1]+22,{f:F.s(400,15),c:st==="part"?C.warn:C.dim,al:"center",a:cv2*(st==="none"?.6:1)});if(st==="none")lock(q[0]+78,q[1]-14,cv2)});
+      x.save();x.globalAlpha=ja;x.fillStyle=C.line;x.fillRect(IX,top,1.5,Hh-56);x.restore();
+      const notes=[["Sees the full chart for their own patients","Claims show status only","No access to invoices or payer contracts"],["Claims, payers and invoices in full","Patient shows as P-4821, no diagnosis text","Encounters show billing codes only"],["Reads everything, changes nothing","Sees the full audit trail","Owns access policies, with a second approver"],["Claims, payers and invoice totals","Never sees patient identity or notes","Can draft, never submit on its own"]][ri];
+      T("What this role gets",IX+24,top+44,{f:F.s(500,18),c:C.dim,a:cv2});T(roles[ri],IX+24,top+100,{f:ri===3?F.m(500,26):F.s(500,28),a:cv2});
+      notes.forEach((nl,i)=>{const Yn=top+170+i*70;hl(IX+24,Yn-40,IW-48,cv2);T(nl,IX+24,Yn,{f:F.s(400,20),c:C.sub,a:cv2})});
+    }
+    if(k===1){const cards=[["Care manager view",[["name","Maria Alvarez"],["date of birth","1979-03-11"],["diagnosis","E11.9 Type 2 diabetes"],["medications","Metformin 500 mg"],["insurance","Northline PPO"],["balance due",null]]],["Billing analyst view",[["name","P-4821"],["date of birth",null],["diagnosis",null],["medications",null],["insurance","Northline PPO"],["balance due","$1,240.00"]]]];
+      cards.forEach((c,ci)=>{const cx=X+40+ci*820,cw=780,v=inn(t,s0+1+ci*.8);x.save();x.globalAlpha=cv2*v;rr(cx,top+30,cw,580,6);x.strokeStyle=C.line;x.lineWidth=1.5;x.stroke();x.restore();T(c[0],cx+28,top+80,{f:F.s(500,24),a:cv2*v});tag("Patient",cx+cw-28,top+74,C.blue,cv2*v,{r:1});
+        c[1].forEach((r,i)=>{const Yr=top+160+i*72,rv=inn(t,s0+1.6+ci*.8+i*.25);hl(cx+28,Yr-42,cw-56,cv2*rv);T(r[0],cx+28,Yr,{f:F.m(400,18),c:C.dim,a:cv2*rv});if(r[1]==null){x.save();x.globalAlpha=cv2*rv;rr(cx+300,Yr-22,220,28,4);x.fillStyle=C.line;x.fill();x.restore();T("masked",cx+cw-28,Yr,{f:F.s(400,16),c:C.dim,al:"right",a:cv2*rv})}else T(r[1],cx+300,Yr,{f:r[0]==="name"&&ci?F.m(400,22):F.s(400,22),a:cv2*rv})})});
+      T("Same object, same moment. The difference is the role, not a separate copy of the data.",X+40,top+660,{f:F.s(400,20),c:C.sub,a:cv2*inn(t,s0+4.5)});
+    }
+    if(k===2){const cols=["View chart","Submit claim","Write off balance","Approve write-off","Change access policy"];const rows=[["Care manager",["ok","no","no","no","no"]],["Billing analyst",["codes","ok","ok:under $500","no","no"]],["Revenue cycle lead",["no","ok","ok","ok:not own","no"]],["Compliance officer",["read","no","no","no","ok:2 approvers"]],["claims-agent",["no","appr","no","no","no"]]];
+      const c0=X+330,cw=(Wd-370)/5;cols.forEach((c,i)=>T(c,c0+i*cw,top+60,{f:F.s(500,18),c:C.dim,a:cv2*inn(t,s0+.8)}));
+      rows.forEach((r,ri2)=>{const Yr=top+150+ri2*100,v=inn(t,s0+1.4+ri2*.6);hl(X+40,Yr-56,Wd-80,cv2*v);T(r[0],X+40,Yr,{f:ri2===4?F.m(500,20):F.s(500,22),a:cv2*v});
+        r[1].forEach((cell,ci)=>{const [kind,note]=cell.split(":");const map={ok:["Allowed",C.ok],no:["Denied",C.dim],appr:["Needs approval",C.warn],read:["Read only",C.blue],codes:["Codes only",C.warn]};const m=map[kind];tag(m[0],c0+ci*cw,Yr-6,m[1],cv2*v);if(note)T(note,c0+ci*cw,Yr+30,{f:F.s(400,15),c:C.dim,a:cv2*v})})});
+    }
+    if(k===3){T("claims-agent",X+40,top+70,{f:F.m(500,26),a:cv2});T("run A-1187, appeal for denied claim C-2291",X+260,top+70,{f:F.s(400,20),c:C.sub,a:cv2});
+      const ev=[["09:14:02","Read claim C-2291","fields: payer, codes, amount. No patient identity.","Policy: permit",C.blue],["09:14:03","Found the denial reason","CO-197, prior authorization missing. Source: payer remittance.","Evidence",C.blue],["09:14:05","Drafted an appeal","model 2026-09, prompt 3fa1c9, cites 3 sources","Grounded",C.ok],["09:14:05","Tried to submit it","rule: agents cannot submit appeals on their own","Denied",C.bad],["10:02:40","Approved by m.lee","Revenue cycle lead, after reading the draft","Approved",C.ok],["10:02:41","Submitted to the payer","audit #5531, hash chained, linked to run A-1187","Applied",C.ok]];
+      ev.forEach((e,i)=>{const Yr=top+150+i*86,v=inn(t,s0+1+i*.9);dot(X+60,Yr-8,6,e[4],cv2*v);if(i<5)seg([X+60,Yr+4],[X+60,Yr+70],C.line,2,v,cv2);T(e[0],X+90,Yr,{f:F.m(400,18),c:C.dim,a:cv2*v});T(e[1],X+230,Yr,{f:F.s(500,22),a:cv2*v});T(e[2],X+230,Yr+30,{f:F.s(400,18),c:C.sub,a:cv2*v});tag(e[3],X+Wd-40,Yr-6,e[4],cv2*v,{r:1})});
+    }
+    if(k===4){const LW=980;T("Who touched Patient P-4821, last 90 days",X+40,top+60,{f:F.s(500,22),a:cv2});
+      [["Who","Role","What","Why"],["r.patel","Care manager","Opened the chart","Treatment"],["m.lee","Billing analyst","Viewed claim, masked","Payment"],["claims-agent","Agent","Read claim, no identity","Appeal"],["j.ortiz","Compliance officer","Reviewed the audit trail","Audit"]].forEach((r,i)=>{const Yr=top+130+i*70,v=i?inn(t,s0+1+i*.5):inn(t,s0+.8);if(i)hl(X+40,Yr-42,LW-40,cv2*v);[0,220,480,780].forEach((cx,j)=>T(r[j],X+40+cx,Yr,{f:i===0?F.s(400,16):j===0?F.m(400,19):F.s(400,19),c:i===0?C.dim:j===3?C.blue:C.ink,a:cv2*v}))});
+      x.save();x.globalAlpha=ja;x.fillStyle=C.line;x.fillRect(X+LW+20,top,1.5,Hh-56);x.restore();const RX=X+LW+50;
+      T("Control checks",RX,top+60,{f:F.s(500,22),a:cv2});
+      [["Patient data access matched role","100%"],["Write-offs over $5,000 with a second approver","41 of 41"],["Agent actions with human approval","100%"],["Audit chain intact","verified"]].forEach((r,i)=>{const Yr=top+140+i*90,v=inn(t,s0+2.5+i*.6);if(i)hl(RX,Yr-50,IW+130,cv2*v);T(r[0],RX,Yr,{f:F.s(400,19),c:C.sub,a:cv2*v});T(r[1],RX,Yr+30,{f:F.s(500,22),a:cv2*v});tag("Pass",RX+IW+130,Yr+10,C.ok,cv2*v,{r:1})});
+      const bv=inn(t,s0+5.2);x.save();x.globalAlpha=cv2*bv;rr(RX,top+530,IW+130,54,6);x.strokeStyle=C.blue;x.lineWidth=1.5;x.stroke();x.restore();T("Export evidence pack",RX+(IW+130)/2,top+564,{f:F.s(500,20),c:C.blue,al:"center",a:cv2*bv});
+    }
+  }
+
+  // ---- 10. End (214 to 221)
+  if(t>214){const a=p(t,214,215);
+    mark(960,360,56,eio(p(t,214.2,215.6)),C.ink);
+    T("OntoForge",960,560,{f:F.s(600,150),al:"center",ls:-6,a:a*inn(t,215,1.4)});
+    T("Learn your business. Then act on it.",960,640,{f:F.s(400,34),al:"center",c:C.sub,a:a*inn(t,216,1.3)});
+    T("ontoforge.coconutlabs.org",960,760,{f:F.m(400,30),al:"center",c:C.blue,a:a*inn(t,217,1.3)});
+    T("A Coconut Labs project, in ideation",960,960,{f:F.s(400,22),al:"center",c:C.dim,a:a*inn(t,218,1.3)});
+  }
+}
+window.__render=render;window.__DUR=DUR;
+
+const btn=document.getElementById("play"),scrub=document.getElementById("scrub"),tl=document.getElementById("time"),chs=document.getElementById("chapters");
+const reduce=window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches;
+let t=reduce?220:0,playing=!reduce,last=null;
+const fmt=s=>`${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
+chs.innerHTML=CH.map(([n,s])=>`<button type="button" data-s="${s}">${n}</button>`).join("");
+function ui(){btn.textContent=playing?"Pause":(t>=DUR?"Replay":"Play");scrub.value=t;tl.textContent=`${fmt(t)} / ${fmt(DUR)}`;let ci=0;CH.forEach((c,i)=>{if(t>=c[1])ci=i});chs.querySelectorAll("button").forEach((b,i)=>b.setAttribute("aria-current",String(i===ci)))}
+function loop(now){if(window.__stop)return;if(playing){if(last!=null)t=Math.min(DUR,t+(now-last)/1000);if(t>=DUR)playing=false}last=now;render(t);ui();requestAnimationFrame(loop)}
+btn.onclick=()=>{if(t>=DUR)t=0;playing=!playing;last=null};
+scrub.oninput=()=>{t=+scrub.value;last=null};
+chs.onclick=e=>{const b=e.target.closest("button");if(b){t=+b.dataset.s;playing=true;last=null}};
+const go=()=>requestAnimationFrame(loop);
+(document.fonts?Promise.race([Promise.all(["400 20px Geist","500 20px Geist","600 20px Geist","400 20px 'Geist Mono'","500 20px 'Geist Mono'"].map(f=>document.fonts.load(f))),new Promise(r=>setTimeout(r,1500))]):Promise.resolve()).then(go,go);
+})();
+</script>

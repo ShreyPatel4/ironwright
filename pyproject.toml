@@ -1,0 +1,36 @@
+[project]
+name = "ontoforge"
+version = "0.1.0"
+description = "Legacy to lakehouse to ontology to agents: an end-to-end, multi-industry modernization showcase that runs for free on a laptop."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Shrey Patel", email = "shrey@shreypatel.dev" }]
+license = { text = "MIT" }
+dependencies = [
+  "pyiceberg[sql-sqlite,pyarrow]>=0.9",
+  "duckdb>=1.1",
+  "pyarrow>=16",
+  "pyyaml>=6",
+  "langgraph>=0.3",
+  "langgraph-checkpoint-sqlite>=2",
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "httpx>=0.27",
+  "mcp>=1.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+ontoforge = "ontoforge.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ontoforge*"]
+
+[tool.setuptools.package-data]
+"ontoforge" = ["packs/*/*.py", "packs/*/*.yaml", "packs/*/models/*/*.sql"]

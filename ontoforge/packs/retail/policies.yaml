@@ -1,0 +1,36 @@
+default: deny
+rules:
+  - id: triage-agent-reads
+    effect: permit
+    principal: "agent:retail-triage"
+    action: "function:*"
+  - id: humans-read
+    effect: permit
+    principal: "user:*"
+    action: "function:*"
+  - id: small-replenishment-orders
+    effect: permit
+    principal: "agent:retail-triage"
+    action: "action:create_replenishment_order"
+    when: "params.qty <= 200"
+  - id: agent-may-flag
+    effect: permit
+    principal: "agent:retail-triage"
+    action: "action:flag_*"
+  - id: agent-may-propose-facings
+    effect: permit
+    principal: "agent:retail-triage"
+    action: "action:propose_facing_change"
+  - id: no-agent-delisting
+    effect: forbid
+    principal: "agent:*"
+    action: "action:delist_item"
+  - id: category-managers-act
+    effect: permit
+    principal: "user:category.manager*"
+    action: "action:*"
+  - id: vendors-see-only-their-own
+    effect: permit
+    principal: "vendor:*"
+    action: "function:vendor_sell_through"
+    when: "principal == 'vendor:' + params.vendor_id"

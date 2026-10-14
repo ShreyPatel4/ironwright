@@ -1,0 +1,72 @@
+usecases:
+  claim_triage:
+    title: New claim triage
+    decision: How should this claim be handled, fast-track, adjuster, coverage review or special investigation?
+    agent: agent:claims-triage
+    on_behalf_of: user:claims.manager.intake
+    targets_sql: >
+      select ont_id('Claim', 'fnol', first_ref) as claim_id, 'fnol:' || first_ref as gt_key
+      from gold_claim_features order by first_reported, first_ref
+    target_params: {claim_id: Claim}
+    evidence:
+      claim: {fn: claim_details, args: {claim_id: target.claim_id}}
+      coverage: {fn: coverage_check, args: {claim_id: target.claim_id}}
+      cat: {fn: cat_check, args: {claim_id: target.claim_id}}
+      fraud: {fn: fraud_signals, args: {claim_id: target.claim_id}}
+      adjuster: {fn: best_adjuster, args: {claim_id: target.claim_id}}
+    diagnoses:
+      - label: siu_referral
+        when: "evidence.fraud.summary.days_since_policy_start <= 30 and evidence.fraud.summary.prior_claims_3y >= 2"
+        confidence: 0.8
+        explain: >
+          The loss happened {evidence.fraud.summary.days_since_policy_start} days after the policy started, and the
+          policy has {evidence.fraud.summary.prior_claims_3y} prior claims in three years. A ${evidence.claim.summary.est_amount}
+          {evidence.claim.summary.peril} claim on that profile warrants special investigation before payment.
+        cite: [claim, fraud]
+        action:
+          name: refer_to_siu
+          args: {claim_id: target.claim_id, reason: "'new policy, early loss, prior claims'"}
+      - label: coverage_question
+        when: "not evidence.coverage.summary.in_period or not evidence.coverage.summary.peril_covered"
+        confidence: 0.85
+        explain: >
+          Coverage does not line up: loss date {evidence.claim.summary.loss_date} vs policy period
+          {evidence.coverage.summary.eff_date} to {evidence.coverage.summary.exp_date} (in period:
+          {evidence.coverage.summary.in_period}), peril {evidence.claim.summary.peril} vs covered perils
+          {evidence.coverage.summary.perils}. A person has to make this call.
+        cite: [claim, coverage]
+        action:
+          name: deny_claim             # the agent tries; policy forbids it
+          args: {claim_id: target.claim_id}
+          fallback:
+            name: route_coverage_review
+            args: {claim_id: target.claim_id, reason: "'loss outside period or peril not covered'"}
+      - label: fast_track
+        when: "evidence.claim.summary.est_amount <= 5000"
+        confidence: 0.85
+        explain: >
+          A covered {evidence.claim.summary.peril} loss of ${evidence.claim.summary.est_amount}
+          {('inside catastrophe ' + str(evidence.cat.summary.cat_code)) if evidence.cat.summary.in_cat else 'outside any catastrophe'},
+          in the policy period, with no fraud indicators. Paying ${evidence.claim.summary.net_amount} after the deductible now.
+          Reported {evidence.claim.summary.reports} time(s).
+        cite: [claim, coverage, cat, fraud]
+        action:
+          name: fast_track_payment
+          args: {claim_id: target.claim_id, amount: evidence.claim.summary.net_amount}
+      - label: large_loss
+        when: "True"
+        confidence: 0.8
+        explain: >
+          A covered {evidence.claim.summary.peril} loss of ${evidence.claim.summary.est_amount} is above the fast-track
+          limit. Assigning {evidence.adjuster.summary.adjuster_name}, the least-loaded adjuster in the right region with
+          enough authority ({evidence.adjuster.summary.open_claims} open claims).
+        cite: [claim, coverage, adjuster]
+        action:
+          name: assign_adjuster
+          args: {claim_id: target.claim_id, adjuster_id: evidence.adjuster.summary.adjuster_id}
+    review:
+      reviewer: user:siu.manager.west
+      approve_when: "diagnosis.confidence >= 0.8"
+    narrative:
+      audience: a claims manager
+      system: You are a claims triage analyst. Plain, short, grounded in the evidence. Never decide coverage yourself.

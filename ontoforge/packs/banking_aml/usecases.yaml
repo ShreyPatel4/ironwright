@@ -1,0 +1,85 @@
+usecases:
+  alert_triage:
+    title: AML alert triage
+    decision: Is this alert suspicious enough to escalate, or can it be recommended for closure?
+    agent: agent:aml-triage
+    on_behalf_of: user:aml.analyst.queue1
+    targets_sql: >
+      select ont_id('Alert', 'aml_engine', alert_id) as alert_id, alert_id as gt_key
+      from silver_alerts where status = 'OPEN' order by score desc
+    target_params: {alert_id: Alert}
+    evidence:
+      alert: {fn: alert_details, args: {alert_id: target.alert_id}}
+      structuring: {fn: structuring_signal, args: {alert_id: target.alert_id}}
+      movement: {fn: movement_signal, args: {alert_id: target.alert_id}}
+      network: {fn: counterparty_network, args: {alert_id: target.alert_id}}
+    diagnoses:
+      - label: network_risk
+        when: "evidence.network.summary.max_shared_customers >= 2 and evidence.network.summary.high_risk_amount > 0"
+        confidence: 0.85
+        explain: >
+          The account wired ${evidence.network.summary.high_risk_amount} to a high-risk jurisdiction, and its
+          counterparty ({evidence.network.summary.most_shared_counterparty}) is also paid by
+          {evidence.network.summary.max_shared_customers} unrelated customers once spellings are resolved.
+          That pattern points to a shared network, not one-off payments.
+        cite: [alert, network]
+        action:
+          name: escalate_to_case
+          args: {alert_id: target.alert_id, typology: "'counterparty_network'", priority: "'HIGH'"}
+      - label: structuring
+        when: "evidence.structuring.summary.recent_count >= 3 and evidence.alert.summary.cust_type == 'I' and evidence.structuring.summary.history_count_prior_75d <= 2"
+        confidence: 0.9
+        explain: >
+          {evidence.structuring.summary.recent_count} cash deposits between $8,000 and $9,999 in about two weeks,
+          ${evidence.structuring.summary.recent_total} in total, from an individual with no such pattern in the prior
+          months. Amounts kept just under the $10,000 reporting threshold are the textbook structuring pattern.
+        cite: [alert, structuring]
+        action:
+          name: escalate_to_case
+          args: {alert_id: target.alert_id, typology: "'structuring'", priority: "'HIGH'"}
+      - label: rapid_movement
+        when: "evidence.movement.summary.passthrough_ratio >= 0.8 and evidence.movement.summary.distinct_out_counterparties <= 3 and evidence.movement.summary.inbound_wire_total >= 20000"
+        confidence: 0.8
+        explain: >
+          ${evidence.movement.summary.inbound_wire_total} came in by wire and {evidence.movement.summary.passthrough_ratio}
+          of it left within days to {evidence.movement.summary.distinct_out_counterparties} counterparty. The account
+          is acting as a pass-through.
+        cite: [alert, movement]
+        action:
+          name: escalate_to_case
+          args: {alert_id: target.alert_id, typology: "'pass_through'", priority: "'MEDIUM'"}
+      - label: business_as_usual
+        when: "evidence.alert.summary.cust_type == 'B'"
+        confidence: 0.75
+        explain: >
+          The customer is a business (industry code {evidence.alert.summary.industry}) and the flagged activity matches
+          its normal operations: {evidence.structuring.summary.history_count_prior_75d} similar cash deposits in prior
+          months, or money out spread across {evidence.movement.summary.distinct_out_counterparties} payees.
+        cite: [alert, structuring, movement]
+        action:
+          name: close_alert            # the agent tries this; policy forbids it
+          args: {alert_id: target.alert_id}
+          fallback:
+            name: recommend_close
+            args: {alert_id: target.alert_id, rationale: "'Activity consistent with the business profile and history'"}
+      - label: low_risk
+        when: "True"
+        confidence: 0.7
+        explain: >
+          A {evidence.alert.summary.rule_code} alert with no structuring pattern ({evidence.structuring.summary.recent_count}
+          deposits in range), no pass-through and no shared high-risk counterparties. Looks like a one-off.
+        cite: [alert, structuring, movement, network]
+        action:
+          name: close_alert
+          args: {alert_id: target.alert_id}
+          fallback:
+            name: recommend_close
+            args: {alert_id: target.alert_id, rationale: "'One-off activity, no typology indicators'"}
+    review:
+      reviewer: user:aml.analyst.queue1
+      approve_when: "diagnosis.confidence >= 0.7"
+    narrative:
+      audience: an AML investigator and, later, a regulator
+      system: >
+        You are an AML analyst writing an alert disposition narrative. State facts with their evidence IDs.
+        Never speculate about intent, never mention protected characteristics, never invent amounts.

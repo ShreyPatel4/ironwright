@@ -1,0 +1,83 @@
+usecases:
+  late_shipment_triage:
+    title: Late shipment triage
+    decision: This shipment is running late. Why, and what should we do about it?
+    agent: agent:shipment-triage
+    on_behalf_of: user:transport.planner.central
+    targets_sql: >
+      select ont_id('Shipment', 'tms', tms_shipment_id) as shipment_id, tms_shipment_id as gt_key
+      from gold_shipment_status where not delivered and delay_hours > 0 order by delay_hours desc
+    target_params: {shipment_id: Shipment}
+    evidence:
+      status: {fn: shipment_status, args: {shipment_id: target.shipment_id}}
+      order: {fn: shipment_order, args: {shipment_id: target.shipment_id}}
+      options: {fn: reroute_options, args: {shipment_id: target.shipment_id}}
+    diagnoses:
+      - label: address_issue
+        when: "evidence.status.summary.latest_reason == 'ADDRESS'"
+        confidence: 0.9
+        explain: >
+          The carrier raised an address exception; the ETA moved {evidence.status.summary.delay_hours} hours.
+          Nothing moves until the customer confirms the delivery address.
+        cite: [status, order]
+        action:
+          name: create_customer_task
+          args: {shipment_id: target.shipment_id, customer_id: evidence.order.summary.customer_id,
+                 task: "'Confirm delivery address'"}
+      - label: carrier_breakdown
+        when: "evidence.status.summary.latest_reason == 'MECH' and evidence.status.summary.delay_hours >= 36 and evidence.options.summary.alternatives >= 1"
+        confidence: 0.85
+        explain: >
+          The carrier reported a mechanical exception and the ETA slipped {evidence.status.summary.delay_hours} hours.
+          {evidence.options.summary.best_alternative_scac} is available with a
+          {evidence.options.summary.best_alternative_on_time} on-time rate, so moving the load beats waiting.
+        cite: [status, options]
+        action:
+          name: reroute_shipment
+          args: {shipment_id: target.shipment_id, to_carrier_id: evidence.options.summary.best_alternative_id}
+      - label: weather_delay
+        when: "evidence.status.summary.latest_reason == 'WEATHER'"
+        confidence: 0.85
+        explain: >
+          Weather delayed the shipment {evidence.status.summary.delay_hours} hours. No carrier change would help,
+          so the right move is telling the customer the new ETA ({evidence.status.summary.latest_eta}).
+        cite: [status, order]
+        action:
+          name: notify_customer
+          args: {shipment_id: target.shipment_id, customer_id: evidence.order.summary.customer_id,
+                 message: "'Weather delay. New ETA ' + str(evidence.status.summary.latest_eta)"}
+      - label: capacity_delay
+        when: "evidence.status.summary.latest_reason == 'CAPACITY' and evidence.order.summary.priority in ['EXP', 'CRIT']"
+        confidence: 0.8
+        explain: >
+          A {evidence.order.summary.priority} order is {evidence.status.summary.delay_hours} hours late on a carrier
+          capacity delay. Expediting on the same carrier costs about ${evidence.options.summary.expedite_cost_usd}.
+        cite: [status, order, options]
+        action:
+          name: expedite_shipment
+          args: {shipment_id: target.shipment_id, cost_usd: evidence.options.summary.expedite_cost_usd}
+          fallback:            # over the agent's $500 limit: ask a planner instead
+            name: propose_expedite
+            args: {shipment_id: target.shipment_id, cost_usd: evidence.options.summary.expedite_cost_usd}
+      - label: minor_delay
+        when: "evidence.status.summary.delay_hours < 6"
+        confidence: 0.75
+        explain: "Only {evidence.status.summary.delay_hours} hours late on a standard order. Watch it, no action yet."
+        cite: [status]
+        action:
+          name: add_watch
+          args: {shipment_id: target.shipment_id, note: "'minor delay, re-check in 12 hours'"}
+      - label: unclear
+        when: "True"
+        confidence: 0.4
+        explain: "Late by {evidence.status.summary.delay_hours} hours with no clear cause in the evidence."
+        cite: [status, order, options]
+        action:
+          name: add_watch
+          args: {shipment_id: target.shipment_id, note: "'unclear cause, planner to review'"}
+    review:
+      reviewer: user:transport.planner.central
+      approve_when: "diagnosis.confidence >= 0.8 and (proposal.args.cost_usd or 0) <= 1500"
+    narrative:
+      audience: a transport planner
+      system: You are a logistics control-tower analyst. Short, specific, grounded in the evidence.

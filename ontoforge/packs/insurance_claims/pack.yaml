@@ -1,0 +1,76 @@
+name: insurance_claims
+title: Granite Mutual
+industry: Insurance (property and casualty)
+tagline: The week after a hail storm, with duplicate reports, coverage gaps and a few claims that smell wrong.
+story: >
+  Granite Mutual writes homeowners policies on a mainframe policy admin system. Claims arrive as first-notice-of-loss
+  drops from the phone center, the app and agents, so the same loss is often reported twice. Prior claims live in an
+  old history database and catastrophe footprints in another. After a hail storm, intake triples and adjusters drown.
+  The program lands everything in a lakehouse, resolves policies and claims in an ontology, and puts an agent on claim
+  triage: fast-track the simple covered ones, route the rest to the right human with the evidence attached.
+decision: How should this new claim be handled, fast-track, adjuster, coverage review or special investigation?
+aws_mapping:
+  legacy landing: S3 raw zone, Transfer Family for mainframe and FNOL drops
+  lakehouse: S3 Tables (Iceberg) + Glue Data Catalog
+  transforms: Glue Spark or Athena (DuckDB locally)
+  quality: Glue Data Quality
+  ontology store: Aurora Postgres + S3 Object Lock audit
+  agents: Bedrock AgentCore Runtime, Gateway (MCP), Policy (Cedar)
+
+sources:
+  - name: policy_master
+    system: mainframe
+    label: Policy admin system (fixed width)
+    kind: fixed_width
+    file: POLMAST.dat
+    layout: [[policy_nbr, 10], [holder_name, 30], [zip, 5], [perils, 20], [eff_date, 8], [exp_date, 8], [coverage_limit, 9], [deductible, 6], [status, 1]]
+  - {name: fnol, system: fnol, label: First notice of loss drops (CSV per day), kind: csv, glob: claims/FNOL_*.csv}
+  - {name: prior_claims, system: claims_hist, label: Prior claims history (SQLite), kind: sqlite, db: claims_hist.db, query: select * from prior_claims}
+  - {name: cat_events, system: cat, label: Catastrophe events (SQLite), kind: sqlite, db: cat.db, query: select * from cat_events}
+  - {name: adjusters, system: roster, label: Adjuster roster (CSV), kind: csv, glob: ADJUSTERS.csv}
+
+legacy_reports:
+  - name: claims_report
+    system: mainframe
+    label: Mainframe claims reported per day
+    kind: fixed_width
+    file: reports/CLMRPT.dat
+    layout: [[reported_date, 10], [claims, 5]]
+
+writeback:
+  transient_failure_rate: 0.1
+
+quality:
+  bronze.fnol:
+    - {check: not_null, column: policy_ref, owner: claims-intake}
+    - {check: type_castable, column: est_amount, type: double, owner: claims-intake}
+  silver.policies:
+    - {check: unique, column: policy_nbr, owner: policy-admin}
+    - {check: expression, condition: "exp_date > eff_date", kind: semantic, owner: policy-admin}
+  silver.claims_fnol:
+    - {check: unique, column: claim_ref, owner: claims-intake}
+    - {check: expression, condition: "policy_nbr is not null", kind: semantic, owner: claims-intake, name: every_claim_maps_to_a_policy}
+    - {check: expression, condition: "loss_date <= reported_date", kind: semantic, owner: claims-intake, name: loss_before_report,
+       on_fail: quarantine, description: "report dated before the loss (app clock bug)"}
+  gold.claim_features:
+    - {check: unique, column: dedupe_key, owner: data-platform}
+  gold.intake_by_day:
+    - {check: expression, condition: "claims < 3 * baseline", kind: semantic, severity: warn, owner: claims-operations,
+       name: intake_surge, description: "claim intake above 3x the normal daily rate (catastrophe surge)"}
+
+reconcile:
+  - name: Claims reported per day vs the mainframe claims report
+    legacy_sql: "select reported_date, cast(claims as integer) claims from legacy_claims_report"
+    lake_sql: "select cast(first_reported as varchar) reported_date, count(*) claims from gold_claim_features group by 1"
+    key: [reported_date]
+    measures: {claims: 0}
+    known_differences:
+      - when: "legacy.claims > new.claims"
+        reason: "The same loss was reported twice (phone and app). The legacy report counts every report; the new platform counts one claim per policy, loss date and peril."
+      - when: "new.claims is None or legacy.claims is None"
+        reason: "Day shifts between the first report and the duplicate report."
+  - name: Policies vs mainframe policy master
+    legacy_sql: "select 'all' k, count(*) n from legacy_policy_master"
+    lake_sql: "select 'all' k, count(*) n from silver_policies"
+    key: [k]
+    measures: {n: 0}

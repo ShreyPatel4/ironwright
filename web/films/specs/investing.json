@@ -1,0 +1,316 @@
+{
+ "id": "investing",
+ "tag": "Ideation",
+ "industry": "Personal investing",
+ "company": "Your SIP portfolio",
+ "short": "Investing",
+ "question": "Is my reason for owning this company still true, and should my monthly SIP change?",
+ "tagline": "Each company you own becomes a living model. Agents watch your thesis, you make the call.",
+ "sources": [
+  [
+   "Annual reports",
+   "Segments, risks, management",
+   "PDF and XBRL"
+  ],
+  [
+   "Quarterly results",
+   "Revenue, margins, cash flow",
+   "XBRL"
+  ],
+  [
+   "Earnings calls",
+   "Guidance and commentary",
+   "transcripts"
+  ],
+  [
+   "Exchange prices",
+   "Daily bars, later live",
+   "price feed"
+  ],
+  [
+   "Corporate actions",
+   "Splits, dividends, renames",
+   "notices"
+  ],
+  [
+   "Your broker",
+   "Holdings and SIPs",
+   "API, read only"
+  ]
+ ],
+ "problems": [
+  [
+   "identity",
+   "One company shows up as a ticker, an ISIN and its old name before a rename"
+  ],
+  [
+   "prices",
+   "Old prices are not adjusted for a 1:5 split, so returns look wrong"
+  ],
+  [
+   "time",
+   "Backtests quietly use results published after the decision date"
+  ],
+  [
+   "say vs do",
+   "Management guidance is never checked against what actually arrived"
+  ],
+  [
+   "drift",
+   "SIPs keep running after the reason for buying is gone"
+  ]
+ ],
+ "gate": [
+  "silver.prices_daily",
+  "Split adjusted",
+  "block",
+  "unadjusted bars blocked until the 1:5 split is applied"
+ ],
+ "recon": {
+  "title": "Management guidance vs reported results, FY26 Q2",
+  "labels": [
+   "Guided EBITDA margin",
+   "Reported"
+  ],
+  "a": "21.0%",
+  "b": "18.6%",
+  "measure": "Margin",
+  "key": "FY26 Q2",
+  "reason": "One plant was shut for 3 weeks. Excluding it, margin was 20.7%. Say versus do stays on track.",
+  "verdict": "Explained, guidance track record 7 of 8 quarters"
+ },
+ "merge": {
+  "type": "Company",
+  "title": "Kestrel Motors Ltd",
+  "id": "CO-KSTRL",
+  "method": "match on ISIN and corporate action history",
+  "members": [
+   [
+    "Exchange",
+    "KSTRL"
+   ],
+   [
+    "Depository",
+    "ISIN INE0KS101019"
+   ],
+   [
+    "Filings",
+    "Kestrel Auto Components (old name)"
+   ]
+  ],
+  "props": [
+   [
+    "segments",
+    "Annual report"
+   ],
+   [
+    "guidance",
+    "Earnings calls"
+   ],
+   [
+    "price history",
+    "Exchange, split adjusted"
+   ],
+   [
+    "your position",
+    "Broker"
+   ]
+  ]
+ },
+ "run": {
+  "agent": "agent:thesis-watch",
+  "target": "Kestrel Motors \u00b7 thesis: EV parts share grows past 30%",
+  "diagnosis": "Thesis at risk",
+  "confidence": 0.7,
+  "narrative": "EV parts share fell from 27% to 24% over two quarters, and the largest EV customer moved 40% of its volume to a competitor. Two of three thesis claims now fail.",
+  "cites": [
+   "segment_revenue",
+   "earnings_call_q2",
+   "customer_concentration"
+  ],
+  "attempts": [
+   [
+    "place_order",
+    "denied",
+    "forbid: agents never place orders"
+   ],
+   [
+    "propose_sip_change",
+    "needs_approval",
+    "you approve every SIP change"
+   ]
+  ],
+  "review": [
+   "you",
+   true
+  ],
+  "outcome": "applied",
+  "created": "SIP change: monthly amount down 25%",
+  "trace": [
+   [
+    "agent.run",
+    0,
+    1,
+    0,
+    null
+   ],
+   [
+    "node.gather",
+    0.05,
+    0.42,
+    1,
+    null
+   ],
+   [
+    "tool.segment_revenue",
+    0.06,
+    0.2,
+    2,
+    null
+   ],
+   [
+    "tool.earnings_call",
+    0.21,
+    0.33,
+    2,
+    null
+   ],
+   [
+    "tool.customer_concentration",
+    0.34,
+    0.41,
+    2,
+    null
+   ],
+   [
+    "node.check_thesis",
+    0.44,
+    0.5,
+    1,
+    null
+   ],
+   [
+    "node.narrate",
+    0.51,
+    0.58,
+    1,
+    null
+   ],
+   [
+    "node.propose",
+    0.6,
+    0.82,
+    1,
+    null
+   ],
+   [
+    "action place_order",
+    0.61,
+    0.68,
+    2,
+    "bad"
+   ],
+   [
+    "action propose_sip_change",
+    0.7,
+    0.81,
+    2,
+    null
+   ],
+   [
+    "node.approval",
+    0.84,
+    0.87,
+    1,
+    "warn"
+   ]
+  ],
+  "trace_id": "run W-0412"
+ },
+ "policies": [
+  [
+   "forbid",
+   "agent:*",
+   "place_order",
+   ""
+  ],
+  [
+   "permit",
+   "agent:thesis-watch",
+   "flag_thesis_break",
+   ""
+  ],
+  [
+   "permit",
+   "agent:thesis-watch",
+   "propose_sip_change",
+   "abs(params.change_pct) <= 25"
+  ],
+  [
+   "permit",
+   "agent:screener",
+   "add_to_watchlist",
+   "per_week <= 5"
+  ],
+  [
+   "permit",
+   "agent:*",
+   "read_as_of",
+   "params.as_of <= run.date"
+  ],
+  [
+   "permit",
+   "user:you",
+   "action:*",
+   ""
+  ]
+ ],
+ "results": {
+  "mode": "planned",
+  "layers": [
+   [
+    "extraction",
+    "KPIs from filings match official numbers",
+    null
+   ],
+   [
+    "identity",
+    "Tickers, ISINs and old names resolve to one company",
+    null
+   ],
+   [
+    "no lookahead",
+    "Fails if any read uses data published after its date",
+    null
+   ],
+   [
+    "backtest",
+    "Decisions scored with costs and taxes across regimes",
+    null
+   ],
+   [
+    "grounded",
+    "Every thesis claim cites a document",
+    null
+   ]
+  ],
+  "stats": [
+   [
+    "10 to 15",
+    "companies watched"
+   ],
+   [
+    "quarterly",
+    "thesis checks"
+   ],
+   [
+    "0",
+    "orders placed by agents"
+   ],
+   [
+    "100%",
+    "proposals with sources"
+   ]
+  ]
+ }
+}

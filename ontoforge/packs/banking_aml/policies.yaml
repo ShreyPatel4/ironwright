@@ -1,0 +1,9 @@
+default: deny
+rules:
+  - {id: triage-agent-reads, effect: permit, principal: "agent:aml-triage", action: "function:*"}
+  - {id: analysts-read, effect: permit, principal: "user:aml.analyst*", action: "function:*"}
+  - {id: agent-may-escalate, effect: permit, principal: "agent:aml-triage", action: "action:escalate_to_case"}
+  - {id: agent-may-recommend-close, effect: permit, principal: "agent:aml-triage", action: "action:recommend_close"}
+  - {id: agents-never-close-alerts, effect: forbid, principal: "agent:*", action: "action:close_alert"}
+  - {id: analysts-act, effect: permit, principal: "user:aml.analyst*", action: "action:*"}
+  - {id: analysts-see-pii, effect: permit, principal: "user:aml.analyst*", action: "read_sensitive:*"}

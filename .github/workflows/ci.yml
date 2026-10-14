@@ -1,0 +1,59 @@
+name: ci
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  site:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      ONTOFORGE_DATA: ${{ github.workspace }}/data
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]" playwright
+      - run: ontoforge run --pack all                 # also exports web/data/*.json
+      - run: python -m playwright install --with-deps chromium
+      - run: python scripts/film_specs.py && python scripts/build_films.py && python scripts/build_intro.py
+      - run: python scripts/build_site.py              # uses the MP4s committed in media/
+      - uses: actions/upload-artifact@v4
+        with: { name: site, path: site }
+      # Deploys only when Cloudflare secrets exist. main -> production, staging -> staging preview, PRs -> preview.
+      - name: Deploy to Cloudflare Pages
+        if: ${{ env.CF_TOKEN != '' }}
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy site --project-name ontoforge --branch ${{ github.head_ref || github.ref_name }}
+
+  route-worker:
+    needs: site
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy the coconutlabs.org/ontoforge route
+        if: ${{ env.CF_TOKEN != '' }}
+        env:
+          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: deploy/route-worker
+          command: deploy

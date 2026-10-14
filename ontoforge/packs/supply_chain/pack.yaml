@@ -1,0 +1,81 @@
+name: supply_chain
+title: Corvane Distribution
+industry: Supply chain and logistics
+tagline: One shipment, three systems, three order numbers, and an ETA nobody updated.
+story: >
+  Corvane ships about 400 B2B orders a month from four distribution centers. Orders live in the ERP,
+  shipments in the TMS, warehouse confirmations in a fixed-width WMS export, customer accounts in a CRM,
+  and carrier status arrives as event streams that sometimes repeat themselves. When a shipment runs late,
+  a planner opens four screens to work out why and what to do. The program lands all of it in a lakehouse,
+  resolves orders, shipments and customers in an ontology, and puts an agent on late-shipment triage.
+decision: This shipment is running late. Why, and what should we do about it?
+aws_mapping:
+  legacy landing: S3 raw zone, Kinesis Data Streams for carrier events
+  lakehouse: S3 Tables (Iceberg) + Glue Data Catalog
+  transforms: Glue Spark or Athena (DuckDB locally)
+  quality: Glue Data Quality
+  ontology store: Aurora Postgres + S3 Object Lock audit
+  agents: Bedrock AgentCore Runtime, Gateway (MCP), Policy (Cedar)
+
+sources:
+  - {name: tms_shipments, system: tms, label: TMS shipments (SQLite), kind: sqlite, db: tms.db, query: select * from shipments}
+  - {name: tms_carriers, system: tms, label: TMS carrier table, kind: sqlite, db: tms.db, query: select * from carriers}
+  - name: wms_confirmations
+    system: wms
+    label: WMS shipment confirmations (fixed width)
+    kind: fixed_width
+    file: SHIPCONF.dat
+    layout: [[wms_ref, 10], [order_nbr, 9], [dc_code, 4], [pick_date, 8], [ship_date, 8], [cartons, 5], [status, 2]]
+  - {name: erp_orders, system: erp, label: ERP orders (CSV), kind: csv, glob: erp/ORDERS_*.csv}
+  - {name: erp_customers, system: erp, label: ERP customer master (CSV), kind: csv, glob: erp/CUSTOMERS.csv}
+  - {name: crm_accounts, system: crm, label: CRM accounts (SQLite), kind: sqlite, db: crm.db, query: select * from accounts}
+  - {name: carrier_events, system: carriers, label: Carrier status events (JSON lines), kind: jsonl, glob: events/*.jsonl}
+
+legacy_reports:
+  - name: dc_shipped_report
+    system: wms
+    label: WMS nightly shipped-by-DC report
+    kind: fixed_width
+    file: reports/DCSHIPRP.dat
+    layout: [[ship_date, 8], [dc_code, 4], [shipments, 6]]
+
+writeback:
+  transient_failure_rate: 0.1
+
+quality:
+  bronze.carrier_events:
+    - {check: not_null, column: event_id, owner: carrier-integrations}
+  bronze.wms_confirmations:
+    - {check: type_castable, column: order_nbr, type: bigint, owner: warehouse-systems}
+  silver.carrier_events:
+    - {check: unique, column: event_id, owner: carrier-integrations, name: events_deduplicated}
+    - {check: accepted_values, column: event_type, values: [PICKUP, IN_TRANSIT, DELAY, EXCEPTION, DELIVERED], owner: carrier-integrations}
+  silver.shipments_tms:
+    - {check: unique, column: tms_shipment_id, owner: transportation}
+    - {check: expression, condition: "promised_eta > ship_ts", kind: semantic, owner: transportation, name: eta_after_ship}
+  silver.shipments_wms:
+    - {check: unique, column: wms_ref, owner: warehouse-systems}
+    - {check: expression, condition: "order_digits not like '9999%'", kind: semantic, owner: warehouse-systems, name: no_test_orders}
+  silver.orders_erp:
+    - {check: unique, column: order_no, owner: order-management}
+    - {check: accepted_values, column: priority, values: [STD, EXP, CRIT], owner: order-management}
+  gold.shipment_status:
+    - {check: unique, column: tms_shipment_id, owner: data-platform}
+    - {check: expression, condition: "delivered or latest_eta is not null", kind: semantic, owner: data-platform, name: open_shipments_have_eta}
+    - {check: expression, condition: "not tms_eta_stale", kind: semantic, severity: warn, owner: transportation,
+       name: tms_eta_current, description: "TMS ETA was not updated after a carrier delay"}
+
+reconcile:
+  - name: Shipments per DC per day vs the WMS nightly report
+    legacy_sql: "select ship_date, dc_code, cast(shipments as integer) shipments from legacy_dc_shipped_report"
+    lake_sql: "select strftime(ship_date, '%Y%m%d') ship_date, dc_code, count(*) shipments from silver_shipments_wms group by 1, 2"
+    key: [ship_date, dc_code]
+    measures: {shipments: 0}
+    known_differences:
+      - when: "key.ship_date == '20260915' and key.dc_code == 'RNO4' and legacy.shipments - new.shipments == 3"
+        reason: "The WMS nightly report counts three test orders (order numbers 9999xxxxx) on 2026-09-15. The new pipeline filters test orders in silver."
+  - name: Orders in ERP vs shipments in TMS
+    legacy_sql: "select 'all' k, count(*) n from legacy_erp_orders"
+    lake_sql: "select 'all' k, count(*) n from silver_shipments_tms"
+    key: [k]
+    measures: {n: 0}

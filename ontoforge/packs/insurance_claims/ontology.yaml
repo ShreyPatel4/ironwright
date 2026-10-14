@@ -1,0 +1,165 @@
+object_types:
+  Policy:
+    prefix: POL
+    owner: policy-admin
+    description: A homeowners policy from the mainframe policy admin system.
+    title: label
+    sensitive: [holder_name]
+    sources:
+      - {system: mainframe, table: silver.policies, key: policy_nbr,
+         fields: {label: "'Policy ' || policy_digits", holder_name: holder_name, zip: zip, perils: perils,
+                  eff_date: eff_date, exp_date: exp_date, coverage_limit: coverage_limit, deductible: deductible, status: status}}
+  Claim:
+    prefix: CLM
+    owner: claims-operations
+    description: One loss. Phone, app and agent reports of the same loss resolve to one Claim.
+    title: label
+    sources:
+      - {system: fnol, table: silver.claims_fnol, key: claim_ref,
+         fields: {label: "peril || ' loss ' || loss_date", dedupe_key: dedupe_key, peril: peril, loss_date: loss_date,
+                  loss_zip: loss_zip, est_amount: est_amount, status: "'OPEN'"}}
+    resolution:
+      exact: [dedupe_key]
+      normalize: {dedupe_key: lower}
+  Adjuster:
+    prefix: ADJ
+    owner: claims-operations
+    description: A claims adjuster with a region and an authority limit.
+    title: name
+    sources:
+      - {system: roster, table: silver.adjusters, key: adjuster_id,
+         fields: {name: name, region: region, authority_limit: authority_limit}}
+  CatEvent:
+    prefix: CAT
+    owner: catastrophe-team
+    description: A catastrophe event with an affected ZIP footprint.
+    title: cat_code
+    sources:
+      - {system: cat, table: silver.cat_events, key: cat_code,
+         fields: {cat_code: cat_code, peril: peril, start_date: start_date, end_date: end_date, zip_count: zip_count}}
+
+created_types:
+  Payment: {owner: claims-finance, description: A fast-track payment.}
+  CoverageReview: {owner: coverage-counsel, description: A coverage question for a human.}
+  SIUReferral: {owner: special-investigations, description: A referral to the special investigations unit.}
+
+link_types:
+  claim_on:
+    from: Claim
+    to: Policy
+    description: Claim is made against policy
+    sql: select 'fnol' from_system, claim_ref from_key, 'mainframe' to_system, policy_nbr to_key from silver_claims_fnol where policy_nbr is not null
+  in_catastrophe:
+    from: Claim
+    to: CatEvent
+    description: Loss falls inside a catastrophe footprint and window
+    sql: select 'fnol' from_system, first_ref from_key, 'cat' to_system, cat_code to_key from gold_claim_features where in_cat
+
+functions:
+  claim_details:
+    description: The claim, how many times it was reported, and its policy.
+    params: {claim_id: Claim}
+    returns: one
+    sql: >
+      select peril, cast(loss_date as varchar) loss_date, loss_zip, est_amount, net_amount, reports,
+             cast(first_reported as varchar) first_reported, ont_id('Policy', 'mainframe', policy_nbr) as policy_id
+      from gold_claim_features where dedupe_key = (select props->>'dedupe_key' from objects where id = $claim_id)
+  coverage_check:
+    description: Is the loss inside the policy period, and is the peril covered?
+    params: {claim_id: Claim}
+    returns: one
+    sql: >
+      select in_period, peril_covered, perils, cast(eff_date as varchar) eff_date, cast(exp_date as varchar) exp_date,
+             deductible, coverage_limit
+      from gold_claim_features where dedupe_key = (select props->>'dedupe_key' from objects where id = $claim_id)
+  cat_check:
+    description: Is the loss part of a catastrophe event?
+    params: {claim_id: Claim}
+    returns: one
+    sql: >
+      select in_cat, cat_code from gold_claim_features
+      where dedupe_key = (select props->>'dedupe_key' from objects where id = $claim_id)
+  fraud_signals:
+    description: Policy age at the time of loss and prior claims in the last three years.
+    params: {claim_id: Claim}
+    returns: one
+    sql: >
+      select days_since_policy_start, prior_claims_3y, reports from gold_claim_features
+      where dedupe_key = (select props->>'dedupe_key' from objects where id = $claim_id)
+  best_adjuster:
+    description: The least-loaded adjuster in the right region with enough authority for this claim.
+    params: {claim_id: Claim}
+    returns: one
+    sql: >
+      with c as (select est_amount, in_cat from gold_claim_features
+                 where dedupe_key = (select props->>'dedupe_key' from objects where id = $claim_id))
+      select ont_id('Adjuster', 'roster', arg_min(a.adjuster_id, a.open_claims)) as adjuster_id,
+             arg_min(a.name, a.open_claims) as adjuster_name, min(a.open_claims) as open_claims
+      from gold_adjuster_load a, c
+      where a.region = case when c.in_cat then 'CAT' else 'METRO' end and a.authority_limit >= c.est_amount
+
+actions:
+  fast_track_payment:
+    description: Pay a simple covered claim now. Written to the payments system.
+    params:
+      claim_id: {type: Claim}
+      amount: {type: float, min: 0, max: 50000}
+    preconditions:
+      - {when: "claim.status == 'OPEN'", message: claim must be open}
+    edits:
+      - {object: claim_id, set: {status: "'PAID_FAST_TRACK'"}}
+    creates:
+      type: Payment
+      prefix: PAY
+      title: label
+      props: {label: "'Fast-track payment ' + str(round(params.amount, 2))", claim_id: params.claim_id, amount: params.amount}
+    side_effect:
+      system: payments
+      payload: {claim: "claim_keys.fnol", amount: params.amount}
+  assign_adjuster:
+    description: Assign the claim to an adjuster.
+    params:
+      claim_id: {type: Claim}
+      adjuster_id: {type: Adjuster}
+    preconditions:
+      - {when: "claim.status == 'OPEN'", message: claim must be open}
+    edits:
+      - {object: claim_id, set: {status: "'ASSIGNED'", assigned_adjuster: adjuster._title}}
+    side_effect:
+      system: claims_workbench
+      payload: {claim: "claim_keys.fnol", adjuster: "adjuster_keys.roster"}
+  route_coverage_review:
+    description: Send a coverage question to a human with the evidence.
+    params:
+      claim_id: {type: Claim}
+      reason: {type: str}
+    edits:
+      - {object: claim_id, set: {status: "'COVERAGE_REVIEW'"}}
+    creates:
+      type: CoverageReview
+      prefix: CVR
+      title: label
+      props: {label: "'Coverage review: ' + str(params.reason)", claim_id: params.claim_id, reason: params.reason}
+  refer_to_siu:
+    description: Refer the claim to the special investigations unit. Needs an SIU manager.
+    params:
+      claim_id: {type: Claim}
+      reason: {type: str}
+    requires_approval: true
+    approver_roles: [siu_manager]
+    edits:
+      - {object: claim_id, set: {status: "'SIU_REVIEW'"}}
+    creates:
+      type: SIUReferral
+      prefix: SIU
+      title: label
+      props: {label: "'SIU referral: ' + str(params.reason)", claim_id: params.claim_id, reason: params.reason}
+    side_effect:
+      system: siu_case_system
+      payload: {claim: "claim_keys.fnol", reason: params.reason}
+  deny_claim:
+    description: Deny the claim. Regulated decision, humans only.
+    params:
+      claim_id: {type: Claim}
+    edits:
+      - {object: claim_id, set: {status: "'DENIED'"}}

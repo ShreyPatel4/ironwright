@@ -1,0 +1,15 @@
+default: deny
+rules:
+  - {id: triage-agent-reads, effect: permit, principal: "agent:claims-triage", action: "function:*"}
+  - {id: humans-read, effect: permit, principal: "user:*", action: "function:*"}
+  - id: fast-track-up-to-5000
+    effect: permit
+    principal: "agent:claims-triage"
+    action: "action:fast_track_payment"
+    when: "params.amount <= 5000"
+  - {id: agent-may-assign, effect: permit, principal: "agent:claims-triage", action: "action:assign_adjuster"}
+  - {id: agent-may-route-coverage, effect: permit, principal: "agent:claims-triage", action: "action:route_coverage_review"}
+  - {id: agent-may-propose-siu, effect: permit, principal: "agent:claims-triage", action: "action:refer_to_siu"}
+  - {id: agents-never-deny, effect: forbid, principal: "agent:*", action: "action:deny_claim"}
+  - {id: claims-managers-act, effect: permit, principal: "user:claims.manager*", action: "action:*"}
+  - {id: siu-act, effect: permit, principal: "user:siu.manager*", action: "action:refer_to_siu"}

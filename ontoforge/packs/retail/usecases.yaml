@@ -1,0 +1,84 @@
+usecases:
+  sku_triage:
+    title: Underperforming SKU triage
+    decision: Why is this item underperforming in this store, and what should we do?
+    agent: agent:retail-triage
+    on_behalf_of: user:category.manager.pc
+    # targets: every item-store pair selling under 60% of expectation in the last 28 days
+    targets_sql: >
+      select ont_id('Item', 'mainframe', item_nbr) as item_id,
+             ont_id('Store', 'mainframe', store_nbr) as store_id,
+             item_nbr || '|' || store_nbr as gt_key
+      from gold_item_store_perf
+      where ratio < 0.6 and expected_units > 20
+      order by ratio
+    target_params: {item_id: Item, store_id: Store}
+    evidence:
+      sales: {fn: item_store_sales, args: {item_id: target.item_id, store_id: target.store_id}}
+      stock: {fn: item_store_stock, args: {item_id: target.item_id, store_id: target.store_id}}
+      placement: {fn: planogram_placement, args: {item_id: target.item_id, store_id: target.store_id}}
+      trend: {fn: item_chain_trend, args: {item_id: target.item_id}}
+    diagnoses:   # ordered, first match wins
+      - label: out_of_stock
+        when: "evidence.stock.summary.oos_days >= 5"
+        confidence: 0.9
+        explain: >
+          {objects.item_id._title} sold {evidence.sales.summary.units_28d} units against
+          {evidence.sales.summary.expected_units} expected. It had zero on hand on
+          {evidence.stock.summary.oos_days} of the last 28 days, so lost sales come from stock, not demand.
+        cite: [sales, stock]
+        action:
+          name: create_replenishment_order
+          args: {item_id: target.item_id, store_id: target.store_id,
+                 qty: "int(max(12, evidence.sales.summary.expected_units / 2))"}
+      - label: compliance_gap
+        when: "evidence.stock.summary.zero_sales_streak >= 10 and evidence.stock.summary.last_on_hand > 0 and evidence.placement.summary.facings >= 1"
+        confidence: 0.8
+        explain: >
+          {objects.item_id._title} is on planogram v{evidence.placement.summary.pog_version} with
+          {evidence.placement.summary.facings} facings and has {evidence.stock.summary.last_on_hand} on hand, but
+          sold nothing for {evidence.stock.summary.zero_sales_streak} straight days. It is likely in the backroom,
+          not on the shelf.
+        cite: [stock, placement, sales]
+        action:
+          name: flag_compliance_gap
+          args: {item_id: target.item_id, store_id: target.store_id}
+      - label: weak_demand
+        when: "evidence.trend.summary.chain_ratio < 0.5"
+        confidence: 0.75
+        explain: >
+          Demand for {objects.item_id._title} fell chain-wide: {evidence.trend.summary.window_daily} units per
+          store-day now vs {evidence.trend.summary.baseline_daily} before, across {evidence.trend.summary.stores}
+          stores. This store is not the problem; the item is.
+        cite: [trend, sales]
+        action:
+          name: delist_item           # the agent will try this, policy forbids it
+          args: {item_id: target.item_id}
+          fallback:
+            name: flag_for_review
+            args: {item_id: target.item_id, store_id: target.store_id, reason: "'chain-wide demand drop, delist candidate'"}
+      - label: low_facings
+        when: "evidence.placement.summary.facings <= 1 and evidence.stock.summary.oos_days < 5"
+        confidence: 0.8
+        explain: >
+          {objects.item_id._title} has only {evidence.placement.summary.facings} facing in this store's planogram.
+          It sells {evidence.sales.summary.avg_daily_units} a day here vs {evidence.trend.summary.baseline_daily}
+          per store-day chain-wide, so shelf space is capping sales.
+        cite: [placement, sales, trend]
+        action:
+          name: propose_facing_change
+          args: {item_id: target.item_id, store_id: target.store_id, new_facings: 3}
+      - label: unclear
+        when: "True"
+        confidence: 0.4
+        explain: "No single cause stands out in the evidence for {objects.item_id._title}; a person should look."
+        cite: [sales, stock, placement, trend]
+        action:
+          name: flag_for_review
+          args: {item_id: target.item_id, store_id: target.store_id, reason: "'no clear cause'"}
+    review:
+      reviewer: user:category.manager.pc
+      approve_when: "diagnosis.confidence >= 0.7 and proposal.args.new_facings <= 4"
+    narrative:
+      audience: a category manager
+      system: You are a retail operations analyst. Be specific, short and grounded in the evidence you are given.
