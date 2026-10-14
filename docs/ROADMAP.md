@@ -79,7 +79,7 @@ app. Decide in Phase 2, not before.
 | Audit mirror | D1 | append only, hash chain verified nightly |
 | LLM | Workers AI with a daily budget | cost stays near zero |
 
-## Phase 4: live at ironwright.coconutlabs.org
+## Phase 4: live at coconutlabs.org/projects/ironwright
 
 - Public read-only: the static showcase and the intro, served by Pages.
 - Live runs behind Cloudflare Turnstile, rate limited per IP, using a fresh scenario seed in a sandbox that is thrown away after the run.

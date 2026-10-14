@@ -34,7 +34,7 @@ agent checkpoints are SQLite, the LLM is offline. Nothing to pay for.
 flowchart LR
   GH["GitHub push"] --> CI["CI: tests, engine run, build site/"]
   CI --> P["Pages project ironwright"]
-  P --> SUB["ironwright.coconutlabs.org<br/>(custom domain on Pages)"]
+  P --> SUB["coconutlabs.org/projects/ironwright<br/>(custom domain on Pages)"]
   P --> PD["ironwright.pages.dev"]
   W["Worker ironwright-route"] -- "proxies /ironwright/*" --> PD
   MAIN["coconutlabs.org/ironwright/"] --> W
@@ -45,7 +45,7 @@ The site uses only relative links, so one build serves both addresses.
 
 | Address | How it is served | Set up once |
 |---|---|---|
-| `ironwright.coconutlabs.org` | Pages custom domain | Pages, project `ironwright`, Custom domains, add the subdomain. Cloudflare creates the DNS record. |
+| `coconutlabs.org/projects/ironwright` | Pages custom domain | Pages, project `ironwright`, Custom domains, add the subdomain. Cloudflare creates the DNS record. |
 | `coconutlabs.org/ironwright/` | Worker `ironwright-route` on route `coconutlabs.org/ironwright*` | `cd deploy/route-worker && npx wrangler deploy`. `coconutlabs.org` must be a zone on the same account. |
 | `staging.ironwright.pages.dev` | Pages branch preview for `staging` | Zero Trust, Access, add an application for that hostname with a one-time PIN to your email. |
 | PR previews | Pages branch previews | Automatic from CI. |
@@ -55,7 +55,7 @@ Steps, in order:
 1. `coconutlabs.org` on Cloudflare DNS (Websites, Add a site, switch nameservers at the registrar).
 2. Create the Pages project once: `npx wrangler pages project create ironwright --production-branch main`.
 3. First deploy from a laptop: `make site && npx wrangler pages deploy site --project-name ironwright --branch main`.
-4. Add the custom domain `ironwright.coconutlabs.org` to the project.
+4. Add the custom domain `coconutlabs.org/projects/ironwright` to the project.
 5. Deploy the route Worker: `cd deploy/route-worker && node test.mjs && npx wrangler deploy`. After the subdomain is live you can point `ORIGIN` at it.
 6. GitHub secrets `CLOUDFLARE_API_TOKEN` (Pages edit, Workers edit, Zone read) and `CLOUDFLARE_ACCOUNT_ID`. From then on, `main` deploys production, `staging` deploys staging, and PRs get previews.
 
@@ -64,7 +64,7 @@ Media: the rendered MP4s live in `media/` in the repo (about 40 MB total, each u
 The Python engine (LangGraph, PyIceberg, DuckDB) does not run inside a Worker. The live site serves
 the snapshot the engine exported, which is the right tradeoff for a free demo. For live runs later,
 put the API (`ironwright serve`) on a small container (Fly.io or a Cloudflare Container) at
-`api.ironwright.coconutlabs.org`, and keep Pages for the UI.
+`api.coconutlabs.org/projects/ironwright`, and keep Pages for the UI.
 
 The narration Worker in `deploy/worker` is optional and separate from the site.
 

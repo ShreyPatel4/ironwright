@@ -9,7 +9,7 @@
       _headers, 404.html, robots.txt
 
 Every link is relative, so the same build works at the subdomain root
-(ironwright.coconutlabs.org/) and under a path (coconutlabs.org/ironwright/).
+(coconutlabs.org/projects/ironwright/) and under a path (coconutlabs.org/ironwright/).
 
 Usage: python scripts/build_site.py [--collect-media]
   --collect-media  copy freshly rendered MP4s from dist/ into media/ and cut posters first

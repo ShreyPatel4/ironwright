@@ -25,7 +25,7 @@ Tell me what you changed and anything you could not do.
 Follow deploy/README.md, "Stage 3". Build the site with `make site`, preview it with `make preview`
 and check every page at both / and under a /ironwright/ prefix (serve site/ from a folder named
 ironwright to simulate the path). Then walk me through each Cloudflare step I must do by hand
-(DNS, Pages project, custom domain ironwright.coconutlabs.org, route Worker for
+(DNS, Pages project, custom domain coconutlabs.org/projects/ironwright, route Worker for
 coconutlabs.org/ironwright, GitHub secrets). Run the wrangler commands yourself once I confirm I am
 logged in. Stop and ask before anything that costs money. Finish by curling both addresses and
 showing me the status codes.
@@ -64,7 +64,7 @@ prove every control.
 
 ```
 Implement Phase 3: Dockerfile for the API, deploy to the container host I choose at
-api-staging.ironwright.coconutlabs.org behind Cloudflare Access, R2 warehouse option for PyIceberg,
+a private staging host behind Cloudflare Access, R2 warehouse option for PyIceberg,
 and point /app/ on the staging site at it. Write manual steps into deploy/STAGING.md.
 ```
 

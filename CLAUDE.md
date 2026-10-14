@@ -21,9 +21,10 @@ node deploy/route-worker/test.mjs   # checks the coconutlabs.org/ironwright path
 
 ## Site and deploys
 
-- One build, two addresses: `ironwright.coconutlabs.org` (Pages custom domain) and
-  `coconutlabs.org/ironwright/` (route Worker in `deploy/route-worker`). Keep every link relative and
-  every directory URL ending in a slash, or the path route breaks.
+- The public home is `coconutlabs.org/projects/ironwright` (house policy: projects live as
+  routes, never subdomains). The standalone showcase build in `web/` still works locally and the
+  route Worker in `deploy/route-worker` remains an option for serving it under a path. Keep every
+  link relative and every directory URL ending in a slash, or path serving breaks.
 - `main` deploys production, `staging` deploys a preview behind Cloudflare Access, PRs get previews.
 - Rendered MP4s are committed in `media/`. Films are generated from `web/films/specs/*.json`, which
   `scripts/film_specs.py` builds from each pack's real export. Never hand-edit numbers for a real pack.
