@@ -1,0 +1,6 @@
+# The ROADMAP's 16-store regional retail chain, as a scenario spec.
+# A spec is exactly these four keys. Anything else fails validation.
+name: harborview-pilot
+archetype: regional_retail_chain
+size: 16
+seed: 7
