@@ -24,9 +24,13 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
 - 1:15  The audit log. "Every action lands in a hash-chained audit log. On
         the public site your browser recomputes all 59 digests; rewrite one
         row and the chain catches it one link later."
-- 1:30  Done. If asked for depth: `uv run pytest -q` (62 tests), the
-        pack API at :8000/docs, or the platform spine:
-        `uv run ironwright platform` then `curl :8000/workspaces` shows
-        every workspace with its derived verification level, and the
-        approvals inbox and audit verify live at
-        /workspaces/retail/approvals and /workspaces/retail/audit/verify.
+- 1:30  The console: `uv run ironwright platform`, open
+        http://localhost:8000. Four workspaces with derived verification
+        badges; pick one and show the pipeline run with measured timings,
+        the read-only SQL explorer on the lakehouse, the ontology browser
+        with each identity's crosswalk, the approvals inbox deciding a
+        parked action through the real policy path, and the audit chain
+        verifying server-side.
+- 2:00  Done at the long cut; the 90-second cut stops at 1:30 before the
+        console and says "and there is an operator console on top". If
+        asked for depth: `uv run pytest -q` (65 tests).

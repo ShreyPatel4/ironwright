@@ -69,6 +69,7 @@ explaining a flow.
 - `ironwright/packs/<pack>/` one folder per mock business
 - `web/` static demo (vanilla JS), `web/intro/` the film, `web/films/` use-case films, `web/site/` landing page
 - `scripts/` bundle, build_intro, film_specs, build_films, build_site
+- `console/` the operator console (Vite + React source; built dist/ committed)
 - `media/` rendered MP4s and posters (committed)
 - `deploy/` Cloudflare Pages, route Worker, narration Worker, free tier and AWS notes
 - `docs/` architecture, roadmap, kickoff prompts, interview walkthrough, build log

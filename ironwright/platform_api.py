@@ -12,17 +12,28 @@ from __future__ import annotations
 import argparse
 import contextlib
 import json
+import pathlib
 import time
 from typing import Any, Iterator
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+CONSOLE_DIST = pathlib.Path(__file__).resolve().parents[1] / "console" / "dist"
+
+import re
 
 from . import verification
 from .cli import STAGES
+from .lake import Lakehouse
 from .ontology.runtime import Ontology
 from .packs import list_packs, load_pack
 from .tracing import Tracer
+
+CONSOLE_PRINCIPAL = "user:console"
+_SELECT_ONLY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 
 STAGE_ORDER = ["generate", "migrate", "reconcile", "ontology", "agents", "evals", "export"]
 DEFAULT_SEEDS = {"retail": 7, "supply_chain": 11, "banking_aml": 23, "insurance_claims": 31}
@@ -43,6 +54,24 @@ class ActionBody(BaseModel):
 class DecideBody(BaseModel):
     approved_by: str
     decision: str = "approve"  # approve | deny
+
+
+class QueryBody(BaseModel):
+    sql: str
+    limit: int = 200
+
+
+def _guard_select_only(sql: str) -> str:
+    """The explorer is read-only by contract. One statement, SELECT or WITH,
+    nothing after a terminating semicolon. The connection only holds views
+    over Arrow data, so this is discipline more than defense, and it still
+    holds the line."""
+    body = sql.strip().rstrip(";").strip()
+    if ";" in body:
+        raise HTTPException(422, "one statement at a time")
+    if not _SELECT_ONLY.match(body):
+        raise HTTPException(422, "read-only explorer: the statement must start with SELECT or WITH")
+    return body
 
 
 def _pack(name: str):
@@ -149,5 +178,85 @@ def create_platform_app() -> FastAPI:
         with _ontology(_pack(name)) as ont:
             rows = ont.store.con.execute("select count(*) from audit_log").fetchone()[0]
             return {"intact": ont.store.verify_audit_chain(), "rows": rows}
+
+    @app.get("/workspaces/{name}/audit")
+    def audit(name: str, limit: int = 50) -> list[dict[str, Any]]:
+        with _ontology(_pack(name)) as ont:
+            df = ont.store.con.execute(
+                "select seq, ts, actor, on_behalf_of, action, status, approved_by, hash "
+                "from audit_log order by seq desc limit ?", [limit]).fetchdf()
+            return json.loads(df.to_json(orient="records"))
+
+    @app.get("/workspaces/{name}/ontology")
+    def ontology(name: str) -> dict[str, Any]:
+        with _ontology(_pack(name)) as ont:
+            return {"describe": ont.describe(), "stats": ont.store.stats()}
+
+    @app.get("/workspaces/{name}/objects/{type_}")
+    def objects(name: str, type_: str, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+        with _ontology(_pack(name)) as ont:
+            return [ont.masked({**o, "_type": type_}, CONSOLE_PRINCIPAL)
+                    for o in ont.store.list(type_, limit, offset)]
+
+    @app.get("/workspaces/{name}/objects/{type_}/{id_}")
+    def obj(name: str, type_: str, id_: str) -> dict[str, Any]:
+        with _ontology(_pack(name)) as ont:
+            o = ont.masked(ont.store.get(type_, id_), CONSOLE_PRINCIPAL)
+            if not o:
+                raise HTTPException(404, f"no {type_} {id_}")
+            xw = ont.store.con.execute(
+                "select system, source_key, method, confidence from crosswalk where id = ?",
+                [id_]).fetchall()
+            return {**o,
+                    "_crosswalk": [dict(zip(("system", "source_key", "method", "confidence"), r)) for r in xw],
+                    "_neighbors": ont.store.neighbors(id_)}
+
+    @app.get("/workspaces/{name}/lake/tables")
+    def lake_tables(name: str) -> list[dict[str, Any]]:
+        lake = Lakehouse(_pack(name))
+        out = []
+        for ident in lake.tables():
+            layer, tname = ident.split(".")
+            data = lake.read(ident)
+            out.append({"ident": ident, "layer": layer, "name": tname,
+                        "rows": data.num_rows, "columns": data.column_names})
+        return out
+
+    @app.post("/workspaces/{name}/lake/query")
+    def lake_query(name: str, body: QueryBody) -> dict[str, Any]:
+        sql = _guard_select_only(body.sql)
+        limit = max(1, min(body.limit, 500))
+        con = Lakehouse(_pack(name)).connect()
+        try:
+            try:
+                cur = con.execute(sql)
+            except Exception as e:  # surface duckdb's message, not a 500
+                raise HTTPException(400, str(e))
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchmany(limit)
+            return {"columns": cols,
+                    "rows": [[None if v is None else str(v) for v in r] for r in rows],
+                    "truncated_at": limit if len(rows) == limit else None}
+        finally:
+            con.close()
+
+    @app.get("/workspaces/{name}/reports/{report}")
+    def reports(name: str, report: str) -> Any:
+        if not re.fullmatch(r"[a-z_]+", report):
+            raise HTTPException(422, "report names are lowercase words")
+        path = _pack(name).paths.reports / f"{report}.json"
+        if not path.exists():
+            raise HTTPException(404, f"no report {report}")
+        return json.loads(path.read_text())
+
+    # The console is a committed build (console/dist), so a git clone needs
+    # uv and nothing else at runtime. Absent (e.g. a bare pip install of the
+    # package), the API still serves and / says where the console lives.
+    if CONSOLE_DIST.exists():
+        app.mount("/console", StaticFiles(directory=CONSOLE_DIST, html=True), name="console")
+
+        @app.get("/", include_in_schema=False)
+        def home() -> RedirectResponse:
+            return RedirectResponse("/console/")
 
     return app

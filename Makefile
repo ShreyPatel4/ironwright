@@ -64,3 +64,8 @@ preview: site
 
 deploy: site
 	npx wrangler pages deploy site --project-name ironwright --branch main
+
+# Rebuild the console bundle (requires node; the BUILT dist/ is committed so
+# runtime needs uv only).
+console:
+	cd console && npm install --no-fund --no-audit && npm run build

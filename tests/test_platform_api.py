@@ -133,3 +133,44 @@ def test_denied_approval_stays_out_of_the_applied_path(client):
 def test_unknown_workspace_is_a_404_not_a_500(client):
     assert client.get("/workspaces/nonsense/approvals").status_code == 404
     assert client.post("/workspaces/nonsense/runs", json={}).status_code == 404
+
+
+def test_lake_tables_and_readonly_query(client):
+    tables = client.get("/workspaces/retail/lake/tables").json()
+    idents = {t["ident"] for t in tables}
+    assert any(i.startswith("gold.") for i in idents)
+    assert all(t["rows"] >= 0 for t in tables)
+
+    gold = sorted(i for i in idents if i.startswith("gold."))[0].replace(".", "_")
+    q = client.post("/workspaces/retail/lake/query",
+                    json={"sql": f"select count(*) as n from {gold}", "limit": 10}).json()
+    assert q["columns"] == ["n"]
+    assert int(q["rows"][0][0]) >= 0
+
+    for bad in ("drop table gold_x", "select 1; select 2", "update t set a=1"):
+        r = client.post("/workspaces/retail/lake/query", json={"sql": bad})
+        assert r.status_code == 422, bad
+
+
+def test_ontology_objects_and_audit_feed(client):
+    desc = client.get("/workspaces/retail/ontology").json()
+    types = list(desc["describe"]["object_types"])
+    assert types
+    objs = client.get(f"/workspaces/retail/objects/{types[0]}", params={"limit": 3}).json()
+    assert isinstance(objs, list)
+    feed = client.get("/workspaces/retail/audit", params={"limit": 5}).json()
+    assert feed and {"seq", "actor", "action", "status", "hash"} <= set(feed[0])
+
+
+def test_console_is_served_when_built(client):
+    import ironwright.platform_api as papi
+
+    if not papi.CONSOLE_DIST.exists():
+        import pytest as _pytest
+
+        _pytest.skip("console/dist not built in this checkout")
+    home = client.get("/", follow_redirects=False)
+    assert home.status_code in (302, 307)
+    page = client.get("/console/")
+    assert page.status_code == 200
+    assert "Ironwright Console" in page.text
