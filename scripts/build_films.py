@@ -1,5 +1,5 @@
 """Build the use-case film page (all specs inlined) and, with --video, one MP4 per use case.
-Run scripts/film_specs.py first. Output: dist/ontoforge-films.html and dist/films/<id>.mp4."""
+Run scripts/film_specs.py first. Output: dist/ironwright-films.html and dist/films/<id>.mp4."""
 import argparse
 import base64
 import json
@@ -9,7 +9,7 @@ import subprocess
 root = pathlib.Path(__file__).resolve().parents[1]
 specs_dir = root / "web" / "films" / "specs"
 ORDER = ["retail", "supply_chain", "banking_aml", "insurance_claims", "healthcare", "investing"]
-out = root / "dist" / "ontoforge-films.html"
+out = root / "dist" / "ironwright-films.html"
 
 
 def build():

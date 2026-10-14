@@ -18,13 +18,13 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     env:
-      ONTOFORGE_DATA: ${{ github.workspace }}/data
+      IRONWRIGHT_DATA: ${{ github.workspace }}/data
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install -e ".[dev]" playwright
-      - run: ontoforge run --pack all                 # also exports web/data/*.json
+      - run: ironwright run --pack all                 # also exports web/data/*.json
       - run: python -m playwright install --with-deps chromium
       - run: python scripts/film_specs.py && python scripts/build_films.py && python scripts/build_intro.py
       - run: python scripts/build_site.py              # uses the MP4s committed in media/
@@ -39,7 +39,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy site --project-name ontoforge --branch ${{ github.head_ref || github.ref_name }}
+          command: pages deploy site --project-name ironwright --branch ${{ github.head_ref || github.ref_name }}
 
   route-worker:
     needs: site
@@ -47,7 +47,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy the coconutlabs.org/ontoforge route
+      - name: Deploy the coconutlabs.org/ironwright route
         if: ${{ env.CF_TOKEN != '' }}
         env:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

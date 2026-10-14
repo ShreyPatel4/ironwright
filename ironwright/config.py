@@ -10,7 +10,7 @@ PACKS_DIR = PACKAGE_DIR / "packs"
 
 
 def data_root() -> Path:
-    return Path(os.environ.get("ONTOFORGE_DATA", Path.cwd() / "data")).resolve()
+    return Path(os.environ.get("IRONWRIGHT_DATA", Path.cwd() / "data")).resolve()
 
 
 @dataclass(frozen=True)
@@ -58,4 +58,4 @@ class PackPaths:
 
 
 def setting(name: str, default: str | None = None) -> str | None:
-    return os.environ.get(f"ONTOFORGE_{name}", default)
+    return os.environ.get(f"IRONWRIGHT_{name}", default)

@@ -1,5 +1,5 @@
 """Inline web/style.css, web/app.js and every web/data/*.json into one self-contained HTML page
-(dist/ontoforge-showcase.html). Used for the hosted demo; GitHub Pages / Cloudflare Pages can serve web/ as is."""
+(dist/ironwright-showcase.html). Used for the hosted demo; GitHub Pages / Cloudflare Pages can serve web/ as is."""
 import json
 import pathlib
 import re
@@ -14,18 +14,18 @@ body = re.search(r"<body>(.*)</body>", html, re.S).group(1)
 body = body.replace('<script src="app.js"></script>', "")
 fonts = re.search(r'(<link rel="preconnect".*?display=swap">)', html, re.S).group(1)
 blob = json.dumps(data, separators=(",", ":")).replace("</", "<\\/")
-out = f"""<title>OntoForge Showcase</title>
+out = f"""<title>Ironwright Showcase</title>
 {fonts}
 <style>
 {css}
 </style>
 {body}
-<script>window.ONTOFORGE_DATA={blob};</script>
+<script>window.IRONWRIGHT_DATA={blob};</script>
 <script>
 {js}
 </script>
 """
-dest = root / "dist" / "ontoforge-showcase.html"
+dest = root / "dist" / "ironwright-showcase.html"
 dest.parent.mkdir(exist_ok=True)
 dest.write_text(out)
 print(f"wrote {dest} ({dest.stat().st_size/1024:.0f} KB, packs: {', '.join(data)})")

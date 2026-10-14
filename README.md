@@ -1,6 +1,6 @@
-# OntoForge
+# Ironwright
 
-I built OntoForge to show one thing end to end: how you take a company that runs on old systems
+I built Ironwright to show one thing end to end: how you take a company that runs on old systems
 (mainframe files, aging databases, CSV drops) and get it to a point where AI agents can make real
 business decisions on top of it, safely.
 
@@ -86,15 +86,15 @@ sequenceDiagram
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-ontoforge run --pack all          # generate, migrate, reconcile, ontology, agents, evals, export
-ontoforge trace --pack retail     # print the nested span tree of the latest agent run
+ironwright run --pack all          # generate, migrate, reconcile, ontology, agents, evals, export
+ironwright trace --pack retail     # print the nested span tree of the latest agent run
 make demo                         # serve the web demo on http://localhost:8001
-ontoforge serve --pack banking_aml   # REST API on :8000 (try the X-Principal header)
-ontoforge mcp --pack retail          # MCP server: tools are generated from ontology.yaml
+ironwright serve --pack banking_aml   # REST API on :8000 (try the X-Principal header)
+ironwright mcp --pack retail          # MCP server: tools are generated from ontology.yaml
 pytest -q                         # every pack must pass every eval layer
 ```
 
-Each stage also runs on its own: `ontoforge generate|migrate|reconcile|ontology|agents|evals|export --pack <name>`.
+Each stage also runs on its own: `ironwright generate|migrate|reconcile|ontology|agents|evals|export --pack <name>`.
 
 ### Using a real LLM (optional)
 
@@ -103,9 +103,9 @@ decisions come from rules either way. The model only writes the explanation, and
 rewrites any narration that cites evidence the agent never gathered.
 
 ```bash
-ONTOFORGE_LLM=ollama ontoforge agents --pack retail                 # free, local
-ONTOFORGE_LLM=cloudflare CF_ACCOUNT_ID=... CF_API_TOKEN=... ontoforge agents --pack retail   # Workers AI free tier
-ONTOFORGE_LLM=anthropic ANTHROPIC_API_KEY=... ontoforge agents --pack retail
+IRONWRIGHT_LLM=ollama ironwright agents --pack retail                 # free, local
+IRONWRIGHT_LLM=cloudflare CF_ACCOUNT_ID=... CF_API_TOKEN=... ironwright agents --pack retail   # Workers AI free tier
+IRONWRIGHT_LLM=anthropic ANTHROPIC_API_KEY=... ironwright agents --pack retail
 ```
 
 ## What each layer promises, and how it is checked
@@ -123,7 +123,7 @@ Ground truth comes from the generator, which knows exactly which problems it pla
 ## Repo map
 
 ```
-ontoforge/
+ironwright/
   legacy.py        read fixed width, csv, sqlite, jsonl as strings
   lake.py          PyIceberg catalog, Write Audit Publish, quarantine
   quality.py       structural and semantic checks with severity and owner
@@ -157,6 +157,6 @@ Adding a fifth industry means adding a folder under `packs/`. The engine does no
 - [Roadmap](docs/ROADMAP.md): the scenario engine, platform console, staging, live, and the security model
 - [Claude Code kickoff prompts](docs/claude-code-kickoff.md): one prompt per phase
 - Use-case films: `python scripts/film_specs.py && python scripts/build_films.py --video` renders one film per use case into `dist/films/`, using each pack's real export
-- Intro video: `python scripts/build_intro.py --video` renders `dist/ontoforge-intro.mp4` from `web/intro/`
+- Intro video: `python scripts/build_intro.py --video` renders `dist/ironwright-intro.mp4` from `web/intro/`
 
 All companies, people and numbers are fictional and generated. MIT licensed.

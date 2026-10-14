@@ -3,10 +3,10 @@
 Run it and point an MCP client (Claude Desktop, an AgentCore Gateway target, a
 LangGraph or Strands agent) at it:
 
-  ontoforge mcp --pack retail
+  ironwright mcp --pack retail
 
 Tools are generated from ontology.yaml, so a new function or action becomes a
-tool with no code. The agent identity comes from ONTOFORGE_PRINCIPAL; every
+tool with no code. The agent identity comes from IRONWRIGHT_PRINCIPAL; every
 call goes through the same policy engine and audit log as the REST API.
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ def build_server(pack_name: str) -> FastMCP:
     pack = load_pack(pack_name)
     ont = Ontology(pack, Tracer(pack.paths.traces))
     principal = setting("PRINCIPAL", "agent:mcp-client")
-    mcp = FastMCP(f"ontoforge-{pack_name}")
+    mcp = FastMCP(f"ironwright-{pack_name}")
 
     @mcp.tool(description=f"Describe the {pack.title} ontology: object types, links, functions and actions.")
     def describe_ontology() -> str:

@@ -51,7 +51,7 @@ class Lakehouse:
         self.pack = pack
         p = pack.paths.ensure().lake
         (p / "warehouse").mkdir(parents=True, exist_ok=True)
-        self.catalog = SqlCatalog(f"ontoforge_{pack.name}", uri=f"sqlite:///{p / 'catalog.db'}",
+        self.catalog = SqlCatalog(f"ironwright_{pack.name}", uri=f"sqlite:///{p / 'catalog.db'}",
                                   warehouse=f"file://{p / 'warehouse'}")
         for ns in LAYERS:
             self.catalog.create_namespace_if_not_exists(ns)

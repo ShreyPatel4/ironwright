@@ -1,10 +1,10 @@
-// Path route: coconutlabs.org/ontoforge/* -> the OntoForge Pages site.
+// Path route: coconutlabs.org/ironwright/* -> the Ironwright Pages site.
 // The site only uses relative links, so it works under any prefix as long as
 // directory URLs end with a slash. This Worker adds that slash and rewrites redirects.
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const prefix = env.PREFIX || "/ontoforge";
+    const prefix = env.PREFIX || "/ironwright";
     if (url.pathname === prefix) return Response.redirect(`${url.origin}${prefix}/${url.search}`, 301);
     if (!url.pathname.startsWith(prefix + "/")) return fetch(request);
 

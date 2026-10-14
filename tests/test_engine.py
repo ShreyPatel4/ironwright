@@ -1,8 +1,8 @@
 """Engine unit tests: no pack run needed."""
-from ontoforge.expr import evaluate
-from ontoforge.ontology.build import normalize
-from ontoforge.policy import PolicyEngine
-from ontoforge.tracing import Tracer
+from ironwright.expr import evaluate
+from ironwright.ontology.build import normalize
+from ironwright.policy import PolicyEngine
+from ironwright.tracing import Tracer
 
 
 def test_expr_basic_and_safe():

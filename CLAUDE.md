@@ -1,6 +1,6 @@
-# OntoForge: notes for Claude Code
+# Ironwright: notes for Claude Code
 
-OntoForge is a Coconut Labs demo platform. It takes mock businesses with messy legacy systems and runs
+Ironwright is a Coconut Labs demo platform. It takes mock businesses with messy legacy systems and runs
 them end to end: legacy files, an Iceberg lakehouse with quality gates, reconciliation, an ontology
 with identity resolution, governed actions and LangGraph agents, with traces and evals at every layer.
 Read `README.md` and `docs/architecture.md` first, then `docs/ROADMAP.md` for what to build next.
@@ -9,20 +9,20 @@ Read `README.md` and `docs/architecture.md` first, then `docs/ROADMAP.md` for wh
 
 ```bash
 pip install -e ".[dev]"
-ontoforge run --pack all        # full pipeline for every pack (about 50s)
+ironwright run --pack all        # full pipeline for every pack (about 50s)
 pytest -q                       # must stay green: every pack passes every eval layer
-make bundle                     # export snapshots + build dist/ontoforge-showcase.html
+make bundle                     # export snapshots + build dist/ironwright-showcase.html
 make site                       # assemble site/ (landing, demo/, film/, films/, media/)
 make preview                    # serve site/ on :8002
 make media                      # re-render intro + six use-case films at 60fps into media/ (slow)
 make deploy                     # wrangler pages deploy site (needs Cloudflare login)
-node deploy/route-worker/test.mjs   # checks the coconutlabs.org/ontoforge path route
+node deploy/route-worker/test.mjs   # checks the coconutlabs.org/ironwright path route
 ```
 
 ## Site and deploys
 
-- One build, two addresses: `ontoforge.coconutlabs.org` (Pages custom domain) and
-  `coconutlabs.org/ontoforge/` (route Worker in `deploy/route-worker`). Keep every link relative and
+- One build, two addresses: `ironwright.coconutlabs.org` (Pages custom domain) and
+  `coconutlabs.org/ironwright/` (route Worker in `deploy/route-worker`). Keep every link relative and
   every directory URL ending in a slash, or the path route breaks.
 - `main` deploys production, `staging` deploys a preview behind Cloudflare Access, PRs get previews.
 - Rendered MP4s are committed in `media/`. Films are generated from `web/films/specs/*.json`, which
@@ -31,7 +31,7 @@ node deploy/route-worker/test.mjs   # checks the coconutlabs.org/ontoforge path 
   accent, semantic colors only for state. Slow, calm motion: one easing curve, content holds for a
   few seconds before it moves on.
 
-Set `ONTOFORGE_DATA` to keep generated data out of the repo (the Makefile does this).
+Set `IRONWRIGHT_DATA` to keep generated data out of the repo (the Makefile does this).
 
 ## Rules that keep the project honest
 
@@ -45,7 +45,7 @@ Set `ONTOFORGE_DATA` to keep generated data out of the repo (the Makefile does t
   `[ev:<id>]` ids the agent actually gathered; the guardrail rewrites anything else.
 - **Nothing irreversible before `interrupt()`.**
 - **Default deny.** New actions need an explicit permit in the pack's `policies.yaml`.
-- **Packs are data, the engine is generic.** Industry logic goes in `ontoforge/packs/<pack>/`, never
+- **Packs are data, the engine is generic.** Industry logic goes in `ironwright/packs/<pack>/`, never
   in engine modules.
 - **Synthetic data only.** The platform never ingests real company or personal data. See the
   security section of `docs/ROADMAP.md`.
@@ -57,8 +57,8 @@ explaining a flow.
 
 ## Layout
 
-- `ontoforge/` engine (legacy, lake, quality, reconcile, ontology/, policy, agents/, tracing, evals, api, mcp_server, export, cli)
-- `ontoforge/packs/<pack>/` one folder per mock business
+- `ironwright/` engine (legacy, lake, quality, reconcile, ontology/, policy, agents/, tracing, evals, api, mcp_server, export, cli)
+- `ironwright/packs/<pack>/` one folder per mock business
 - `web/` static demo (vanilla JS), `web/intro/` the film, `web/films/` use-case films, `web/site/` landing page
 - `scripts/` bundle, build_intro, film_specs, build_films, build_site
 - `media/` rendered MP4s and posters (committed)

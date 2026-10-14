@@ -39,7 +39,7 @@ class Pack:
         return self.spec.get("title", self.name)
 
     def generator(self) -> ModuleType:
-        spec = importlib.util.spec_from_file_location(f"ontoforge_pack_{self.name}", self.dir / "generator.py")
+        spec = importlib.util.spec_from_file_location(f"ironwright_pack_{self.name}", self.dir / "generator.py")
         mod = importlib.util.module_from_spec(spec)
         assert spec and spec.loader
         spec.loader.exec_module(mod)

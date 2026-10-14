@@ -1,4 +1,4 @@
-<title>OntoForge Intro</title>
+<title>Ironwright Intro</title>
 <style>
 /*FONTS*/
 /* Layout: one 16:9 stage, transport and chapters below. Operator-console look: flat graphite panels, 1px borders, 6px corners, one blue accent. */
@@ -25,7 +25,7 @@ canvas{display:block;width:100%;height:100%}
 .chapters button[aria-current="true"]{color:var(--ink);background:var(--panel);border-color:var(--line)}
 </style>
 <div class="wrap">
-  <div class="stage"><canvas id="c" width="1920" height="1080" aria-label="OntoForge film"></canvas></div>
+  <div class="stage"><canvas id="c" width="1920" height="1080" aria-label="Ironwright film"></canvas></div>
   <div class="bar">
     <button id="play" type="button">Pause</button>
     <input id="scrub" type="range" min="0" max="221" step="0.01" value="0" aria-label="Position">
@@ -68,7 +68,7 @@ function search(X,Y,w,s,n,a,caret){x.save();x.globalAlpha*=a;rr(X,Y,w,84,6);x.fi
 
 const Q="Why is Harbor Pet Food out of stock at store 0108?";
 const ST=["Land","Check","Reconcile","Unify","Act","Prove"],S0=28,SD=10.5;
-const CH=[["The question",0],["The cost",14],["The journey",S0],["The answer",91],["Before and after",101],["What is next",111],["Platform preview",117],["Governance",165],["OntoForge",214]];
+const CH=[["The question",0],["The cost",14],["The journey",S0],["The answer",91],["Before and after",101],["What is next",111],["Platform preview",117],["Governance",165],["Ironwright",214]];
 
 function render(t){
   x.setTransform(1,0,0,1,0,0);x.globalAlpha=1;x.letterSpacing="0px";
@@ -166,7 +166,7 @@ function render(t){
   // ---- 6. Before and after (101 to 111)
   if(t>101&&t<111.4){const a=beat(t,101,111.4);
     const pa=inn(t,101.3);panel(200,150,1520,520,"What changes","before and after",a*pa);
-    T("Before",240,256,{f:F.s(400,20),c:C.dim,a:a*pa});T("With OntoForge",980,256,{f:F.s(400,20),c:C.blue,a:a*pa});
+    T("Before",240,256,{f:F.s(400,20),c:C.dim,a:a*pa});T("With Ironwright",980,256,{f:F.s(400,20),c:C.blue,a:a*pa});
     [["11 days to answer one question","4 seconds, with sources"],["Two teams, two numbers","One number, every difference explained"],["Nobody knows who changed it","Every action approved and logged"]].forEach((r,i)=>{const v=inn(t,102+i*.8),Y=360+i*100;hl(240,Y-58,1440,a*v);T(r[0],240,Y,{f:F.s(400,32),c:C.sub,a:a*v});T(r[1],980,Y,{f:F.s(500,32),a:a*v})});
     T("The trade",200,780,{f:F.s(400,22),c:C.dim,a:a*inn(t,105)});
     para("You model your business once, up front, and risky actions wait for a person. After that, every answer is faster and safer.",200,830,1300,105.4,t,a,{c:C.ink,f:F.s(400,34)});
@@ -195,7 +195,7 @@ function render(t){
     steps.forEach((s,i)=>{const sx=lerp(L,R,i/5);dot(sx,TY,i===k?8:5,i===k?C.blue:i<k?C.ink:C.line,ja);T(s,sx,TY+40,{f:F.s(i===k?500:400,20),al:"center",c:i===k?C.ink:C.dim,a:ja})});
     // workspace window
     const X=120,Y=176,Wd=1680,Hh=740,RL=270,IW=420,CX=X+RL,CW=Wd-RL-IW,IX=X+Wd-IW,top=Y+56;
-    panel(X,Y,Wd,Hh,"OntoForge workspace","Juniper Home Goods, 3 stores and online",ja);
+    panel(X,Y,Wd,Hh,"Ironwright workspace","Juniper Home Goods, 3 stores and online",ja);
     tag("Ideation phase",X+260,Y+30,C.warn,ja);
     x.save();x.globalAlpha=ja;x.fillStyle=C.line;x.fillRect(CX,top,1.5,Hh-56);x.fillRect(IX,top,1.5,Hh-56);x.restore();
     // left rail: sources
@@ -225,7 +225,7 @@ function render(t){
     // inspector
     const insT=["Sync status","Discovered","Open tools","Gaps found","Recommended fixes","Train an agent"][k];T(insT,IX+24,top+40,{f:F.s(500,18),c:C.dim,a:cv2});
     const iv=(d)=>inn(t,s0+d,.9)*cv2;
-    if(k===0){const prog=cl((t-W0-1)/5);x.save();x.globalAlpha=cv2;rr(IX+24,top+80,IW-48,8,4);x.fillStyle=C.line;x.fill();rr(IX+24,top+80,(IW-48)*prog,8,4);x.fillStyle=C.blue;x.fill();x.restore();T(Math.round(prog*6)+" of 6 sources synced",IX+24,top+128,{f:F.s(400,20),a:cv2});para("Read only access. OntoForge copies what it needs into its own store and never writes to your systems unless you approve an action.",IX+24,top+190,IW-48,s0+1,t,cv2,{f:F.s(400,19)})}
+    if(k===0){const prog=cl((t-W0-1)/5);x.save();x.globalAlpha=cv2;rr(IX+24,top+80,IW-48,8,4);x.fillStyle=C.line;x.fill();rr(IX+24,top+80,(IW-48)*prog,8,4);x.fillStyle=C.blue;x.fill();x.restore();T(Math.round(prog*6)+" of 6 sources synced",IX+24,top+128,{f:F.s(400,20),a:cv2});para("Read only access. Ironwright copies what it needs into its own store and never writes to your systems unless you approve an action.",IX+24,top+190,IW-48,s0+1,t,cv2,{f:F.s(400,19)})}
     if(k===1){[["6 objects"],["8 links"],["4,118 records matched across systems"],["Learned in 3 minutes"]].forEach((r,i)=>{T(r[0],IX+24,top+96+i*54,{f:F.s(i<2?500:400,i<2?26:20),c:i<2?C.ink:C.sub,a:iv(1+i*.5)})});para("Same customer in the store and online? Same product in the sheet and the till? It figures that out first.",IX+24,top+340,IW-48,s0+3.4,t,cv2,{f:F.s(400,19)})}
     if(k===2){[["In this workspace","Tools stay next to the objects they describe"],["In a new window","For a second screen or a full view"]].forEach((r,i)=>{const Yr=top+100+i*110;x.save();x.globalAlpha=iv(1+i*.4);rr(IX+24,Yr-36,IW-48,92,6);x.strokeStyle=C.line;x.lineWidth=1.5;x.stroke();x.restore();T(r[0],IX+44,Yr,{f:F.s(500,20),a:iv(1+i*.4)});T(r[1],IX+44,Yr+30,{f:F.s(400,17),c:C.dim,a:iv(1+i*.4)})})}
     if(k===3){[["Order to Invoice","Billing gap","about $41k waiting"],["Product to Supplier","Data gap","reorders are guesses"]].forEach((r,i)=>{const Yr=top+100+i*130;x.save();x.globalAlpha=iv(1.2+i*1.2);rr(IX+24,Yr-36,IW-48,110,6);x.strokeStyle=C.line;x.lineWidth=1.5;x.stroke();x.restore();T(r[0],IX+44,Yr,{f:F.s(500,20),a:iv(1.2+i*1.2)});tag(r[1],IX+IW-44,Yr-6,C.warn,iv(1.2+i*1.2),{r:1});T(r[2],IX+44,Yr+34,{f:F.s(400,18),c:C.sub,a:iv(1.2+i*1.2)})})}
@@ -250,7 +250,7 @@ function render(t){
     const L=200,R=1720,TY=980;seg([L,TY],[R,TY],C.line,2,1,ja);const pv=eio(cl((t-s0)/1.2));if(k>0)seg([L,TY],[lerp(L,R,(k-1+pv)/4),TY],C.blue,2.5,1,ja);
     steps.forEach((s,i)=>{const sx=lerp(L,R,i/4);dot(sx,TY,i===k?8:5,i===k?C.blue:i<k?C.ink:C.line,ja);T(s,sx,TY+40,{f:F.s(i===k?500:400,20),al:"center",c:i===k?C.ink:C.dim,a:ja})});
     const X=120,Y=176,Wd=1680,Hh=740,top=Y+56,IW=440,IX=X+Wd-IW;
-    panel(X,Y,Wd,Hh,"OntoForge workspace","Riverbend Health, governance view",ja);tag("Ideation phase",X+260,Y+30,C.warn,ja);
+    panel(X,Y,Wd,Hh,"Ironwright workspace","Riverbend Health, governance view",ja);tag("Ideation phase",X+260,Y+30,C.warn,ja);
     const lock=(cx,cy,a)=>{x.save();x.globalAlpha*=a;x.strokeStyle=C.dim;x.lineWidth=2;rr(cx-8,cy-2,16,12,2);x.stroke();x.beginPath();x.arc(cx,cy-3,5,Math.PI,0);x.stroke();x.restore()};
     if(k===0){
       const roles=["Care manager","Billing analyst","Compliance officer","claims-agent"];const ri=cl(Math.floor((t-s0-.6)/2.8),0,3);
@@ -292,9 +292,9 @@ function render(t){
   // ---- 10. End (214 to 221)
   if(t>214){const a=p(t,214,215);
     mark(960,360,56,eio(p(t,214.2,215.6)),C.ink);
-    T("OntoForge",960,560,{f:F.s(600,150),al:"center",ls:-6,a:a*inn(t,215,1.4)});
+    T("Ironwright",960,560,{f:F.s(600,150),al:"center",ls:-6,a:a*inn(t,215,1.4)});
     T("Learn your business. Then act on it.",960,640,{f:F.s(400,34),al:"center",c:C.sub,a:a*inn(t,216,1.3)});
-    T("ontoforge.coconutlabs.org",960,760,{f:F.m(400,30),al:"center",c:C.blue,a:a*inn(t,217,1.3)});
+    T("ironwright.coconutlabs.org",960,760,{f:F.m(400,30),al:"center",c:C.blue,a:a*inn(t,217,1.3)});
     T("A Coconut Labs project, in ideation",960,960,{f:F.s(400,22),al:"center",c:C.dim,a:a*inn(t,218,1.3)});
   }
 }

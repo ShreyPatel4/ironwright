@@ -13,7 +13,7 @@ flowchart LR
 ```
 Read CLAUDE.md, README.md, docs/ROADMAP.md and deploy/README.md. Then:
 1. Create a venv, pip install -e ".[dev]" playwright, run `make run` and `pytest -q`. Fix anything that breaks here.
-2. git init, first commit (media/ included), create a private GitHub repo named ontoforge with `gh repo create`, push.
+2. git init, first commit (media/ included), create a private GitHub repo named ironwright with `gh repo create`, push.
 3. Add ruff and a pre-commit hook for ruff and pytest.
 4. Confirm the CI workflow runs green on GitHub (the deploy steps skip until secrets exist).
 Tell me what you changed and anything you could not do.
@@ -23,10 +23,10 @@ Tell me what you changed and anything you could not do.
 
 ```
 Follow deploy/README.md, "Stage 3". Build the site with `make site`, preview it with `make preview`
-and check every page at both / and under a /ontoforge/ prefix (serve site/ from a folder named
-ontoforge to simulate the path). Then walk me through each Cloudflare step I must do by hand
-(DNS, Pages project, custom domain ontoforge.coconutlabs.org, route Worker for
-coconutlabs.org/ontoforge, GitHub secrets). Run the wrangler commands yourself once I confirm I am
+and check every page at both / and under a /ironwright/ prefix (serve site/ from a folder named
+ironwright to simulate the path). Then walk me through each Cloudflare step I must do by hand
+(DNS, Pages project, custom domain ironwright.coconutlabs.org, route Worker for
+coconutlabs.org/ironwright, GitHub secrets). Run the wrangler commands yourself once I confirm I am
 logged in. Stop and ask before anything that costs money. Finish by curling both addresses and
 showing me the status codes.
 ```
@@ -45,7 +45,7 @@ evals pass on 20 random seeds. Regenerate the use-case films for the new archety
 
 ```
 Implement Phase 2 from docs/ROADMAP.md as a new site route /app/: scenario picker, stage stepper,
-streaming trace viewer, approvals inbox and org chart, on top of `ontoforge serve`. Keep the console
+streaming trace viewer, approvals inbox and org chart, on top of `ironwright serve`. Keep the console
 look (Geist, flat panels, 1px borders, 6px corners, one blue accent). For the static site, the app
 must also run read-only from exported snapshots. Add API tests and a Playwright smoke test.
 ```
@@ -64,7 +64,7 @@ prove every control.
 
 ```
 Implement Phase 3: Dockerfile for the API, deploy to the container host I choose at
-api-staging.ontoforge.coconutlabs.org behind Cloudflare Access, R2 warehouse option for PyIceberg,
+api-staging.ironwright.coconutlabs.org behind Cloudflare Access, R2 warehouse option for PyIceberg,
 and point /app/ on the staging site at it. Write manual steps into deploy/STAGING.md.
 ```
 

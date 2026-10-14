@@ -1,12 +1,12 @@
-"""ontoforge command line.
+"""ironwright command line.
 
-  ontoforge list                         show packs
-  ontoforge run --pack retail            everything, end to end
-  ontoforge run --pack all               every pack
-  ontoforge generate|migrate|reconcile|ontology|agents|evals|export --pack retail
-  ontoforge trace --pack retail [--id TRACE_ID]   print a trace as a span tree
-  ontoforge serve --pack retail          REST API over the ontology
-  ontoforge mcp --pack retail            MCP server exposing functions and actions as tools
+  ironwright list                         show packs
+  ironwright run --pack retail            everything, end to end
+  ironwright run --pack all               every pack
+  ironwright generate|migrate|reconcile|ontology|agents|evals|export --pack retail
+  ironwright trace --pack retail [--id TRACE_ID]   print a trace as a span tree
+  ironwright serve --pack retail          REST API over the ontology
+  ironwright mcp --pack retail            MCP server exposing functions and actions as tools
 """
 from __future__ import annotations
 
@@ -111,7 +111,7 @@ STAGES = {"generate": stage_generate, "migrate": stage_migrate, "reconcile": sta
 
 
 def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(prog="ontoforge", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="ironwright", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=["list", "run", "trace", "serve", "mcp", *STAGES])
     ap.add_argument("--id", dest="trace_id", default=None, help="trace id for the trace command")
     ap.add_argument("--pack", default="retail")

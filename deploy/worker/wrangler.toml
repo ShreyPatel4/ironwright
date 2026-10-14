@@ -1,8 +1,8 @@
 # Optional Worker: a tiny narration endpoint on Workers AI (free tier: 10k neurons/day).
 # Lets a browser (the web demo) ask for narration without holding an API token.
-# The Python engine does not need it: ONTOFORGE_LLM=cloudflare calls the Workers AI REST API directly.
+# The Python engine does not need it: IRONWRIGHT_LLM=cloudflare calls the Workers AI REST API directly.
 #   cd deploy/worker && npx wrangler deploy
-name = "ontoforge-narrate"
+name = "ironwright-narrate"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 
@@ -10,4 +10,4 @@ compatibility_date = "2026-09-01"
 binding = "AI"
 
 # Uncomment to attach a custom domain once coconutlabs.org is on this account:
-# routes = [{ pattern = "ontoforge-api.coconutlabs.org", custom_domain = true }]
+# routes = [{ pattern = "ironwright-api.coconutlabs.org", custom_domain = true }]

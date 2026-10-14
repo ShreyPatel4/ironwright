@@ -1,6 +1,6 @@
 # Build log: what the evals caught
 
-These are real bugs I hit while building OntoForge. Each one was caught by an eval or a test, not
+These are real bugs I hit while building Ironwright. Each one was caught by an eval or a test, not
 by reading code. They're the best part of the project to talk about, because they're the kind of
 thing that goes wrong in real migrations.
 

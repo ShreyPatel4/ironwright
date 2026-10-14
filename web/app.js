@@ -1,4 +1,4 @@
-/* ontoforge demo: renders one pack snapshot at a time. Data comes from window.ONTOFORGE_DATA
+/* ironwright demo: renders one pack snapshot at a time. Data comes from window.IRONWRIGHT_DATA
    (inlined build) or data/<pack>.json (static hosting). No framework, no build step. */
 (function () {
   const PACKS = [
@@ -17,7 +17,7 @@
 
   async function load(id) {
     if (cache[id]) return cache[id];
-    if (window.ONTOFORGE_DATA && window.ONTOFORGE_DATA[id]) return (cache[id] = window.ONTOFORGE_DATA[id]);
+    if (window.IRONWRIGHT_DATA && window.IRONWRIGHT_DATA[id]) return (cache[id] = window.IRONWRIGHT_DATA[id]);
     const r = await fetch(`data/${id}.json`);
     if (!r.ok) throw new Error(`no data for ${id}`);
     return (cache[id] = await r.json());
@@ -234,11 +234,11 @@
     return `<section id="run" style="--c:var(--muted)"><h2><span class="layer">run it</span>Free on a laptop, then on AWS</h2>
       <div class="grid g2"><div class="card"><h4>Run every pack locally (no Docker, no keys, $0)</h4>
       <div class="code">pip install -e .
-ontoforge run --pack all
-ontoforge trace --pack ${esc(d.pack)}
-ontoforge serve --pack ${esc(d.pack)}     # REST API
-ontoforge mcp --pack ${esc(d.pack)}       # MCP tools for any agent
-ONTOFORGE_LLM=anthropic ontoforge agents --pack ${esc(d.pack)}</div></div>
+ironwright run --pack all
+ironwright trace --pack ${esc(d.pack)}
+ironwright serve --pack ${esc(d.pack)}     # REST API
+ironwright mcp --pack ${esc(d.pack)}       # MCP tools for any agent
+IRONWRIGHT_LLM=anthropic ironwright agents --pack ${esc(d.pack)}</div></div>
       <div class="card"><h4>How each piece maps to AWS</h4><dl class="aws">${Object.entries(d.aws_mapping || {}).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></div></div></section>`;
   }
 
@@ -246,7 +246,7 @@ ONTOFORGE_LLM=anthropic ontoforge agents --pack ${esc(d.pack)}</div></div>
     const root = $("#app");
     root.innerHTML = `<p class="meta" style="padding:30px 0">Loading ${esc(id)}…</p>`;
     let d;
-    try { d = await load(id); } catch (e) { root.innerHTML = `<p class="card">Could not load data for ${esc(id)}: ${esc(e.message)}. Run <span class="mono">ontoforge run --pack all</span> first.</p>`; return; }
+    try { d = await load(id); } catch (e) { root.innerHTML = `<p class="card">Could not load data for ${esc(id)}: ${esc(e.message)}. Run <span class="mono">ironwright run --pack all</span> first.</p>`; return; }
     document.querySelectorAll(".pack-btn").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.id === id)));
     root.innerHTML = renderStrip(d) + renderStory(d) + renderLegacy(d) + renderLake(d) + renderRecon(d) + renderOntology(d) + renderAgents(d) + renderGov(d) + renderEvals(d) + renderRun(d);
     root.querySelectorAll(".run-list").forEach((list) => {
@@ -261,7 +261,7 @@ ONTOFORGE_LLM=anthropic ontoforge agents --pack ${esc(d.pack)}</div></div>
         detail.innerHTML = runDetail(d, uc.runs[+b.dataset.i]);
       });
     });
-    try { localStorage.setItem("ontoforge-pack", id); } catch (e) {}
+    try { localStorage.setItem("ironwright-pack", id); } catch (e) {}
   }
 
   async function init() {
@@ -270,7 +270,7 @@ ONTOFORGE_LLM=anthropic ontoforge agents --pack ${esc(d.pack)}</div></div>
     bar.innerHTML = statuses.map((p) => `<button class="pack-btn" data-id="${p.id}" aria-pressed="false"><small>${esc(p.short)}</small>${esc(p.title)} ${p.ok === true ? `<span class="chip pass" style="align-self:flex-start">evals pass</span>` : p.ok === false ? `<span class="chip fail" style="align-self:flex-start">evals fail</span>` : ""}</button>`).join("");
     bar.addEventListener("click", (e) => { const b = e.target.closest(".pack-btn"); if (b) show(b.dataset.id); });
     let start = (location.hash || "").replace("#", "");
-    if (!PACKS.some((p) => p.id === start)) { try { start = localStorage.getItem("ontoforge-pack") || "retail"; } catch (e) { start = "retail"; } }
+    if (!PACKS.some((p) => p.id === start)) { try { start = localStorage.getItem("ironwright-pack") || "retail"; } catch (e) { start = "retail"; } }
     if (!PACKS.some((p) => p.id === start)) start = "retail";
     show(start);
   }

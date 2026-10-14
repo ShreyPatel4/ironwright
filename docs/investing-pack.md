@@ -1,4 +1,4 @@
-# Investing pack: OntoForge for a stock portfolio (design, ideation phase)
+# Investing pack: Ironwright for a stock portfolio (design, ideation phase)
 
 Can the same engine that models a retailer model a public company you invest in? Yes. A pack is
 data, not engine code, so "a company I invest in" is just another business with its own objects,
@@ -58,7 +58,7 @@ flowchart LR
 "Operating style" becomes measurable instead of a vibe:
 
 - **Capital allocation:** buybacks, dividends, capex and acquisitions as a share of cash flow, by year.
-- **Say versus do:** every guidance statement reconciled against the KPI that later arrived. This is the same reconciliation engine OntoForge uses for legacy reports, with "known differences" for one-offs.
+- **Say versus do:** every guidance statement reconciled against the KPI that later arrived. This is the same reconciliation engine Ironwright uses for legacy reports, with "known differences" for one-offs.
 - **Concentration:** revenue share of the top segment, top customer, top supplier.
 - **Management skin in the game:** insider ownership and changes over time.
 

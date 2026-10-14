@@ -4,10 +4,10 @@ Default is "offline": no network, no cost. Agents still work because every
 decision is made by deterministic rules over ontology evidence, and narratives
 fall back to templates. Plug in a provider to get model-written narratives:
 
-  ONTOFORGE_LLM=anthropic   ANTHROPIC_API_KEY=...       (optional ONTOFORGE_LLM_MODEL)
-  ONTOFORGE_LLM=openai      OPENAI_API_KEY=...
-  ONTOFORGE_LLM=ollama      (local, free)              ONTOFORGE_OLLAMA_URL
-  ONTOFORGE_LLM=cloudflare  CF_ACCOUNT_ID=... CF_API_TOKEN=...   (Workers AI free tier)
+  IRONWRIGHT_LLM=anthropic   ANTHROPIC_API_KEY=...       (optional IRONWRIGHT_LLM_MODEL)
+  IRONWRIGHT_LLM=openai      OPENAI_API_KEY=...
+  IRONWRIGHT_LLM=ollama      (local, free)              IRONWRIGHT_OLLAMA_URL
+  IRONWRIGHT_LLM=cloudflare  CF_ACCOUNT_ID=... CF_API_TOKEN=...   (Workers AI free tier)
 """
 from __future__ import annotations
 

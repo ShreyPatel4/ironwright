@@ -1,6 +1,6 @@
-# Cloudflare Pages project for the public site (subdomain: ontoforge.coconutlabs.org).
+# Cloudflare Pages project for the public site (subdomain: ironwright.coconutlabs.org).
 # Build the site first:  python scripts/build_site.py
-# Then:                  npx wrangler pages deploy site --project-name ontoforge --branch main
-name = "ontoforge"
+# Then:                  npx wrangler pages deploy site --project-name ironwright --branch main
+name = "ironwright"
 pages_build_output_dir = "site"
 compatibility_date = "2026-09-01"

@@ -1,6 +1,6 @@
 # Roadmap: from four packs to endless scenarios
 
-Today OntoForge has four hand-written packs. The goal is a platform that can generate a believable
+Today Ironwright has four hand-written packs. The goal is a platform that can generate a believable
 company on demand (its org chart, its systems, its problems, its migration and its governance) and
 then run the whole modernization story on it, with evals proving every step.
 
@@ -29,7 +29,7 @@ flowchart TB
   EST --> MIG["Migration waves<br/>which systems move when"]
   PRB --> GT["Ground truth"]
   ORG & EST & PRB & GOV & MIG --> PACK["Generated pack<br/>pack.yaml, generator, models,<br/>ontology.yaml, policies.yaml, usecases.yaml"]
-  PACK --> RUN["ontoforge run"] --> EV["evals vs ground truth"]
+  PACK --> RUN["ironwright run"] --> EV["evals vs ground truth"]
 ```
 
 ### Building blocks
@@ -57,7 +57,7 @@ problem with an eval.
 
 ## Phase 2: platform console
 
-A web app on top of `ontoforge serve`:
+A web app on top of `ironwright serve`:
 
 - Scenario picker and a "new company" button (archetype, size, seed).
 - A stepper that runs the program stage by stage and shows what each stage changed.
@@ -75,11 +75,11 @@ app. Decide in Phase 2, not before.
 | UI | Cloudflare Pages preview deployment | free, per-branch URLs |
 | Access | Cloudflare Access (one-time PIN to my email) | staging is private |
 | API | one small container (Fly.io free allowance or Cloudflare Containers) | LangGraph, DuckDB and PyIceberg need real Python |
-| Warehouse | R2 bucket `ontoforge-staging` | S3 compatible, no egress fees |
+| Warehouse | R2 bucket `ironwright-staging` | S3 compatible, no egress fees |
 | Audit mirror | D1 | append only, hash chain verified nightly |
 | LLM | Workers AI with a daily budget | cost stays near zero |
 
-## Phase 4: live at ontoforge.coconutlabs.org
+## Phase 4: live at ironwright.coconutlabs.org
 
 - Public read-only: the static showcase and the intro, served by Pages.
 - Live runs behind Cloudflare Turnstile, rate limited per IP, using a fresh scenario seed in a sandbox that is thrown away after the run.

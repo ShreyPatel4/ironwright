@@ -5,14 +5,14 @@ import json
 
 import pytest
 
-from ontoforge.cli import STAGES
-from ontoforge.packs import list_packs, load_pack
-from ontoforge.tracing import Tracer
+from ironwright.cli import STAGES
+from ironwright.packs import list_packs, load_pack
+from ironwright.tracing import Tracer
 
 
 @pytest.fixture(autouse=True)
 def isolated_data(tmp_path, monkeypatch):
-    monkeypatch.setenv("ONTOFORGE_DATA", str(tmp_path))
+    monkeypatch.setenv("IRONWRIGHT_DATA", str(tmp_path))
 
 
 @pytest.mark.parametrize("name", list_packs())
@@ -30,7 +30,7 @@ def test_pack_passes_all_eval_layers(name):
 
 def test_api_masks_sensitive_fields_and_scopes_vendors(tmp_path):
     from fastapi.testclient import TestClient
-    from ontoforge.api import create_app
+    from ironwright.api import create_app
 
     pack = load_pack("banking_aml")
     tracer = Tracer(pack.paths.ensure().traces)

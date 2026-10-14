@@ -41,7 +41,7 @@ def create_app(pack_name: str) -> FastAPI:
     tracer = Tracer(pack.paths.traces)
     ont = Ontology(pack, tracer)
     lock = threading.Lock()   # one DuckDB writer
-    app = FastAPI(title=f"ontoforge: {pack.title}", description=pack.spec.get("story", ""))
+    app = FastAPI(title=f"ironwright: {pack.title}", description=pack.spec.get("story", ""))
 
     @app.get("/")
     def root() -> dict[str, Any]:

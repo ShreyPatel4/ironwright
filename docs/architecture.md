@@ -1,6 +1,6 @@
 # Architecture
 
-OntoForge has four layers. Each one makes a promise to the layer above it, and each promise has an eval.
+Ironwright has four layers. Each one makes a promise to the layer above it, and each promise has an eval.
 
 ```mermaid
 flowchart BT

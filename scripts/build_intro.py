@@ -7,7 +7,7 @@ import subprocess
 
 root = pathlib.Path(__file__).resolve().parents[1]
 src = root / "web" / "intro" / "intro.src.html"
-out = root / "dist" / "ontoforge-intro.html"
+out = root / "dist" / "ironwright-intro.html"
 
 
 def build() -> pathlib.Path:
@@ -52,4 +52,4 @@ if __name__ == "__main__":
     a = ap.parse_args()
     print(f"wrote {build()}")
     if a.video:
-        video(a.fps, root / "dist" / "ontoforge-intro.mp4", a.height)
+        video(a.fps, root / "dist" / "ironwright-intro.mp4", a.height)
