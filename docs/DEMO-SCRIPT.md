@@ -35,6 +35,14 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         policy denied, the Ask surface answering through governed calls
         and refusing outside the ontology, Governance running a policy
         dry-run, and the audit chain verifying server-side.
+- 1:40  The door: invite-only sign-in (local salted hashes, seeded by
+        ironwright auth-set; the page says the API stays locally open
+        until hosted auth is live). Wrong password bounces; the account
+        decides the identity on every audit row.
+- 1:43  Discovery, the thesis in one screen: "Harbor Pet Foods LLC
+        exists 3 times, twice in one system" found blind from the merge
+        log, a failing coverage check, a reconciled difference, and the
+        routine work summarized in one line. Empty classes stay empty.
 - 1:45  First run opens the welcome funnel: three facts (real runs, the
         badge never lies, rules decide) and a template chooser that only
         picks where you land. The Platform map shows every capability,

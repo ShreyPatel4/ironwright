@@ -26,6 +26,8 @@ CONSOLE_DIST = pathlib.Path(__file__).resolve().parents[1] / "console" / "dist"
 import re
 
 from . import ask as ask_mod
+from . import auth as auth_mod
+from . import discovery as discovery_mod
 from . import verification
 from . import workspaces as org_mod
 from .scenario.spec import SpecError
@@ -77,6 +79,11 @@ class PolicyCheckBody(BaseModel):
     principal: str
     action: str  # e.g. "action:delist_item" or "function:vendor_sell_through"
     env: dict[str, Any] = {}
+
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
 
 
 class CreateOrgBody(BaseModel):
@@ -183,6 +190,35 @@ def create_platform_app() -> FastAPI:
     @app.get("/archetypes")
     def archetypes() -> list[dict[str, Any]]:
         return org_mod.archetypes()
+
+    @app.get("/workspaces/{name}/discovery")
+    def discovery(name: str) -> dict[str, Any]:
+        return discovery_mod.derive(_pack(name))
+
+    @app.get("/auth/status")
+    def auth_status() -> dict[str, Any]:
+        return {"seeded": auth_mod.seeded(),
+                "note": "Invite gate on the console door; the API stays locally open until "
+                        "the hosted build. Seed accounts with: ironwright auth-set <email>"}
+
+    @app.post("/auth/login")
+    def auth_login(body: LoginBody) -> dict[str, Any]:
+        token = auth_mod.login(body.email, body.password)
+        if not token:
+            raise HTTPException(401, "that email and password do not match an invited account")
+        return {"token": token, **(auth_mod.me(token) or {})}
+
+    @app.get("/auth/me")
+    def auth_me(x_session: str = Header("")) -> dict[str, Any]:
+        info = auth_mod.me(x_session)
+        if not info:
+            raise HTTPException(401, "no session")
+        return info
+
+    @app.post("/auth/logout")
+    def auth_logout(x_session: str = Header("")) -> dict[str, Any]:
+        auth_mod.logout(x_session)
+        return {"ok": True}
 
     @app.get("/platform/map")
     def get_platform_map() -> dict[str, Any]:

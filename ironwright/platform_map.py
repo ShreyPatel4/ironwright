@@ -51,11 +51,11 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "Generate policies.yaml from data owners and chains; edits arrive as reviewed diffs."),
     ("sem_asof", "semantic", "As-of everywhere", "planned", "sem_ontology",
      "Point-in-time reads across objects and functions."),
-    ("sem_discovery", "semantic", "Discovery: what the estate didn't know", "planned", "sem_ontology",
-     "The one-stop-shop thesis as a surface: duplicate identities (crosswalk merges), "
-     "contradictions (reconcile exceptions), orphans and dormant feeds, and the de facto "
-     "structure mined from the audit trail. The machinery exists and is eval-proven on packs; "
-     "this gives its findings a face. First in the post-review build order."),
+    ("sem_discovery", "semantic", "Discovery: what the estate didn't know", "live", "discovery",
+     "The one-stop-shop thesis as a surface: duplicate identities from the merge log, "
+     "review-queue ambiguities, reconcile contradictions, failing checks and quarantined "
+     "loads. Derived, never invented; the test proves it finds the planted facts without "
+     "being told they were planted. Audit-trail structure mining remains a later increment."),
     # lane: operate
     ("op_agents", "operate", "Agents on governed tools", "live", "agents",
      "Rules decide, models narrate; every decision cited and traced."),
@@ -82,8 +82,9 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
     ("gov_principals", "govern", "Principals and role lenses", "live", "principals",
      "Act-as with masking and audit attribution. An identity claim, not authentication."),
     ("gov_auth", "govern", "Hosted authentication", "planned", "gov_principals",
-     "Real sign-in arrives with the hosted build. Until then the console's entry gate is an "
-     "identity CHOICE, labeled as such on the page itself; policy and audit follow the claim."),
+     "An invite gate (salted local credential hashes, console door only) is live; the API "
+     "stays locally open, which is why this node stays PLANNED until the hosted build closes "
+     "it with real authentication end to end."),
     ("gov_escalate", "govern", "Escalation at any grain", "planned", "sem_org_policy",
      "Any denied or masked access can raise to the owning role; the grant is itself policy."),
     ("gov_objboard", "govern", "Governed object dashboards", "planned", "sem_ontology",
@@ -91,7 +92,7 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
 ]
 
 LIVE_VIEWS = {"data", "pipeline", "loads", "explorer", "semantic", "ask", "agents",
-              "approvals", "audit", "governance", "principals", "organization"}
+              "approvals", "audit", "governance", "principals", "organization", "discovery"}
 
 
 def platform_map() -> dict[str, Any]:

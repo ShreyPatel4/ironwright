@@ -112,7 +112,7 @@ STAGES = {"generate": stage_generate, "migrate": stage_migrate, "reconcile": sta
 
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="ironwright", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["list", "run", "trace", "serve", "platform", "mcp", *STAGES])
+    ap.add_argument("command", choices=["list", "run", "trace", "serve", "platform", "auth-set", "mcp", *STAGES])
     ap.add_argument("--id", dest="trace_id", default=None, help="trace id for the trace command")
     ap.add_argument("--pack", default="retail")
     ap.add_argument("--seed", type=int, default=None, help="generator seed (default: the pack's own)")
@@ -154,6 +154,12 @@ def main(argv: list[str] | None = None) -> None:
             import uvicorn
             from .api import create_app
             uvicorn.run(create_app(name), host="0.0.0.0", port=args.port)
+        elif args.command == "auth-set":
+            import getpass
+            from .auth import set_account
+            email = input("email: ").strip()
+            set_account(email, getpass.getpass("password (min 8 chars): "))
+            print(f"account set for {email}; hashes live under IRONWRIGHT_DATA/auth/")
         elif args.command == "platform":
             import uvicorn
             from .platform_api import create_platform_app

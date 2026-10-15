@@ -14,6 +14,7 @@ import Governance from "./views/Governance.jsx";
 import Principals from "./views/Principals.jsx";
 import Organization from "./views/Organization.jsx";
 import Platform from "./views/Platform.jsx";
+import Discovery from "./views/Discovery.jsx";
 import Onboarding from "./views/Onboarding.jsx";
 import Login from "./views/Login.jsx";
 import { setPrincipal, getPrincipal } from "./api.js";
@@ -24,6 +25,7 @@ const VIEWS = [
   ["loads", "Loads", Loads],
   ["explorer", "Data explorer", Explorer],
   ["semantic", "Ontology", Ontology],
+  ["discovery", "Discovery", Discovery],
   ["ask", "Ask", Ask],
   ["agents", "Agents", Agents],
   ["approvals", "Approvals", Approvals],
@@ -36,7 +38,7 @@ const VIEWS = [
 const PACK_GROUPS = [
   ["MAP", ["platform"]],
   ["DATA", ["data", "pipeline", "loads", "explorer"]],
-  ["SEMANTIC", ["semantic", "ask"]],
+  ["SEMANTIC", ["discovery", "semantic", "ask"]],
   ["OPERATE", ["agents", "approvals", "audit"]],
   ["GOVERN", ["governance", "principals"]],
 ];
@@ -132,19 +134,23 @@ export default function App() {
   const [err, setErr] = useState(null);
   const [welcome, setWelcome] = useState(() => !onboarded());
   const [orgFormOpen, setOrgFormOpen] = useState(false);
-  const [who, setWho] = useState(() => {
-    const p = storedPrincipal();
-    if (p) setPrincipal(p);
-    return p;
+  const [session, setSession] = useState(() => {
+    try {
+      const s = JSON.parse(localStorage.getItem("iw.session") ?? "null");
+      if (s?.principal) setPrincipal(s.principal);
+      return s;
+    } catch { return null; }
   });
+  const who = session?.principal ?? null;
 
-  function signIn(p) {
-    try { localStorage.setItem("iw.principal", p); } catch { /* fine */ }
-    setPrincipal(p); setWho(p);
+  function signIn(s) {
+    try { localStorage.setItem("iw.session", JSON.stringify(s)); } catch { /* fine */ }
+    setSession(s);
   }
   function signOut() {
-    try { localStorage.removeItem("iw.principal"); } catch { /* fine */ }
-    setWho(null); setWsName(null); setView(null);
+    if (session?.token) api.logout(session.token).catch(() => {});
+    try { localStorage.removeItem("iw.session"); } catch { /* fine */ }
+    setSession(null); setWsName(null); setView(null);
   }
 
   const refresh = useCallback(async () => {
@@ -174,7 +180,7 @@ export default function App() {
     if ((id === "byod" || id === "map") && retail) { setWsName(retail.name); setView("platform"); }
   }
 
-  if (!who) {
+  if (!session) {
     return <main style={{ margin: "0 auto" }}><Login onEnter={signIn} /></main>;
   }
 
@@ -213,16 +219,16 @@ export default function App() {
             </select>
             <div style={{ marginTop: 10 }}><Badge v={ws.verification} /></div>
             <p className="note" style={{ margin: "12px 0 0" }}>
-              operating as <span className="mono">{who}</span><br />
-              <a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>change identity</a>
+              {session.email}<br />acting as <span className="mono">{who}</span><br />
+              <a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>sign out</a>
             </p>
           </div>
         )}
         {!ws && (
           <div className="ws">
             <p className="note" style={{ margin: 0 }}>
-              operating as <span className="mono">{who}</span><br />
-              <a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>change identity</a>
+              {session.email}<br />acting as <span className="mono">{who}</span><br />
+              <a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>sign out</a>
             </p>
           </div>
         )}
