@@ -16,7 +16,7 @@ import pathlib
 import time
 from typing import Any, Iterator
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -31,6 +31,7 @@ from .cli import STAGES
 from .lake import Lakehouse
 from .ontology.runtime import Ontology
 from .packs import list_packs, load_pack
+from .policy import PolicyEngine
 from .tracing import Tracer
 
 CONSOLE_PRINCIPAL = "user:console"
@@ -68,6 +69,12 @@ class AskBody(BaseModel):
 
 class ReplayBody(BaseModel):
     index: int
+
+
+class PolicyCheckBody(BaseModel):
+    principal: str
+    action: str  # e.g. "action:delist_item" or "function:vendor_sell_through"
+    env: dict[str, Any] = {}
 
 
 def _guard_select_only(sql: str) -> str:
@@ -259,12 +266,93 @@ def create_platform_app() -> FastAPI:
         return json.loads(path.read_text())
 
     @app.post("/workspaces/{name}/ask")
-    def ask(name: str, body: AskBody) -> dict[str, Any]:
+    def ask(name: str, body: AskBody,
+            x_principal: str = Header(CONSOLE_PRINCIPAL)) -> dict[str, Any]:
         pack = _pack(name)
         with _ontology(pack) as ont:
-            entry = ask_mod.ask(pack, ont, body.question, principal=CONSOLE_PRINCIPAL)
+            entry = ask_mod.ask(pack, ont, body.question, principal=x_principal)
             entry["verification"] = verification.derive(pack)
             return entry
+
+    @app.get("/workspaces/{name}/sources")
+    def sources(name: str) -> list[dict[str, Any]]:
+        """The connector registry, as declared: every legacy source with its
+        system, format and layout. CDC and scheduled pulls are roadmap, and
+        this endpoint does not pretend otherwise."""
+        return _pack(name).spec.get("sources", [])
+
+    @app.get("/workspaces/{name}/loads")
+    def loads(name: str) -> dict[str, Any]:
+        """Write-audit-publish, shown as it ran: every write with its audit
+        branch, its checks, and whether it was published or quarantined."""
+        pack = _pack(name)
+        path = pack.paths.reports / "migrate.json"
+        if not path.exists():
+            raise HTTPException(404, "no migrate report; run the pipeline first")
+        report = json.loads(path.read_text())
+        lake = Lakehouse(pack)
+        report["quarantine_tables"] = lake.quarantine_tables()
+        return report
+
+    @app.get("/workspaces/{name}/governance")
+    def governance(name: str) -> dict[str, Any]:
+        pack = _pack(name)
+        actions = {
+            a: {"requires_approval": bool(d.get("requires_approval")),
+                "approver_roles": d.get("approver_roles", []),
+                "description": d.get("description", "")}
+            for a, d in (pack.ontology.get("actions", {}) or {}).items()
+        }
+        return {"rules": pack.policies.get("rules", []), "actions": actions,
+                "note": "Default deny. The X-Principal header is an identity claim, not "
+                        "authentication; policy is a correctness control on this local build."}
+
+    @app.post("/workspaces/{name}/governance/check")
+    def governance_check(name: str, body: PolicyCheckBody) -> dict[str, Any]:
+        pack = _pack(name)
+        decision = PolicyEngine(pack.policies).authorize(body.principal, body.action, body.env)
+        return {"principal": body.principal, "action": body.action,
+                "decision": decision.to_dict()}
+
+    @app.get("/workspaces/{name}/principals")
+    def principals(name: str) -> dict[str, Any]:
+        pack = _pack(name)
+        from_rules = sorted({r.get("principal") for r in pack.policies.get("rules", [])
+                             if r.get("principal")})
+        with _ontology(pack) as ont:
+            from_audit = sorted({r[0] for r in ont.store.con.execute(
+                "select distinct actor from audit_log").fetchall()})
+        return {"policy_principals": from_rules, "seen_in_audit": from_audit,
+                "note": "Principals are policy identities, not users. This build has no "
+                        "authentication; you choose who you act as and the audit log records it."}
+
+    @app.get("/workspaces/{name}/agents")
+    def agents(name: str) -> dict[str, Any]:
+        path = _pack(name).paths.reports / "agents.json"
+        if not path.exists():
+            raise HTTPException(404, "no agents report; run the pipeline first")
+        return json.loads(path.read_text())
+
+    @app.get("/workspaces/{name}/traces")
+    def traces(name: str) -> list[dict[str, Any]]:
+        tdir = _pack(name).paths.traces
+        if not tdir.exists():
+            return []
+        out = []
+        for f in sorted(tdir.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True):
+            out.append({"trace_id": f.stem, "spans": sum(1 for _ in f.open()),
+                        "mtime": f.stat().st_mtime})
+        return out[:200]
+
+    @app.get("/workspaces/{name}/traces/{trace_id}")
+    def trace(name: str, trace_id: str) -> list[dict[str, Any]]:
+        if not re.fullmatch(r"[0-9a-f]+", trace_id):
+            raise HTTPException(422, "trace ids are hex")
+        path = _pack(name).paths.traces / f"{trace_id}.jsonl"
+        if not path.exists():
+            raise HTTPException(404, f"no trace {trace_id}")
+        spans = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+        return sorted(spans, key=lambda s: s.get("start", 0))
 
     @app.get("/workspaces/{name}/ask/log")
     def ask_log(name: str) -> list[dict[str, Any]]:

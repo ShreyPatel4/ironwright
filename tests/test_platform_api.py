@@ -174,3 +174,43 @@ def test_console_is_served_when_built(client):
     page = client.get("/console/")
     assert page.status_code == 200
     assert "Ironwright Console" in page.text
+
+
+def test_sources_governance_and_policy_dry_run(client):
+    srcs = client.get("/workspaces/retail/sources").json()
+    assert srcs and {"name", "system", "kind"} <= set(srcs[0])
+
+    gov = client.get("/workspaces/retail/governance").json()
+    assert gov["rules"] and any(r.get("effect") == "permit" for r in gov["rules"])
+    assert gov["actions"]["propose_facing_change"]["requires_approval"] is True
+
+    allowed = client.post("/workspaces/retail/governance/check",
+                          json={"principal": "agent:retail-triage",
+                                "action": "action:propose_facing_change"}).json()
+    assert allowed["decision"]["allowed"] is True
+    denied = client.post("/workspaces/retail/governance/check",
+                         json={"principal": "vendor:V-00001",
+                               "action": "action:delist_item"}).json()
+    assert denied["decision"]["allowed"] is False
+
+
+def test_loads_show_wap_branches_and_checks(client):
+    loads = client.get("/workspaces/retail/loads").json()
+    w = loads["writes"][0]
+    assert {"table", "branch", "published", "checks"} <= set(w)
+    assert any(c["kind"] == "structural" for c in w["checks"])
+
+
+def test_agents_report_and_trace_detail(client):
+    ag = client.get("/workspaces/retail/agents").json()
+    uc = next(iter(ag))
+    run = ag[uc]["runs"][0]
+    assert {"diagnosis", "narrative", "trace_id"} <= set(run)
+    spans = client.get(f"/workspaces/retail/traces/{run['trace_id']}").json()
+    assert spans and {"name", "start"} <= set(spans[0])
+
+
+def test_principals_are_listed_with_the_honesty_note(client):
+    p = client.get("/workspaces/retail/principals").json()
+    assert "agent:retail-triage" in p["policy_principals"] or p["seen_in_audit"]
+    assert "not authentication" in p["note"] or "no authentication" in p["note"]

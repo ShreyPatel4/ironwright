@@ -1,7 +1,16 @@
 // Same-origin API client. Every answer on screen comes from these calls;
-// nothing is computed client-side except rendering.
-async function req(path, opts) {
-  const r = await fetch(path, opts);
+// nothing is computed client-side except rendering. The chosen principal
+// rides every request as X-Principal: an identity claim the policy engine
+// evaluates, recorded in the audit log, and NOT authentication.
+let principal = "user:console";
+export const setPrincipal = (p) => { principal = p || "user:console"; };
+export const getPrincipal = () => principal;
+
+async function req(path, opts = {}) {
+  const r = await fetch(path, {
+    ...opts,
+    headers: { "x-principal": principal, ...(opts.headers || {}) },
+  });
   if (!r.ok) {
     let detail = r.statusText;
     try { detail = (await r.json()).detail ?? detail; } catch { /* keep statusText */ }
@@ -31,4 +40,12 @@ export const api = {
   askLog: (ws) => req(`/workspaces/${ws}/ask/log`),
   askMetrics: (ws) => req(`/workspaces/${ws}/ask/metrics`),
   askReplay: (ws, index) => post(`/workspaces/${ws}/ask/replay`, { index }),
+  sources: (ws) => req(`/workspaces/${ws}/sources`),
+  loads: (ws) => req(`/workspaces/${ws}/loads`),
+  governance: (ws) => req(`/workspaces/${ws}/governance`),
+  governanceCheck: (ws, body) => post(`/workspaces/${ws}/governance/check`, body),
+  principals: (ws) => req(`/workspaces/${ws}/principals`),
+  agents: (ws) => req(`/workspaces/${ws}/agents`),
+  traces: (ws) => req(`/workspaces/${ws}/traces`),
+  trace: (ws, id) => req(`/workspaces/${ws}/traces/${id}`),
 };

@@ -28,11 +28,13 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         http://localhost:8000. Four workspaces with derived verification
         badges; pick one and show the pipeline run with measured timings,
         the read-only SQL explorer on the lakehouse, the ontology browser
-        with each identity's crosswalk, the Ask surface answering a
-        plain-language question through governed function calls (and
-        refusing one outside the ontology, with the published refusal
-        rate), the approvals inbox deciding a parked action through the
-        real policy path, and the audit chain verifying server-side.
+        with each identity's crosswalk, the Loads view showing every
+        write's audit branch and checks (publish to main is the checks'
+        decision, not a button), the Agents view investigating a triage
+        decision down to its trace waterfall and the delist attempt the
+        policy denied, the Ask surface answering through governed calls
+        and refusing outside the ontology, Governance running a policy
+        dry-run, and the audit chain verifying server-side.
 - 2:00  Done at the long cut; the 90-second cut stops at 1:30 before the
         console and says "and there is an operator console on top". If
         asked for depth: `uv run pytest -q` (69 tests).

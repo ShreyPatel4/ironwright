@@ -31,6 +31,7 @@ button{font:inherit}
   padding:8px 10px;border-radius:6px;cursor:pointer;font-weight:500}
 .rail button:hover{background:var(--sunk)}
 .rail button[aria-current="true"]{background:var(--accent-soft);color:var(--accent)}
+.railgroup{font:500 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.09em;color:var(--muted);padding:14px 10px 5px}
 .rail .ws{margin-top:auto;padding:10px;border-top:1px solid var(--line)}
 .rail select{width:100%;background:var(--surface);color:var(--ink);border:1px solid var(--line);
   border-radius:6px;padding:7px 8px;font:inherit}
@@ -103,4 +104,5 @@ input[type=text]{background:var(--surface);color:var(--ink);border:1px solid var
 .kv dt{color:var(--muted);font:500 11px/1.6 var(--mono);text-transform:uppercase;letter-spacing:.05em}
 .kv dd{margin:0;word-break:break-word}
 @media (max-width:760px){#root{flex-direction:column}.rail{width:auto;border-right:0;border-bottom:1px solid var(--line)}
-  .rail .ws{margin-top:8px}.split{grid-template-columns:1fr}}
+  .railgroup{font:500 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.09em;color:var(--muted);padding:14px 10px 5px}
+.rail .ws{margin-top:8px}.split{grid-template-columns:1fr}}

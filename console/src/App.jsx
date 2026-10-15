@@ -7,14 +7,30 @@ import Ontology from "./views/Ontology.jsx";
 import Approvals from "./views/Approvals.jsx";
 import Audit from "./views/Audit.jsx";
 import Ask from "./views/Ask.jsx";
+import Sources from "./views/Sources.jsx";
+import Loads from "./views/Loads.jsx";
+import Agents from "./views/Agents.jsx";
+import Governance from "./views/Governance.jsx";
+import Principals from "./views/Principals.jsx";
 
 const VIEWS = [
+  ["data", "Sources", Sources],
   ["pipeline", "Pipeline", Pipeline],
+  ["loads", "Loads", Loads],
   ["explorer", "Data explorer", Explorer],
-  ["ontology", "Ontology", Ontology],
+  ["semantic", "Ontology", Ontology],
   ["ask", "Ask", Ask],
+  ["agents", "Agents", Agents],
   ["approvals", "Approvals", Approvals],
   ["audit", "Audit", Audit],
+  ["governance", "Governance", Governance],
+  ["principals", "Principals", Principals],
+];
+const GROUPS = [
+  ["DATA", ["data", "pipeline", "loads", "explorer"]],
+  ["SEMANTIC", ["semantic", "ask"]],
+  ["OPERATE", ["agents", "approvals", "audit"]],
+  ["GOVERN", ["governance", "principals"]],
 ];
 
 export default function App() {
@@ -43,8 +59,14 @@ export default function App() {
         <button aria-current={view === null} onClick={() => { setView(null); setWsName(null); }}>
           Workspaces
         </button>
-        {ws && VIEWS.map(([k, label]) => (
-          <button aria-current={view === k} key={k} onClick={() => setView(k)}>{label}</button>
+        {ws && GROUPS.map(([g, keys]) => (
+          <div key={g}>
+            <div className="railgroup">{g}</div>
+            {keys.map((k) => {
+              const [, label] = VIEWS.find(([vk]) => vk === k);
+              return <button aria-current={view === k} key={k} onClick={() => setView(k)}>{label}</button>;
+            })}
+          </div>
         ))}
         {ws && (
           <div className="ws">
