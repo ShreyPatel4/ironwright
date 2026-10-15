@@ -44,6 +44,7 @@ export const api = {
   deleteWorkspace: (ws) => req(`/workspaces/${ws}`, { method: "DELETE" }),
   organization: (ws) => req(`/workspaces/${ws}/organization`),
   archetypes: () => req("/archetypes"),
+  platformMap: () => req("/platform/map"),
   sources: (ws) => req(`/workspaces/${ws}/sources`),
   loads: (ws) => req(`/workspaces/${ws}/loads`),
   governance: (ws) => req(`/workspaces/${ws}/governance`),

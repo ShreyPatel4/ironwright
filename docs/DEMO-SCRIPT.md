@@ -35,6 +35,11 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         policy denied, the Ask surface answering through governed calls
         and refusing outside the ontology, Governance running a policy
         dry-run, and the audit chain verifying server-side.
+- 1:45  First run opens the welcome funnel: three facts (real runs, the
+        badge never lies, rules decide) and a template chooser that only
+        picks where you land. The Platform map shows every capability,
+        LIVE solid and clickable, PLANNED dashed with its dependency; the
+        concept never wears a working button.
 - 1:50  Create an organization: name, archetype, size, seed. The scenario
         engine generates the whole org (hierarchy, data owners, approval
         chains) in under a second, byte-identical per spec, badged L2

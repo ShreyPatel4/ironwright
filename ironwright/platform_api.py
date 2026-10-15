@@ -184,6 +184,11 @@ def create_platform_app() -> FastAPI:
     def archetypes() -> list[dict[str, Any]]:
         return org_mod.archetypes()
 
+    @app.get("/platform/map")
+    def get_platform_map() -> dict[str, Any]:
+        from .platform_map import platform_map
+        return platform_map()
+
     @app.post("/workspaces/{name}/runs")
     def run(name: str, body: RunBody) -> dict[str, Any]:
         pack = _pack(name)

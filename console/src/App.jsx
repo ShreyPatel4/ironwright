@@ -13,6 +13,8 @@ import Agents from "./views/Agents.jsx";
 import Governance from "./views/Governance.jsx";
 import Principals from "./views/Principals.jsx";
 import Organization from "./views/Organization.jsx";
+import Platform from "./views/Platform.jsx";
+import Onboarding from "./views/Onboarding.jsx";
 
 const VIEWS = [
   ["data", "Sources", Sources],
@@ -27,17 +29,19 @@ const VIEWS = [
   ["governance", "Governance", Governance],
   ["principals", "Principals", Principals],
   ["organization", "Organization", Organization],
+  ["platform", "Platform", Platform],
 ];
 const PACK_GROUPS = [
+  ["MAP", ["platform"]],
   ["DATA", ["data", "pipeline", "loads", "explorer"]],
   ["SEMANTIC", ["semantic", "ask"]],
   ["OPERATE", ["agents", "approvals", "audit"]],
   ["GOVERN", ["governance", "principals"]],
 ];
-const ORG_GROUPS = [["ORGANIZATION", ["organization"]]];
+const ORG_GROUPS = [["MAP", ["platform"]], ["ORGANIZATION", ["organization"]]];
 
-function NewOrganization({ onCreated }) {
-  const [open, setOpen] = useState(false);
+function NewOrganization({ onCreated, startOpen = false }) {
+  const [open, setOpen] = useState(startOpen);
   const [name, setName] = useState("");
   const [archetypes, setArchetypes] = useState([]);
   const [archetype, setArchetype] = useState("regional_retail_chain");
@@ -93,11 +97,20 @@ function NewOrganization({ onCreated }) {
   );
 }
 
+function onboarded() {
+  try { return localStorage.getItem("iw.onboarded") === "1"; } catch { return true; }
+}
+function setOnboarded() {
+  try { localStorage.setItem("iw.onboarded", "1"); } catch { /* fine */ }
+}
+
 export default function App() {
   const [workspaces, setWorkspaces] = useState(null);
   const [wsName, setWsName] = useState(null);
   const [view, setView] = useState(null);
   const [err, setErr] = useState(null);
+  const [welcome, setWelcome] = useState(() => !onboarded());
+  const [orgFormOpen, setOrgFormOpen] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -116,6 +129,23 @@ export default function App() {
   function openWorkspace(w) {
     setWsName(w.name);
     setView(w.kind === "organization" ? "organization" : "pipeline");
+  }
+
+  function chooseStart(id) {
+    setOnboarded(); setWelcome(false);
+    const retail = workspaces?.find((w) => w.name === "retail") ?? workspaces?.[0];
+    if (id === "demo" && retail) { openWorkspace(retail); return; }
+    if (id === "org") { setOrgFormOpen(true); return; }
+    if ((id === "byod" || id === "map") && retail) { setWsName(retail.name); setView("platform"); }
+  }
+
+  if (welcome && workspaces) {
+    return (
+      <main style={{ margin: "0 auto" }}>
+        <Onboarding onChoose={chooseStart}
+                    onSkip={() => { setOnboarded(); setWelcome(false); }} />
+      </main>
+    );
   }
 
   return (
@@ -167,15 +197,20 @@ export default function App() {
               ))}
             </div>
             <NewOrganization onCreated={async (name) => {
+              setOrgFormOpen(false);
               const w = await refresh();
               const created = w.find((x) => x.name === name);
               if (created) openWorkspace(created);
-            }} />
+            }} startOpen={orgFormOpen} />
+            <p className="note" style={{ marginTop: 16 }}>
+              New here? <a href="#welcome" onClick={(e) => { e.preventDefault(); setWelcome(true); }}>
+              Replay the welcome tour</a>.
+            </p>
           </>
         )}
         {ws && Active && (
           <Active onDeleted={async () => { setWsName(null); setView(null); await refresh(); }}
-                  refresh={refresh} ws={ws} />
+                  refresh={refresh} setView={setView} ws={ws} />
         )}
       </main>
     </>

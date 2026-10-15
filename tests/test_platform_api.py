@@ -248,3 +248,22 @@ def test_workspace_creation_guardrails(client):
     assert client.post("/workspaces", json={"name": "ok-org", "archetype": "no_such"}).status_code == 422
     assert client.delete("/workspaces/retail").status_code == 403
     assert client.delete("/workspaces/never-existed").status_code == 404
+
+
+def test_platform_map_never_poses(client):
+    """The house rule as a test: a node may not claim LIVE without a real
+    console surface behind it, and a PLANNED node must name what it is and,
+    where applicable, depend on a real node."""
+    from ironwright.platform_map import LIVE_VIEWS
+
+    m = client.get("/platform/map").json()
+    ids = {n["id"] for n in m["nodes"]}
+    live = [n for n in m["nodes"] if n["status"] == "live"]
+    planned = [n for n in m["nodes"] if n["status"] == "planned"]
+    assert live and planned
+    for n in live:
+        assert n["view"] in LIVE_VIEWS, n["id"]
+    for n in planned:
+        assert len(n["detail"]) > 20, n["id"]
+        assert n["depends_on"] is None or n["depends_on"] in ids, n["id"]
+    assert {n["lane"] for n in m["nodes"]} == set(m["lanes"])
