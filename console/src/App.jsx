@@ -149,7 +149,7 @@ export default function App() {
   }
   function signOut() {
     if (session?.token) api.logout(session.token).catch(() => {});
-    try { localStorage.removeItem("iw.session"); } catch { /* fine */ }
+    try { localStorage.removeItem("iw.session"); localStorage.removeItem("iw.last"); } catch { /* fine */ }
     setSession(null); setWsName(null); setView(null);
   }
 
@@ -162,6 +162,20 @@ export default function App() {
     } catch (e) { setErr(e); return []; }
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (!wsName) return;
+    try { localStorage.setItem("iw.last", JSON.stringify({ ws: wsName, view })); } catch { /* fine */ }
+  }, [wsName, view]);
+  useEffect(() => {
+    if (!workspaces || wsName || welcome || !session) return;
+    try {
+      const last = JSON.parse(localStorage.getItem("iw.last") ?? "null");
+      const w = last && workspaces.find((x) => x.name === last.ws);
+      if (w) { setWsName(w.name); setView(last.view ?? (w.kind === "organization" ? "organization" : "pipeline")); }
+    } catch { /* fine */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspaces, session, welcome]);
 
   const ws = workspaces?.find((w) => w.name === wsName) ?? null;
   const groups = ws?.kind === "organization" ? ORG_GROUPS : PACK_GROUPS;

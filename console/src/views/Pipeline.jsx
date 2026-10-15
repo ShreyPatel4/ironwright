@@ -26,7 +26,7 @@ export default function Pipeline({ ws, refresh }) {
       <p className="sub">The real stages, run in order on this machine: legacy generation, landing
         with write-audit-publish, reconciliation, ontology build, agents, evals, export. Timings
         are measured, not estimated.</p>
-      <div className="row">
+      <div aria-live="polite" className="row">
         <button className="btn" disabled={busy} onClick={run}>
           {busy ? "Running…" : "Run all stages"}
         </button>

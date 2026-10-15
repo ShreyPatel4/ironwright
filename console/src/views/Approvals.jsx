@@ -34,7 +34,7 @@ export default function Approvals({ ws }) {
         <button className="btn ghost" onClick={load}>Refresh</button>
       </div>
       <Err e={err} />
-      {last && <p className="note">last decision: seq {last.seq} → <b>{last.status}</b></p>}
+      {last && <p aria-live="polite" className="note">last decision: seq {last.seq} → <b>{last.status}</b></p>}
       {pending.length === 0 ? <p className="note">Inbox empty. Nothing is waiting on a human.</p> : (
         <div className="scroll"><table>
           <thead><tr><th>seq</th><th>requested by</th><th>action</th><th>params</th><th></th></tr></thead>

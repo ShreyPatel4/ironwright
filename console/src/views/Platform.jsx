@@ -66,7 +66,11 @@ export default function Platform({ setView }) {
               const p = pos[n.id];
               const selected = sel?.id === n.id;
               return (
-                <g cursor="pointer" key={n.id} onClick={() => setSel(n)} role="listitem">
+                <g aria-label={`${n.label}, ${n.status === "live" ? "live" : "planned"}`}
+                   className="canvas-node" cursor="pointer" key={n.id}
+                   onClick={() => setSel(n)}
+                   onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), setSel(n))}
+                   role="button" tabIndex={0}>
                   <rect fill={n.status === "live" ? "var(--bg-0)" : "var(--bg-1)"}
                         height={NODE_H} rx="2"
                         stroke={selected ? "var(--accent)" : n.status === "live" ? "var(--ink-1)" : "var(--rule)"}

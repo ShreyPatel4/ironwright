@@ -40,9 +40,9 @@ export default function Explorer({ ws }) {
           ))}
         </div>
         <div>
-          <textarea onChange={(e) => setSql(e.target.value)} spellCheck={false} value={sql} />
+          <textarea aria-label="SQL query, a single SELECT" onChange={(e) => setSql(e.target.value)} spellCheck={false} value={sql} />
           <div className="row">
-            <button className="btn" disabled={busy || !sql.trim()} onClick={run}>Run query</button>
+            <button className="btn" disabled={busy || !sql.trim()} onClick={run}>{busy ? "Running…" : "Run query"}</button>
             {out?.truncated_at && <span className="note">showing first {out.truncated_at} rows</span>}
           </div>
           <Err e={err} />

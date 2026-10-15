@@ -62,7 +62,7 @@ export default function Login({ onEnter }) {
                                         borderRadius: "var(--rad)", maxWidth: 420,
                                         padding: "16px 18px" }}>
           <label className="note" htmlFor="login-email">email</label><br />
-          <input autoComplete="username" id="login-email"
+          <input autoComplete="username" autoFocus id="login-email"
                  onChange={(e) => setEmail(e.target.value)}
                  placeholder="you@company.com" style={{ marginBottom: 10, width: "100%" }}
                  type="text" value={email} /><br />

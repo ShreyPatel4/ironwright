@@ -18,7 +18,12 @@ body{background:var(--bg-0);color:var(--ink-0);font:14px/1.6 var(--font-sans)}
 #root{display:flex;min-height:100vh}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
-button{font:inherit}
+button{font:inherit;touch-action:manipulation}
+.canvas-node:focus-visible{outline:none}
+.canvas-node:focus-visible rect{stroke:var(--accent);stroke-width:2}
+.linklike{background:none;border:0;padding:0;color:var(--accent);cursor:pointer;
+  font:12px/1.6 var(--font-mono);text-align:left}
+.linklike:hover{text-decoration:underline}
 ::selection{background:var(--accent);color:#fff}
 
 /* ---------- rail ---------- */

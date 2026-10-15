@@ -49,7 +49,9 @@ export default function Ontology({ ws }) {
               <tbody>
                 {objs.map((o) => (
                   <tr key={o.id} onClick={() => open(o.id)} style={{ cursor: "pointer" }}>
-                    <td className="mono">{o.id}</td><td>{o.title}</td><td className="mono">{o.version}</td>
+                    <td><button className="linklike" onClick={(e) => { e.stopPropagation(); open(o.id); }}>
+                      {o.id}</button></td>
+                    <td>{o.title}</td><td className="mono">{o.version}</td>
                   </tr>
                 ))}
               </tbody>

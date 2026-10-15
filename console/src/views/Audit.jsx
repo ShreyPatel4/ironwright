@@ -22,7 +22,7 @@ export default function Audit({ ws }) {
       <h2>Audit</h2>
       <p className="sub">Every action in one hash-chained log: each row's hash covers the previous
         row's, so history cannot be edited quietly. Verify recomputes the whole chain server-side.</p>
-      <div className="row">
+      <div aria-live="polite" className="row">
         <button className="btn" onClick={check}>Verify the chain</button>
         <button className="btn ghost" onClick={load}>Refresh</button>
         {verify && (

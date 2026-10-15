@@ -48,11 +48,11 @@ export default function Ask({ ws }) {
         guessed. An answer carries the exact calls it is made of and can be replayed; a question
         outside the ontology is refused, with the reason, and the refusal rate is published below.</p>
       <div className="row">
-        <input onChange={(e) => setQ(e.target.value)}
+        <input aria-label="your question" onChange={(e) => setQ(e.target.value)}
                onKeyDown={(e) => e.key === "Enter" && q.trim() && run()}
                placeholder="units and sales for item ITM-… in store STR-…"
                style={{ flex: 1, minWidth: 280 }} type="text" value={q} />
-        <button className="btn" disabled={busy || !q.trim()} onClick={run}>Ask</button>
+        <button className="btn" disabled={busy || !q.trim()} onClick={run}>{busy ? "Asking…" : "Ask"}</button>
       </div>
       {examples.length > 0 && (
         <div className="row">
@@ -72,7 +72,7 @@ export default function Ask({ ws }) {
       <Err e={err} />
       {answer && answer.status === "answered" && (
         <>
-          <div className="row"><span className="badge ok">answered · {answer.narrator}</span>
+          <div aria-live="polite" className="row"><span className="badge ok">answered · {answer.narrator}</span>
             <Badge v={answer.verification} />
             <button className="btn ghost" onClick={replay}>Replay this answer</button>
             {replayOut && (
@@ -95,7 +95,7 @@ export default function Ask({ ws }) {
         </>
       )}
       {answer && answer.status === "refused" && (
-        <div className="row">
+        <div aria-live="polite" className="row">
           <span className="badge hold">refused · {answer.reason_code}</span>
           <span className="note">{answer.reason}</span>
         </div>
