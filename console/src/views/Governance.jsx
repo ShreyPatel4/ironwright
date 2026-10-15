@@ -33,8 +33,12 @@ export default function Governance({ ws }) {
 
       <h3>Would this be allowed? (dry run against the real policy engine)</h3>
       <div className="row">
-        <input onChange={(e) => setPrincipal(e.target.value)} type="text" value={principal} />
-        <input onChange={(e) => setAction(e.target.value)} type="text" value={action} />
+        <label className="note" htmlFor="gov-principal">as principal</label>
+        <input id="gov-principal" onChange={(e) => setPrincipal(e.target.value)}
+               placeholder="e.g. agent:retail-triage" type="text" value={principal} />
+        <label className="note" htmlFor="gov-action">may they</label>
+        <input id="gov-action" onChange={(e) => setAction(e.target.value)}
+               placeholder="action:delist_item or function:vendor_sell_through" type="text" value={action} />
         <button className="btn" onClick={check}>Check</button>
         {verdict && (
           <span className={`badge ${verdict.decision.allowed ? "ok" : "bad"}`}>

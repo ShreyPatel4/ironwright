@@ -165,6 +165,43 @@ def metrics(pack: Pack) -> dict[str, Any]:
                     "functions and never guesses."}
 
 
+def examples(pack: Pack, ont: Ontology, limit: int = 3,
+             principal: str = "user:console") -> list[dict[str, Any]]:
+    """Ready-to-ask questions composed from the registry plus real object
+    ids, so a new user's first click answers instead of refusing. Only
+    functions the asking principal is permitted are offered; the policy
+    engine rules here exactly as it does on the call itself."""
+    from .policy import PolicyEngine
+
+    engine = PolicyEngine(pack.policies)
+    out = []
+    for fn in registry(pack):
+        if len(out) >= limit:
+            break
+        if not engine.authorize(principal, f"function:{fn['name']}", {}).allowed:
+            continue
+        args = {}
+        ok = True
+        for pname, ptype in (fn["params"] or {}).items():
+            if not isinstance(ptype, str) or ptype in ("int", "float", "str", "bool"):
+                ok = False
+                break
+            row = ont.store.con.execute(
+                "select id from objects where type = ? order by id limit 1", [ptype]
+            ).fetchone()
+            if not row:
+                ok = False
+                break
+            args[pname] = row[0]
+        if not ok:
+            continue
+        stem = fn["description"].rstrip(".")
+        tail = " ".join(f"for {ptype.lower()} {args[p]}" if i == 0 else f"in {ptype.lower()} {args[p]}"
+                        for i, (p, ptype) in enumerate(fn["params"].items()))
+        out.append({"question": f"{stem} {tail}".strip(), "function": fn["name"]})
+    return out
+
+
 def replay(pack: Pack, ont: Ontology, index: int) -> dict[str, Any]:
     log = read_log(pack)
     if not (0 <= index < len(log)):

@@ -39,6 +39,7 @@ export const api = {
   ask: (ws, question) => post(`/workspaces/${ws}/ask`, { question }),
   askLog: (ws) => req(`/workspaces/${ws}/ask/log`),
   askMetrics: (ws) => req(`/workspaces/${ws}/ask/metrics`),
+  askExamples: (ws) => req(`/workspaces/${ws}/ask/examples`),
   askReplay: (ws, index) => post(`/workspaces/${ws}/ask/replay`, { index }),
   createWorkspace: (body) => post("/workspaces", body),
   deleteWorkspace: (ws) => req(`/workspaces/${ws}`, { method: "DELETE" }),

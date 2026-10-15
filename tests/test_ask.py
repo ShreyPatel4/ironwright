@@ -94,3 +94,15 @@ def test_made_up_ids_are_refused_not_guessed(client):
                     json={"question": "units and sales for item ZZZ999 in store QQ1"}).json()
     assert a["status"] == "refused"
     assert a["reason_code"] == "unresolved_params"
+
+
+def test_every_example_question_actually_answers(client):
+    """The example chips exist so a new user's first click answers. Each
+    composed example must route and answer, not refuse; this test keeps the
+    composer and the router honest with each other, for every pack."""
+    for ws in ("retail", "supply_chain", "banking_aml", "insurance_claims"):
+        client.post(f"/workspaces/{ws}/runs", json={})
+        for ex in client.get(f"/workspaces/{ws}/ask/examples").json():
+            a = client.post(f"/workspaces/{ws}/ask", json={"question": ex["question"]}).json()
+            assert a["status"] == "answered", (ws, ex, a.get("reason"))
+            assert a["calls"][0]["function"] == ex["function"], (ws, ex["question"])

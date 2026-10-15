@@ -81,6 +81,9 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "Server-side verify; the same chain the public site verifies in-browser."),
     ("gov_principals", "govern", "Principals and role lenses", "live", "principals",
      "Act-as with masking and audit attribution. An identity claim, not authentication."),
+    ("gov_auth", "govern", "Hosted authentication", "planned", "gov_principals",
+     "Real sign-in arrives with the hosted build. Until then the console's entry gate is an "
+     "identity CHOICE, labeled as such on the page itself; policy and audit follow the claim."),
     ("gov_escalate", "govern", "Escalation at any grain", "planned", "sem_org_policy",
      "Any denied or masked access can raise to the owning role; the grant is itself policy."),
     ("gov_objboard", "govern", "Governed object dashboards", "planned", "sem_ontology",

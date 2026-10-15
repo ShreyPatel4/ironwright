@@ -405,6 +405,13 @@ def create_platform_app() -> FastAPI:
         spans = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
         return sorted(spans, key=lambda s: s.get("start", 0))
 
+    @app.get("/workspaces/{name}/ask/examples")
+    def ask_examples(name: str,
+                     x_principal: str = Header(CONSOLE_PRINCIPAL)) -> list[dict[str, Any]]:
+        pack = _pack(name)
+        with _ontology(pack) as ont:
+            return ask_mod.examples(pack, ont, principal=x_principal)
+
     @app.get("/workspaces/{name}/ask/log")
     def ask_log(name: str) -> list[dict[str, Any]]:
         return ask_mod.read_log(_pack(name))

@@ -15,6 +15,8 @@ import Principals from "./views/Principals.jsx";
 import Organization from "./views/Organization.jsx";
 import Platform from "./views/Platform.jsx";
 import Onboarding from "./views/Onboarding.jsx";
+import Login from "./views/Login.jsx";
+import { setPrincipal, getPrincipal } from "./api.js";
 
 const VIEWS = [
   ["data", "Sources", Sources],
@@ -76,17 +78,30 @@ function NewOrganization({ onCreated, startOpen = false }) {
         byte for byte.
       </p>
       <div className="row">
-        <input onChange={(e) => setName(e.target.value)} placeholder="name, e.g. acme-goods"
-               style={{ width: 180 }} type="text" value={name} />
-        <select onChange={(e) => setArchetype(e.target.value)} value={archetype}>
-          {(archetypes.length ? archetypes : [{ name: "regional_retail_chain" }]).map((a) => (
-            <option key={a.name} value={a.name}>{a.name}</option>
-          ))}
-        </select>
-        <input max={64} min={4} onChange={(e) => setSize(e.target.value)}
-               style={{ width: 76 }} title="stores (4-64)" type="number" value={size} />
-        <input min={0} onChange={(e) => setSeed(e.target.value)}
-               style={{ width: 96 }} title="seed" type="number" value={seed} />
+        <span>
+          <label className="note" htmlFor="org-name">workspace name</label><br />
+          <input id="org-name" onChange={(e) => setName(e.target.value)}
+                 placeholder="lowercase slug, e.g. acme-goods"
+                 style={{ width: 190 }} type="text" value={name} />
+        </span>
+        <span>
+          <label className="note" htmlFor="org-arch">archetype</label><br />
+          <select id="org-arch" onChange={(e) => setArchetype(e.target.value)} value={archetype}>
+            {(archetypes.length ? archetypes : [{ name: "regional_retail_chain" }]).map((a) => (
+              <option key={a.name} value={a.name}>{a.name}</option>
+            ))}
+          </select>
+        </span>
+        <span>
+          <label className="note" htmlFor="org-size">stores (4 to 64)</label><br />
+          <input id="org-size" max={64} min={4} onChange={(e) => setSize(e.target.value)}
+                 style={{ width: 86 }} type="number" value={size} />
+        </span>
+        <span>
+          <label className="note" htmlFor="org-seed">seed (same seed, same org)</label><br />
+          <input id="org-seed" min={0} onChange={(e) => setSeed(e.target.value)}
+                 style={{ width: 110 }} type="number" value={seed} />
+        </span>
       </div>
       <div className="row">
         <button className="btn" disabled={busy || !name.trim()} onClick={create}>Create</button>
@@ -95,6 +110,12 @@ function NewOrganization({ onCreated, startOpen = false }) {
       <Err e={err} />
     </div>
   );
+}
+
+const KIND_LABEL = { pack: "demo company", organization: "your organization" };
+
+function storedPrincipal() {
+  try { return localStorage.getItem("iw.principal"); } catch { return null; }
 }
 
 function onboarded() {
@@ -111,6 +132,20 @@ export default function App() {
   const [err, setErr] = useState(null);
   const [welcome, setWelcome] = useState(() => !onboarded());
   const [orgFormOpen, setOrgFormOpen] = useState(false);
+  const [who, setWho] = useState(() => {
+    const p = storedPrincipal();
+    if (p) setPrincipal(p);
+    return p;
+  });
+
+  function signIn(p) {
+    try { localStorage.setItem("iw.principal", p); } catch { /* fine */ }
+    setPrincipal(p); setWho(p);
+  }
+  function signOut() {
+    try { localStorage.removeItem("iw.principal"); } catch { /* fine */ }
+    setWho(null); setWsName(null); setView(null);
+  }
 
   const refresh = useCallback(async () => {
     try {
@@ -139,6 +174,10 @@ export default function App() {
     if ((id === "byod" || id === "map") && retail) { setWsName(retail.name); setView("platform"); }
   }
 
+  if (!who) {
+    return <main style={{ margin: "0 auto" }}><Login onEnter={signIn} /></main>;
+  }
+
   if (welcome && workspaces) {
     return (
       <main style={{ margin: "0 auto" }}>
@@ -151,7 +190,7 @@ export default function App() {
   return (
     <>
       <nav className="rail">
-        <div className="mark"><b>Ironwright</b>console</div>
+        <div className="mark"><b>Ironwright</b>legacy systems to governed agents</div>
         <button aria-current={view === null}
                 onClick={() => { setView(null); setWsName(null); refresh(); }}>
           Workspaces
@@ -173,6 +212,18 @@ export default function App() {
               {workspaces.map((w) => <option key={w.name} value={w.name}>{w.name}</option>)}
             </select>
             <div style={{ marginTop: 10 }}><Badge v={ws.verification} /></div>
+            <p className="note" style={{ margin: "12px 0 0" }}>
+              operating as <span className="mono">{who}</span><br />
+              <a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>change identity</a>
+            </p>
+          </div>
+        )}
+        {!ws && (
+          <div className="ws">
+            <p className="note" style={{ margin: 0 }}>
+              operating as <span className="mono">{who}</span><br />
+              <a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>change identity</a>
+            </p>
           </div>
         )}
       </nav>
@@ -181,14 +232,15 @@ export default function App() {
         {!ws && workspaces && (
           <>
             <h2>Workspaces</h2>
-            <p className="sub">Four shipped packs, provable end to end, and the organizations
-              you create yourself. The level beside each is derived from artifacts on this
-              machine, never declared.</p>
+            <p className="sub">Each workspace is one company's whole migration: its legacy systems,
+              lakehouse, ontology, agents and audit trail. The four demo companies are provable
+              end to end; the organizations are ones you created. The level beside each is
+              derived from artifacts on this machine, never declared.</p>
             <div className="cards" style={{ marginBottom: 18 }}>
               {workspaces.map((w) => (
                 <button className="card" key={w.name} onClick={() => openWorkspace(w)}>
                   <span>
-                    <span className="kind">{w.kind}</span><br />
+                    <span className="kind">{KIND_LABEL[w.kind] ?? w.kind}</span><br />
                     <b>{w.title}</b>
                   </span>
                   <p>{w.decision}</p>

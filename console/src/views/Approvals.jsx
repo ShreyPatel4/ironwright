@@ -29,7 +29,8 @@ export default function Approvals({ ws }) {
         your identity on the audit row; denying is itself an audit row.</p>
       <div className="row">
         <label className="note" htmlFor="approver">decide as</label>
-        <input id="approver" onChange={(e) => setApprover(e.target.value)} type="text" value={approver} />
+        <input id="approver" onChange={(e) => setApprover(e.target.value)}
+               placeholder="the approving role, e.g. role:category_manager" type="text" value={approver} />
         <button className="btn ghost" onClick={load}>Refresh</button>
       </div>
       <Err e={err} />

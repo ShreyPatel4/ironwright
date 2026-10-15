@@ -9,11 +9,22 @@ export default function Ask({ ws }) {
   const [replayOut, setReplayOut] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [examples, setExamples] = useState([]);
 
   const loadMetrics = useCallback(() => {
     api.askMetrics(ws.name).then(setMetricsData).catch(() => setMetricsData(null));
   }, [ws.name]);
-  useEffect(() => { setAnswer(null); setReplayOut(null); setErr(null); loadMetrics(); }, [loadMetrics]);
+  useEffect(() => {
+    setAnswer(null); setReplayOut(null); setErr(null); loadMetrics();
+    api.askExamples(ws.name).then(setExamples).catch(() => setExamples([]));
+  }, [loadMetrics, ws.name]);
+
+  async function runText(text) {
+    setQ(text); setBusy(true); setErr(null); setReplayOut(null);
+    try { setAnswer(await api.ask(ws.name, text)); } catch (e) { setErr(e); setAnswer(null); }
+    loadMetrics();
+    setBusy(false);
+  }
 
   async function run() {
     setBusy(true); setErr(null); setReplayOut(null);
@@ -43,6 +54,21 @@ export default function Ask({ ws }) {
                style={{ flex: 1, minWidth: 280 }} type="text" value={q} />
         <button className="btn" disabled={busy || !q.trim()} onClick={run}>Ask</button>
       </div>
+      {examples.length > 0 && (
+        <div className="row">
+          <span className="note">try one, built from real records your identity may read:</span>
+          {examples.map((ex) => (
+            <button className="btn ghost" key={ex.function} onClick={() => runText(ex.question)}
+                    style={{ fontSize: 12 }}>
+              {ex.question.length > 56 ? `${ex.question.slice(0, 55)}…` : ex.question}
+            </button>
+          ))}
+        </div>
+      )}
+      {examples.length === 0 && !answer && (
+        <p className="note">No example questions for this identity: policy permits it none of
+          this workspace's functions. Change identity under GOVERN, Principals.</p>
+      )}
       <Err e={err} />
       {answer && answer.status === "answered" && (
         <>
