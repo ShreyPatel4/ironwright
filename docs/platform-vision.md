@@ -93,3 +93,13 @@ Boards and object dashboards and org-to-policy are weeks and all-Python.
 Connector families land cheapest-true first (drops, JDBC, IDoc files).
 Training loop and CDC are the long poles and wait for the eval harness and
 streams respectively. The map stays the single truth of what is which.
+
+## The one-stop-shop thesis (added 2026-10-14, ruling in top-down-vs-bottom-up.md)
+
+The benefit an owner feels first is not a pipeline; it is being told
+something true about their own estate that nobody knew: the vendor that
+exists twice, the records that cannot both be right, the feed that died
+quietly, the approval path everyone uses but nobody wrote down. The engine
+already finds all four classes on synthetic estates and proves it with
+evals. The Discovery surface makes those findings first-class, and it
+jumped the build queue because it needs no new connectors, only a face.

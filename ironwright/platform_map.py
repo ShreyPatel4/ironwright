@@ -51,6 +51,11 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "Generate policies.yaml from data owners and chains; edits arrive as reviewed diffs."),
     ("sem_asof", "semantic", "As-of everywhere", "planned", "sem_ontology",
      "Point-in-time reads across objects and functions."),
+    ("sem_discovery", "semantic", "Discovery: what the estate didn't know", "planned", "sem_ontology",
+     "The one-stop-shop thesis as a surface: duplicate identities (crosswalk merges), "
+     "contradictions (reconcile exceptions), orphans and dormant feeds, and the de facto "
+     "structure mined from the audit trail. The machinery exists and is eval-proven on packs; "
+     "this gives its findings a face. First in the post-review build order."),
     # lane: operate
     ("op_agents", "operate", "Agents on governed tools", "live", "agents",
      "Rules decide, models narrate; every decision cited and traced."),
