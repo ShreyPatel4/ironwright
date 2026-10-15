@@ -27,6 +27,8 @@ import re
 
 from . import ask as ask_mod
 from . import verification
+from . import workspaces as org_mod
+from .scenario.spec import SpecError
 from .cli import STAGES
 from .lake import Lakehouse
 from .ontology.runtime import Ontology
@@ -75,6 +77,13 @@ class PolicyCheckBody(BaseModel):
     principal: str
     action: str  # e.g. "action:delist_item" or "function:vendor_sell_through"
     env: dict[str, Any] = {}
+
+
+class CreateOrgBody(BaseModel):
+    name: str
+    archetype: str = "regional_retail_chain"
+    size: int = 16
+    seed: int = 7
 
 
 def _guard_select_only(sql: str) -> str:
@@ -133,10 +142,47 @@ def create_platform_app() -> FastAPI:
         out = []
         for name in list_packs():
             pack = load_pack(name)
-            out.append({"name": name, "title": pack.title,
+            out.append({"name": name, "kind": "pack", "title": pack.title,
                         "decision": pack.spec.get("decision"),
                         "verification": verification.derive(pack)})
+        for org in org_mod.list_organizations():
+            out.append({"name": org["name"], "kind": "organization",
+                        "title": org["company"],
+                        "decision": f"{org['stores']} stores, {org['roles']} roles · "
+                                    f"{org['archetype']} · seed {org['seed']}",
+                        "verification": verification.derive_organization(None)})
         return out
+
+    @app.post("/workspaces", status_code=201)
+    def create_workspace(body: CreateOrgBody) -> dict[str, Any]:
+        try:
+            org = org_mod.create_organization(body.name, body.archetype, body.size, body.seed)
+        except SpecError as e:
+            raise HTTPException(422, str(e))
+        return {"name": body.name, "kind": "organization", "org": org,
+                "verification": verification.derive_organization(None)}
+
+    @app.delete("/workspaces/{name}")
+    def delete_workspace(name: str) -> dict[str, Any]:
+        if name in list_packs():
+            raise HTTPException(403, "packs ship with the platform and cannot be deleted")
+        try:
+            org_mod.delete_organization(name)
+        except FileNotFoundError:
+            raise HTTPException(404, f"no organization named {name}")
+        return {"deleted": name}
+
+    @app.get("/workspaces/{name}/organization")
+    def organization(name: str) -> dict[str, Any]:
+        try:
+            return org_mod.read_org(name)
+        except FileNotFoundError:
+            raise HTTPException(404, f"{name} has no generated organization; packs ship "
+                                     "their org inside the pack story")
+
+    @app.get("/archetypes")
+    def archetypes() -> list[dict[str, Any]]:
+        return org_mod.archetypes()
 
     @app.post("/workspaces/{name}/runs")
     def run(name: str, body: RunBody) -> dict[str, Any]:

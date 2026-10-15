@@ -214,3 +214,37 @@ def test_principals_are_listed_with_the_honesty_note(client):
     p = client.get("/workspaces/retail/principals").json()
     assert "agent:retail-triage" in p["policy_principals"] or p["seen_in_audit"]
     assert "not authentication" in p["note"] or "no authentication" in p["note"]
+
+
+def test_create_organization_lists_as_l2_and_serves_its_org(client):
+    r = client.post("/workspaces", json={"name": "acme-goods", "size": 8, "seed": 4})
+    assert r.status_code == 201
+    assert r.json()["verification"]["level"] == "L2"
+
+    ws = {w["name"]: w for w in client.get("/workspaces").json()}
+    assert ws["acme-goods"]["kind"] == "organization"
+    assert ws["acme-goods"]["verification"]["level"] == "L2"
+    assert ws["retail"]["kind"] == "pack"
+
+    org = client.get("/workspaces/acme-goods/organization").json()
+    assert org["company"] and len(org["stores"]) == 8
+    assert org["approver_chains"] and org["data_owners"]
+
+    # Same spec recreated gives the identical org: determinism survives the API.
+    import hashlib
+    import json as _json
+    d1 = hashlib.sha256(_json.dumps(org, sort_keys=True).encode()).hexdigest()
+    client.delete("/workspaces/acme-goods")
+    client.post("/workspaces", json={"name": "acme-goods", "size": 8, "seed": 4})
+    org2 = client.get("/workspaces/acme-goods/organization").json()
+    d2 = hashlib.sha256(_json.dumps(org2, sort_keys=True).encode()).hexdigest()
+    assert d1 == d2
+    client.delete("/workspaces/acme-goods")
+
+
+def test_workspace_creation_guardrails(client):
+    assert client.post("/workspaces", json={"name": "retail"}).status_code == 422
+    assert client.post("/workspaces", json={"name": "Bad Name!"}).status_code == 422
+    assert client.post("/workspaces", json={"name": "ok-org", "archetype": "no_such"}).status_code == 422
+    assert client.delete("/workspaces/retail").status_code == 403
+    assert client.delete("/workspaces/never-existed").status_code == 404

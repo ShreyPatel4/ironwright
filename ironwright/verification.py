@@ -19,6 +19,15 @@ from typing import Any
 from .packs import Pack
 
 
+def derive_organization(org_dir) -> dict[str, Any]:
+    """A created organization is L2 by construction: generated, with
+    structural invariants behind the generator's tests, and no ground truth
+    until the scenario engine emits runnable packs."""
+    return {"level": "L2", "ground_truth": False, "evals_green": False,
+            "scenario_provenance": True,
+            "meaning": "generated scenario, structural invariants only"}
+
+
 def derive(pack: Pack) -> dict[str, Any]:
     ground_truth = pack.paths.ground_truth.exists()
     evals_path = pack.paths.reports / "evals.json"

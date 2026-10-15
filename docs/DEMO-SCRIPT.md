@@ -35,6 +35,10 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         policy denied, the Ask surface answering through governed calls
         and refusing outside the ontology, Governance running a policy
         dry-run, and the audit chain verifying server-side.
-- 2:00  Done at the long cut; the 90-second cut stops at 1:30 before the
+- 1:50  Create an organization: name, archetype, size, seed. The scenario
+        engine generates the whole org (hierarchy, data owners, approval
+        chains) in under a second, byte-identical per spec, badged L2
+        because generated is not proven and the badge says which is which.
+- 2:10  Done at the long cut; the 90-second cut stops at 1:30 before the
         console and says "and there is an operator console on top". If
         asked for depth: `uv run pytest -q` (69 tests).
