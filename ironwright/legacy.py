@@ -27,6 +27,17 @@ def read_fixed_width(path: Path, layout: list[list[Any]]) -> list[dict[str, Any]
     return rows
 
 
+def rows_to_table(rows: list[dict[str, Any]]) -> pa.Table:
+    """The one road into bronze: everything lands as strings, in first-seen
+    column order. Every source kind, local or connector, converges here."""
+    if not rows:
+        return pa.table({})
+    cols = list(dict.fromkeys(k for r in rows for k in r))
+    # land everything as strings in bronze: never trust legacy types on the way in
+    return pa.table({c: pa.array([None if r.get(c) in (None, "") else str(r.get(c)) for r in rows], pa.string())
+                     for c in cols})
+
+
 def read_source(src: dict[str, Any], legacy_dir: Path) -> pa.Table:
     kind = src["kind"]
     if kind == "fixed_width":
@@ -48,10 +59,8 @@ def read_source(src: dict[str, Any], legacy_dir: Path) -> pa.Table:
         for f in sorted(glob.glob(str(legacy_dir / src["glob"]))):
             rows += [json.loads(line) for line in Path(f).read_text().splitlines() if line.strip()]
     else:
-        raise ValueError(f"unknown source kind {kind}")
-    if not rows:
-        return pa.table({})
-    cols = list(dict.fromkeys(k for r in rows for k in r))
-    # land everything as strings in bronze: never trust legacy types on the way in
-    return pa.table({c: pa.array([None if r.get(c) in (None, "") else str(r.get(c)) for r in rows], pa.string())
-                     for c in cols})
+        # connector-ladder kinds (s3, adbc, idoc, stream_window) live in
+        # ironwright.connectors; it raises on a kind nobody implements.
+        from .connectors import read_connector
+        return read_connector(src, legacy_dir)
+    return rows_to_table(rows)

@@ -15,7 +15,7 @@ import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1] / "ironwright"
 
-DATA_MODULES = {"legacy", "lake", "quality", "reconcile"}
+DATA_MODULES = {"legacy", "lake", "quality", "reconcile", "connectors"}
 SEMANTIC_MODULES = {"ontology", "agents", "llm", "policy"}
 # The one sanctioned crossing: the semantic side may import the lakehouse
 # facade (ironwright.lake), because the lake is the shared substrate.
