@@ -15,6 +15,7 @@ import Principals from "./views/Principals.jsx";
 import Organization from "./views/Organization.jsx";
 import Platform from "./views/Platform.jsx";
 import Discovery from "./views/Discovery.jsx";
+import Boards from "./views/Boards.jsx";
 import Onboarding from "./views/Onboarding.jsx";
 import Login from "./views/Login.jsx";
 import { setPrincipal, getPrincipal } from "./api.js";
@@ -27,6 +28,7 @@ const VIEWS = [
   ["semantic", "Ontology", Ontology],
   ["discovery", "Discovery", Discovery],
   ["ask", "Ask", Ask],
+  ["boards", "Boards", Boards],
   ["agents", "Agents", Agents],
   ["approvals", "Approvals", Approvals],
   ["audit", "Audit", Audit],
@@ -39,7 +41,7 @@ const PACK_GROUPS = [
   ["MAP", ["platform"]],
   ["DATA", ["data", "pipeline", "loads", "explorer"]],
   ["SEMANTIC", ["discovery", "semantic", "ask"]],
-  ["OPERATE", ["agents", "approvals", "audit"]],
+  ["OPERATE", ["boards", "agents", "approvals", "audit"]],
   ["GOVERN", ["governance", "principals"]],
 ];
 const ORG_GROUPS = [["MAP", ["platform"]], ["ORGANIZATION", ["organization"]]];

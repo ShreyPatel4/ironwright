@@ -70,8 +70,10 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "Spans are already OTel-shaped; exporter to Grafana/Jaeger/Datadog. Console waterfall stays."),
     ("op_bi_embed", "operate", "BI embed: Looker, Power BI, Metabase", "planned", "lake_iceberg",
      "Iframe/embed SDK over the lakehouse SQL surface."),
-    ("op_boards", "operate", "Boards, the built-in BI", "planned", "lake_iceberg",
-     "Pin any Explorer query as a tile; every tile carries its SQL and freshness."),
+    ("op_boards", "operate", "Boards, the built-in BI", "live", "boards",
+     "Tiles over the lakehouse: each carries its SQL, its viz and its last run time. Tiles "
+     "pass the same SELECT-only guard as the Explorer, rejected at save. Stale tiles say "
+     "when they ran instead of posing as current."),
     # lane: govern
     ("gov_policy", "govern", "Default-deny policy with dry runs", "live", "governance",
      "Rules in evaluation order; tester against the real engine."),
@@ -87,12 +89,14 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "it with real authentication end to end."),
     ("gov_escalate", "govern", "Escalation at any grain", "planned", "sem_org_policy",
      "Any denied or masked access can raise to the owning role; the grant is itself policy."),
-    ("gov_objboard", "govern", "Governed object dashboards", "planned", "sem_ontology",
-     "Per object: state, links, agent touches, pending approvals, audit trail."),
+    ("gov_objboard", "govern", "Governed object dashboards", "live", "semantic",
+     "Every object opens to its standing page: props, identity crosswalk, version history, "
+     "the audit trail that touched it, pending approvals on it, and per-action permits from "
+     "a live policy dry-run for whoever is looking."),
 ]
 
 LIVE_VIEWS = {"data", "pipeline", "loads", "explorer", "semantic", "ask", "agents",
-              "approvals", "audit", "governance", "principals", "organization", "discovery"}
+              "approvals", "audit", "governance", "principals", "organization", "discovery", "boards"}
 
 
 def platform_map() -> dict[str, Any]:

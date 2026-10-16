@@ -267,3 +267,56 @@ def test_platform_map_never_poses(client):
         assert len(n["detail"]) > 20, n["id"]
         assert n["depends_on"] is None or n["depends_on"] in ids, n["id"]
     assert {n["lane"] for n in m["nodes"]} == set(m["lanes"])
+
+
+def test_object_dashboard_is_governed_per_principal(client):
+    """Sketch 02 gate: the dashboard shows the three-source identity and the
+    object's trail, and the action row differs between principals purely
+    from policy dry-runs."""
+    import json as _json
+
+    from ironwright.ontology.store import OntologyStore
+    from ironwright.packs import load_pack
+
+    store = OntologyStore(load_pack("retail").paths.ontology_db)
+    try:
+        row = store.con.execute(
+            "select type, id, members from merge_log order by length(members) desc limit 1"
+        ).fetchone()
+    finally:
+        store.con.close()
+    type_, id_, members = row[0], row[1], _json.loads(row[2])
+    assert len(members) >= 3
+
+    mgr = client.get(f"/workspaces/retail/objects/{type_}/{id_}/dashboard",
+                     headers={"x-principal": "user:category.manager.1"}).json()
+    assert len(mgr["_crosswalk"]) == len(members)
+    assert isinstance(mgr["_trail"], list) and isinstance(mgr["_pending"], list)
+    vend = client.get(f"/workspaces/retail/objects/{type_}/{id_}/dashboard",
+                      headers={"x-principal": "vendor:V-00001"}).json()
+    mgr_allowed = {a["action"] for a in mgr["_allowed_actions"] if a["allowed"]}
+    vend_allowed = {a["action"] for a in vend["_allowed_actions"] if a["allowed"]}
+    assert mgr_allowed and vend_allowed != mgr_allowed
+
+
+def test_boards_guard_persist_and_run(client):
+    tiles = [
+        {"title": "Gold rows", "sql": "select count(*) as n from gold_item_store_perf", "viz": "number"},
+        {"title": "By store", "sql": "select store_nbr, count(*) as n from gold_item_store_perf group by 1 order by 1 limit 10", "viz": "bar"},
+        {"title": "Sample", "sql": "select * from gold_item_store_perf limit 5", "viz": "table"},
+    ]
+    saved = client.put("/workspaces/retail/boards/weekly-ops",
+                       json={"title": "Weekly ops", "tiles": tiles})
+    assert saved.status_code == 200, saved.text
+
+    bad = client.put("/workspaces/retail/boards/evil",
+                     json={"title": "x", "tiles": [{"sql": "update objects set title='x'"}]})
+    assert bad.status_code == 422  # rejected at save, per the sketch gate
+
+    run = client.post("/workspaces/retail/boards/weekly-ops/run").json()
+    assert all(t["ok"] for t in run["tiles"]), run
+    assert run["tiles"][0]["rows"][0][0].isdigit()
+
+    listed = client.get("/workspaces/retail/boards").json()
+    assert any(b["slug"] == "weekly-ops" and b["tiles"] == 3 for b in listed)
+    assert client.delete("/workspaces/retail/boards/weekly-ops").status_code == 200

@@ -21,7 +21,7 @@ export default function Ontology({ ws }) {
 
   async function open(id) {
     setErr(null);
-    try { setDetail(await api.object(ws.name, type, id)); } catch (e) { setErr(e); }
+    try { setDetail(await api.objectDashboard(ws.name, type, id)); } catch (e) { setErr(e); }
   }
 
   const types = desc ? Object.entries(desc.describe.object_types ?? {}) : [];
@@ -48,10 +48,10 @@ export default function Ontology({ ws }) {
               <thead><tr><th>id</th><th>title</th><th>version</th></tr></thead>
               <tbody>
                 {objs.map((o) => (
-                  <tr key={o.id} onClick={() => open(o.id)} style={{ cursor: "pointer" }}>
-                    <td><button className="linklike" onClick={(e) => { e.stopPropagation(); open(o.id); }}>
-                      {o.id}</button></td>
-                    <td>{o.title}</td><td className="mono">{o.version}</td>
+                  <tr key={o._id} onClick={() => open(o._id)} style={{ cursor: "pointer" }}>
+                    <td><button className="linklike" onClick={(e) => { e.stopPropagation(); open(o._id); }}>
+                      {o._id}</button></td>
+                    <td>{o._title}</td><td className="mono">{o._version}</td>
                   </tr>
                 ))}
               </tbody>
@@ -61,12 +61,14 @@ export default function Ontology({ ws }) {
             <>
               <div className="row">
                 <button className="btn ghost" onClick={() => setDetail(null)}>← back to {type}</button>
-                <span className="mono">{detail.id}</span>
+                <span className="mono">{detail._id}</span>
+                <b>{detail._title}</b>
               </div>
-              <h3>Properties</h3>
+              <h3>Properties (provenance per field)</h3>
               <dl className="kv">
-                {Object.entries(detail.props ?? {}).map(([k, v]) => (
-                  [<dt key={`${k}t`}>{k}</dt>, <dd key={`${k}d`}>{v === null ? "∅" : String(v)}</dd>]
+                {Object.entries(detail).filter(([k]) => !k.startsWith("_")).map(([k, v]) => (
+                  [<dt key={`${k}t`}>{k}{detail._prov?.[k] ? ` · from ${detail._prov[k]}` : ""}</dt>,
+                   <dd key={`${k}d`}>{v === null ? "∅ masked or empty" : String(v)}</dd>]
                 ))}
               </dl>
               <h3>Crosswalk (where this identity came from)</h3>
@@ -79,6 +81,40 @@ export default function Ontology({ ws }) {
               </table></div>
               <h3>Neighbors</h3>
               <p className="mono">{(detail._neighbors ?? []).map((n) => JSON.stringify(n)).join("  ") || "none"}</p>
+
+              <h3>What may {detail._as} do here?</h3>
+              <div className="row">
+                {(detail._allowed_actions ?? []).map((a) => (
+                  <span className={`badge ${a.allowed ? "ok" : "bad"}`} key={a.action}
+                        title={a.reason}>
+                    {a.action}{a.allowed ? (a.requires_approval ? " · needs approval" : "") : " · denied"}
+                  </span>
+                ))}
+              </div>
+              <p className="note">Derived from live policy dry-runs for your identity; a denied
+                action shows its rule on hover. Change identity to see a different row.</p>
+
+              <h3>Audit trail on this object</h3>
+              {(detail._trail ?? []).length === 0
+                ? <p className="note">No recorded actions touch this object yet.</p>
+                : <div className="scroll"><table>
+                    <thead><tr><th>seq</th><th>actor</th><th>action</th><th>status</th><th>approved by</th></tr></thead>
+                    <tbody>{detail._trail.map((r) => (
+                      <tr key={r.seq}><td className="mono">{r.seq}</td>
+                        <td className="mono">{r.actor}{r.on_behalf_of ? ` (for ${r.on_behalf_of})` : ""}</td>
+                        <td className="mono">{r.action}</td>
+                        <td><span className={`badge ${r.status === "needs_approval" ? "hold" : r.status === "denied" ? "bad" : "ok"}`}>{r.status}</span></td>
+                        <td className="mono">{r.approved_by ?? ""}</td></tr>))}
+                    </tbody>
+                  </table></div>}
+              {(detail._pending ?? []).length > 0 && (
+                <p className="note">{detail._pending.length} approval(s) pending on this object;
+                  decide them under OPERATE, Approvals.</p>
+              )}
+              <h3>Version history</h3>
+              {(detail._history ?? []).length === 0
+                ? <p className="note">Version 1; never changed since it was built.</p>
+                : <p className="mono">{detail._history.map((h) => `v${h.version} by ${h.changed_by ?? h.action_run ?? "build"}`).join("  ·  ")}</p>}
             </>
           )}
         </div>

@@ -39,6 +39,11 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         ironwright auth-set; the page says the API stays locally open
         until hosted auth is live). Wrong password bounces; the account
         decides the identity on every audit row.
+- 1:42  Any object opens to its governed page: props with per-field
+        provenance, the three-source identity, the audit trail that
+        touched it, and action chips that render permit or deny from a
+        live policy dry-run for whoever is signed in. Boards: tiles over
+        the lakehouse, SELECT-only at save, last-run time always shown.
 - 1:43  Discovery, the thesis in one screen: "Harbor Pet Foods LLC
         exists 3 times, twice in one system" found blind from the merge
         log, a failing coverage check, a reconciled difference, and the

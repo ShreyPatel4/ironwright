@@ -27,6 +27,7 @@ import re
 
 from . import ask as ask_mod
 from . import auth as auth_mod
+from . import boards as boards_mod
 from . import discovery as discovery_mod
 from . import verification
 from . import workspaces as org_mod
@@ -79,6 +80,11 @@ class PolicyCheckBody(BaseModel):
     principal: str
     action: str  # e.g. "action:delist_item" or "function:vendor_sell_through"
     env: dict[str, Any] = {}
+
+
+class BoardBody(BaseModel):
+    title: str
+    tiles: list[dict[str, Any]]
 
 
 class LoginBody(BaseModel):
@@ -194,6 +200,39 @@ def create_platform_app() -> FastAPI:
     @app.get("/workspaces/{name}/discovery")
     def discovery(name: str) -> dict[str, Any]:
         return discovery_mod.derive(_pack(name))
+
+    @app.get("/workspaces/{name}/boards")
+    def boards_list(name: str) -> list[dict[str, Any]]:
+        return boards_mod.list_boards(_pack(name))
+
+    @app.get("/workspaces/{name}/boards/{slug}")
+    def board_get(name: str, slug: str) -> dict[str, Any]:
+        try:
+            return boards_mod.read(_pack(name), slug)
+        except FileNotFoundError:
+            raise HTTPException(404, f"no board {slug}")
+
+    @app.put("/workspaces/{name}/boards/{slug}")
+    def board_put(name: str, slug: str, body: BoardBody) -> dict[str, Any]:
+        try:
+            return boards_mod.write(_pack(name), slug, body.model_dump())
+        except boards_mod.BoardError as e:
+            raise HTTPException(422, str(e))
+
+    @app.delete("/workspaces/{name}/boards/{slug}")
+    def board_delete(name: str, slug: str) -> dict[str, Any]:
+        try:
+            boards_mod.delete(_pack(name), slug)
+        except FileNotFoundError:
+            raise HTTPException(404, f"no board {slug}")
+        return {"deleted": slug}
+
+    @app.post("/workspaces/{name}/boards/{slug}/run")
+    def board_run(name: str, slug: str) -> dict[str, Any]:
+        try:
+            return boards_mod.run(_pack(name), slug)
+        except FileNotFoundError:
+            raise HTTPException(404, f"no board {slug}")
 
     @app.get("/auth/status")
     def auth_status() -> dict[str, Any]:
@@ -313,6 +352,47 @@ def create_platform_app() -> FastAPI:
             return {**o,
                     "_crosswalk": [dict(zip(("system", "source_key", "method", "confidence"), r)) for r in xw],
                     "_neighbors": ont.store.neighbors(id_)}
+
+    @app.get("/workspaces/{name}/objects/{type_}/{id_}/dashboard")
+    def object_dashboard(name: str, type_: str, id_: str,
+                         x_principal: str = Header(CONSOLE_PRINCIPAL)) -> dict[str, Any]:
+        """Sketch 02: the governed object page. Props, identity, history,
+        the audit trail touching this object, pending approvals on it, and
+        per-action permits from the real policy engine for the caller."""
+        pack = _pack(name)
+        with _ontology(pack) as ont:
+            o = ont.masked(ont.store.get(type_, id_), x_principal)
+            if not o:
+                raise HTTPException(404, f"no {type_} {id_}")
+            xw = ont.store.con.execute(
+                "select system, source_key, method, confidence from crosswalk where id = ?",
+                [id_]).fetchall()
+            hist = ont.store.con.execute(
+                "select version, changed_by, action_run, ts from object_history "
+                "where id = ? order by version", [id_]).fetchall()
+            trail = []
+            for row in ont.store.con.execute(
+                    "select seq, actor, on_behalf_of, action, status, approved_by, objects "
+                    "from audit_log where objects like ? order by seq desc limit 50",
+                    [f"%{id_}%"]).fetchall():
+                objs = json.loads(row[6]) if row[6] else []
+                if any(x.get("id") == id_ for x in objs if isinstance(x, dict)):
+                    trail.append(dict(zip(("seq", "actor", "on_behalf_of", "action",
+                                           "status", "approved_by"), row[:6])))
+            pending = [p for p in _pending_approvals(ont)
+                       if id_ in json.dumps(p.get("params", {}))]
+            from .policy import PolicyEngine
+            engine = PolicyEngine(pack.policies)
+            allowed = []
+            for action, adef in (pack.ontology.get("actions", {}) or {}).items():
+                d = engine.authorize(x_principal, f"action:{action}", {})
+                allowed.append({"action": action, "allowed": d.allowed, "reason": d.reason,
+                                "requires_approval": bool(adef.get("requires_approval"))})
+            return {**o, "_crosswalk": [dict(zip(("system", "source_key", "method", "confidence"), r)) for r in xw],
+                    "_neighbors": ont.store.neighbors(id_),
+                    "_history": [dict(zip(("version", "changed_by", "action_run", "ts"), r)) for r in hist],
+                    "_trail": trail, "_pending": pending, "_allowed_actions": allowed,
+                    "_as": x_principal}
 
     @app.get("/workspaces/{name}/lake/tables")
     def lake_tables(name: str) -> list[dict[str, Any]]:
