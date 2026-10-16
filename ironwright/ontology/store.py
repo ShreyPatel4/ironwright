@@ -78,6 +78,32 @@ class OntologyStore:
         props.update({"_id": id_, "_type": type_, "_version": r[1], "_title": r[2]})
         return props
 
+    def get_asof(self, type_: str, id_: str, ts: float) -> dict[str, Any] | None:
+        """The object's state at time ts, resolved from object_history.
+
+        The answering version is the latest history row written at or before
+        ts. None when the object did not exist yet (or never did). When that
+        version is still the latest one, the current objects row answers, so
+        the read also carries _title. Historical snapshots carry the stored
+        props only: object_history has no title column. Every result sets
+        _asof_ts to the answering version's change time."""
+        row = self.con.execute(
+            "select version, props, ts from object_history where type = ? and id = ? and ts <= ? "
+            "order by ts desc, version desc limit 1", [type_, id_, ts]).fetchone()
+        if not row:
+            return None
+        version, props_json, changed_ts = row
+        last = self.con.execute(
+            "select max(version) from object_history where type = ? and id = ?",
+            [type_, id_]).fetchone()
+        if last and last[0] == version:
+            cur = self.get(type_, id_)
+            if cur is not None:
+                return {**cur, "_asof_ts": changed_ts}
+        props = json.loads(props_json)
+        props.update({"_id": id_, "_type": type_, "_version": version, "_asof_ts": changed_ts})
+        return props
+
     def find_type(self, id_: str) -> str | None:
         r = self.con.execute("select type from objects where id = ?", [id_]).fetchone()
         return r[0] if r else None
