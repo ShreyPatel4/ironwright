@@ -17,8 +17,13 @@ export default function Sources({ ws }) {
       <h2>Sources</h2>
       <p className="sub">The connector registry as declared: every legacy system this workspace
         ingests, with its format and layout. Connectors are declarative specs; the same bronze
-        path lands all of them. CDC and scheduled pulls are roadmap and nothing here pretends
-        otherwise.</p>
+        path lands all of them.</p>
+      <p className="note" style={{ marginBottom: 16 }}>
+        Kinds this build can land, each fixture-proven byte-identical to the local path:
+        fixed_width, csv, jsonl, sqlite, s3 (object stores), adbc (sqlite driver; postgresql
+        code-present but unclaimed until fixtured), idoc (SAP flat files; OData and RFC not
+        claimed), stream_window (recorded segments; live Kafka not claimed). CDC and scheduled
+        pulls remain roadmap.</p>
       <Err e={err} />
       <div className="scroll"><table>
         <thead><tr><th>source</th><th>system</th><th>kind</th><th>where</th><th></th></tr></thead>

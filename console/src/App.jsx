@@ -16,6 +16,7 @@ import Organization from "./views/Organization.jsx";
 import Platform from "./views/Platform.jsx";
 import Discovery from "./views/Discovery.jsx";
 import Boards from "./views/Boards.jsx";
+import OrgPolicy from "./views/OrgPolicy.jsx";
 import Onboarding from "./views/Onboarding.jsx";
 import Login from "./views/Login.jsx";
 import { setPrincipal, getPrincipal } from "./api.js";
@@ -35,6 +36,7 @@ const VIEWS = [
   ["governance", "Governance", Governance],
   ["principals", "Principals", Principals],
   ["organization", "Organization", Organization],
+  ["orgpolicy", "Governance", OrgPolicy],
   ["platform", "Platform", Platform],
 ];
 const PACK_GROUPS = [
@@ -44,7 +46,7 @@ const PACK_GROUPS = [
   ["OPERATE", ["boards", "agents", "approvals", "audit"]],
   ["GOVERN", ["governance", "principals"]],
 ];
-const ORG_GROUPS = [["MAP", ["platform"]], ["ORGANIZATION", ["organization"]]];
+const ORG_GROUPS = [["MAP", ["platform"]], ["ORGANIZATION", ["organization", "orgpolicy"]]];
 
 function NewOrganization({ onCreated, startOpen = false }) {
   const [open, setOpen] = useState(startOpen);

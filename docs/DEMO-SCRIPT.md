@@ -39,6 +39,14 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         ironwright auth-set; the page says the API stays locally open
         until hosted auth is live). Wrong password bounces; the account
         decides the identity on every audit row.
+- 1:41  The connector kinds: object-store drops, ADBC warehouses, SAP
+        IDoc flat files, stream windows from recorded segments, each
+        fixture-proven byte-identical to the local path, with what is
+        NOT claimed written on the Sources page itself.
+- 1:41b A created org generates its own governance: the diff is the
+        review, applying is logged, an escalation grant becomes a
+        narrow expiring rule, and hand-written forbids still win.
+        Objects read as-of any moment; traces export as OTLP.
 - 1:42  Any object opens to its governed page: props with per-field
         provenance, the three-source identity, the audit trail that
         touched it, and action chips that render permit or deny from a

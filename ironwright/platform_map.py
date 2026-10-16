@@ -14,14 +14,18 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
     # lane: sources
     ("src_files", "sources", "Files: fixed width, CSV, JSONL, SQLite", "live", "data",
      "The four legacy families every pack lands through today, declared as source specs."),
-    ("src_drops", "sources", "SFTP and object-store drops", "planned", "src_files",
-     "Same source specs, remote readers (SFTP, S3/GCS/R2). Ships only with a replayable fixture."),
-    ("src_jdbc", "sources", "Warehouses over JDBC/ADBC", "planned", "src_files",
-     "Postgres, SQL Server, Oracle, Snowflake, BigQuery via Arrow ADBC readers."),
-    ("src_sap", "sources", "ERP and SAP on prem", "planned", "src_drops",
-     "IDoc file drops first (a copybook cousin), OData extractors next, RFC/BAPI adapter later."),
-    ("src_stream", "sources", "Streams (Kafka protocol)", "planned", "src_jdbc",
-     "Batch windows into bronze first; consumers with replayable fixtures."),
+    ("src_drops", "sources", "Object-store drops (S3 API)", "live", "data",
+     "Kind s3: bucket objects land through the exact local reader path, byte-identical by "
+     "construction and by test (moto fixture, offline). SFTP is not yet claimed."),
+    ("src_jdbc", "sources", "Warehouses over ADBC", "live", "data",
+     "Kind adbc: sqlite driver fixture-proven byte-identical to the native path. The "
+     "postgresql driver is code-present but unclaimed until fixtured; others later."),
+    ("src_sap", "sources", "SAP IDoc flat-file drops", "live", "data",
+     "Kind idoc: segment-layout parsing with control records, truncation handled, unknown "
+     "segments preserved raw. Flat files only; OData and RFC are later and not claimed."),
+    ("src_stream", "sources", "Stream windows (recorded segments)", "live", "data",
+     "Kind stream_window: recorded event segments land in deterministic windows with "
+     "_window_id, idempotent re-runs. A live Kafka-protocol consumer is later, not claimed."),
     ("src_cdc", "sources", "CDC log capture", "planned", "src_stream",
      "Debezium-class capture into event sources. After streams, not before."),
     # lane: pipeline
@@ -47,10 +51,12 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "Objects, links, crosswalk provenance per identity."),
     ("sem_org", "semantic", "Organizations from the scenario engine", "live", "organization",
      "Create a whole org from a spec: hierarchy, owners, approval chains. L2 by construction."),
-    ("sem_org_policy", "semantic", "Org chart drives policy", "planned", "sem_org",
-     "Generate policies.yaml from data owners and chains; edits arrive as reviewed diffs."),
-    ("sem_asof", "semantic", "As-of everywhere", "planned", "sem_ontology",
-     "Point-in-time reads across objects and functions."),
+    ("sem_org_policy", "semantic", "Org chart drives policy", "live", "governance",
+     "Policy generated from data owners and approval chains, applied only through a reviewed "
+     "diff with an append-only log. Hand-written rules always load first and win, loudly."),
+    ("sem_asof", "semantic", "As-of object reads", "live", "semantic",
+     "Any object readable at any past timestamp from its version history, masked like every "
+     "read. Function-level as-of needs lake snapshots and is not claimed yet."),
     ("sem_discovery", "semantic", "Discovery: what the estate didn't know", "live", "discovery",
      "The one-stop-shop thesis as a surface: duplicate identities from the merge log, "
      "review-queue ambiguities, reconcile contradictions, failing checks and quarantined "
@@ -66,8 +72,9 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
     ("op_training", "operate", "Training mode from observed actions", "planned", "op_agents",
      "Approvals, denials and overrides are audit rows; replay them into labels, retrain gated "
      "by pack evals plus prior human verdicts. Nothing retrains silently."),
-    ("op_otel", "operate", "Observability deck (OTLP out)", "planned", "op_agents",
-     "Spans are already OTel-shaped; exporter to Grafana/Jaeger/Datadog. Console waterfall stays."),
+    ("op_otel", "operate", "OTLP trace export", "live", "agents",
+     "Every trace exports as OTLP/HTTP JSON to any collector endpoint; ids and parent links "
+     "proven round-trip against an offline fixture collector. A managed deck is not claimed."),
     ("op_bi_embed", "operate", "BI embed: Looker, Power BI, Metabase", "planned", "lake_iceberg",
      "Iframe/embed SDK over the lakehouse SQL surface."),
     ("op_boards", "operate", "Boards, the built-in BI", "live", "boards",
@@ -87,8 +94,9 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "An invite gate (salted local credential hashes, console door only) is live; the API "
      "stays locally open, which is why this node stays PLANNED until the hosted build closes "
      "it with real authentication end to end."),
-    ("gov_escalate", "govern", "Escalation at any grain", "planned", "sem_org_policy",
-     "Any denied or masked access can raise to the owning role; the grant is itself policy."),
+    ("gov_escalate", "govern", "Escalation at any grain", "live", "approvals",
+     "A denial raises to the owning role; a grant is a narrow expiring policy rule through "
+     "the reviewed-diff path, never a bypass, and hand-written forbids still win."),
     ("gov_objboard", "govern", "Governed object dashboards", "live", "semantic",
      "Every object opens to its standing page: props, identity crosswalk, version history, "
      "the audit trail that touched it, pending approvals on it, and per-action permits from "

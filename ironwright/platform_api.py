@@ -28,6 +28,10 @@ import re
 from . import ask as ask_mod
 from . import auth as auth_mod
 from . import boards as boards_mod
+from . import escalation as escalation_mod
+from . import orgpolicy as orgpolicy_mod
+from .asof import router as asof_router
+from .otel_export import router as otel_router
 from . import discovery as discovery_mod
 from . import verification
 from . import workspaces as org_mod
@@ -544,6 +548,11 @@ def create_platform_app() -> FastAPI:
                 return ask_mod.replay(pack, ont, body.index)
             except IndexError as e:
                 raise HTTPException(404, str(e))
+
+    app.include_router(orgpolicy_mod.router)
+    app.include_router(escalation_mod.router)
+    app.include_router(asof_router)
+    app.include_router(otel_router)
 
     # The console is a committed build (console/dist), so a git clone needs
     # uv and nothing else at runtime. Absent (e.g. a bare pip install of the

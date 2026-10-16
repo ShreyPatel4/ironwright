@@ -7,7 +7,14 @@ export default function Ontology({ ws }) {
   const [type, setType] = useState(null);
   const [objs, setObjs] = useState([]);
   const [detail, setDetail] = useState(null);
+  const [asofTs, setAsofTs] = useState("");
+  const [asofOut, setAsofOut] = useState(null);
   const [err, setErr] = useState(null);
+
+  async function readAsOf() {
+    setErr(null); setAsofOut(null);
+    try { setAsofOut(await api.asOf(ws.name, type, detail._id, asofTs)); } catch (e) { setErr(e); }
+  }
 
   useEffect(() => {
     setType(null); setObjs([]); setDetail(null); setErr(null);
@@ -20,7 +27,7 @@ export default function Ontology({ ws }) {
   }
 
   async function open(id) {
-    setErr(null);
+    setErr(null); setAsofOut(null); setAsofTs("");
     try { setDetail(await api.objectDashboard(ws.name, type, id)); } catch (e) { setErr(e); }
   }
 
@@ -111,6 +118,21 @@ export default function Ontology({ ws }) {
                 <p className="note">{detail._pending.length} approval(s) pending on this object;
                   decide them under OPERATE, Approvals.</p>
               )}
+              <h3>Read as of a moment</h3>
+              <div className="row">
+                <input aria-label="timestamp, ISO or unix" onChange={(e) => setAsofTs(e.target.value)}
+                       placeholder="2026-10-15T00:00:00Z or unix seconds" style={{ minWidth: 230 }}
+                       type="text" value={asofTs} />
+                <button className="btn ghost" disabled={!asofTs.trim()} onClick={readAsOf}>Read as of</button>
+              </div>
+              {asofOut && (
+                <p aria-live="polite" className="note">
+                  version {asofOut.version} answered ·{" "}
+                  <span className="mono">{JSON.stringify(
+                    Object.fromEntries(Object.entries(asofOut.object).filter(([k]) => !k.startsWith("_"))))}</span>
+                </p>
+              )}
+
               <h3>Version history</h3>
               {(detail._history ?? []).length === 0
                 ? <p className="note">Version 1; never changed since it was built.</p>

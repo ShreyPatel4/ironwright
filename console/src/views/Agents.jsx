@@ -8,6 +8,13 @@ export default function Agents({ ws }) {
   const [run, setRun] = useState(null);
   const [spans, setSpans] = useState(null);
   const [err, setErr] = useState(null);
+  const [otelEndpoint, setOtelEndpoint] = useState("http://localhost:4318/v1/traces");
+  const [otelOut, setOtelOut] = useState(null);
+
+  async function exportTraces() {
+    setErr(null); setOtelOut(null);
+    try { setOtelOut(await api.otelExport(ws.name, otelEndpoint)); } catch (e) { setErr(e); }
+  }
 
   useEffect(() => {
     setAgents(null); setUc(null); setRun(null); setSpans(null); setErr(null);
@@ -33,6 +40,15 @@ export default function Agents({ ws }) {
         decide and the model narrates; a narrative may only cite evidence ids the agent actually
         gathered. Pick a decision to investigate its full span waterfall.</p>
       <Err e={err} />
+      <div className="row">
+        <label className="note" htmlFor="otel-ep">export traces (OTLP/HTTP)</label>
+        <input id="otel-ep" onChange={(e) => setOtelEndpoint(e.target.value)}
+               placeholder="http://localhost:4318/v1/traces" style={{ minWidth: 260 }}
+               type="text" value={otelEndpoint} />
+        <button className="btn ghost" onClick={exportTraces}>Export</button>
+        {otelOut && <span aria-live="polite" className="badge ok">
+          {otelOut.traces} traces, {otelOut.spans} spans sent</span>}
+      </div>
       {agents && (
         <div className="row">
           {Object.keys(agents).map((k) => (
