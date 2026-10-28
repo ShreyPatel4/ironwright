@@ -26,6 +26,12 @@ state of each rung, as of this file:
   into bronze with a deterministic ``_window_id`` (window start, UTC ISO).
   Events exactly on a window boundary belong to the later window. A live
   Kafka-protocol consumer is a later rung and is NOT claimed.
+- ``cdc`` (rung 5): postgres logical decoding through the built-in
+  test_decoding plugin, polled over plain SQL (``ironwright/cdc.py``).
+  PROVEN against a real postgres named by POSTGRES_URI; the tests skip
+  honestly without one. The connection uri comes from the environment
+  variable the spec names, never from the spec itself. Debezium, MySQL,
+  Oracle, and streaming protocol consumption are NOT claimed.
 
 Credentials are read from the environment by the underlying drivers (boto3,
 ADBC); nothing here stores them. Runtime deps live in the ``connectors``
@@ -57,6 +63,8 @@ def read_connector(src: dict[str, Any], legacy_dir: Path) -> pa.Table:
         return rows_to_table(_read_idoc(src, legacy_dir))
     if kind == "stream_window":
         return rows_to_table(_read_stream_window(src, legacy_dir))
+    if kind == "cdc":
+        return rows_to_table(_read_cdc(src))
     raise ValueError(f"unknown source kind {kind}")
 
 
@@ -244,4 +252,34 @@ def _read_stream_window(src: dict[str, Any], legacy_dir: Path) -> list[dict[str,
             event["_window_id"] = datetime.fromtimestamp(start, tz=timezone.utc) \
                 .isoformat().replace("+00:00", "Z")
             rows.append(event)
+    return rows
+
+
+# --------------------------------------------------------------- rung 5: cdc
+
+def _read_cdc(src: dict[str, Any]) -> list[dict[str, Any]]:
+    """Change capture from postgres logical decoding. Spec: {kind: cdc,
+    uri_env: NAME, slot, table?}.
+
+    The connection uri comes from the environment variable the spec names,
+    never from the spec itself, so no credentials live in pack data. One
+    capture consumes the slot's pending changes (see ``ironwright/cdc.py``).
+    ``table`` filters to one table: either the schema-qualified name as
+    test_decoding prints it, or the bare table name.
+    """
+    import os
+
+    from . import cdc
+
+    env = src["uri_env"]
+    uri = os.environ.get(env)
+    if not uri:
+        raise ValueError(
+            f"cdc source needs the {env} environment variable set; "
+            "the connection uri never lives in the spec")
+    rows = cdc.capture(uri, src["slot"]).to_pylist()
+    want = src.get("table")
+    if want:
+        rows = [r for r in rows
+                if r["_table"] == want or r["_table"].rsplit(".", 1)[-1] == want]
     return rows

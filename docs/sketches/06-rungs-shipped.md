@@ -1,6 +1,6 @@
 # Sketch 06 follow-up: connector rungs shipped
 
-Four rungs from the connector ladder now exist as source kinds that
+Five rungs from the connector ladder now exist as source kinds that
 `legacy.read_source` dispatches to `ironwright/connectors.py`. Every rung
 moved real bytes on this laptop behind a replayable offline fixture with a
 contract test in `tests/test_connectors.py`. Where a local-file comparison
@@ -57,13 +57,42 @@ prove.
 - Not claimed: a live Kafka-protocol consumer, consumer groups, offsets.
   Recorded segments only.
 
+## Rung 5: CDC from postgres logical decoding (kind `cdc`)
+
+- Proven: change capture from a real postgres through the built-in
+  `test_decoding` output plugin, consumed by polling SQL
+  (`pg_create_logical_replication_slot`, `pg_logical_slot_get_changes`,
+  `pg_drop_replication_slot`), in `ironwright/cdc.py` and
+  `tests/test_cdc.py`. Insert, update and delete land with exact planted
+  values as `_op`, `_table`, `_lsn` plus the changed columns, strings in
+  bronze. Capture consumes: a second capture returns only new changes,
+  and the mutation check (peek instead of get) fails that test. NULLs,
+  quoted identifiers, and values with escaped quotes parse correctly. An
+  update that changes the key lands the new tuple. A delete without a
+  replica identity lands metadata only. A dropped slot errors loudly on
+  the next capture. A line the parser does not understand raises with
+  that line, never a silent drop. The connector spec
+  `{kind: cdc, uri_env, slot, table}` runs end to end through
+  `read_source`; the uri comes from the named env var, never from the
+  spec, so no credentials live in pack data.
+- Fixture: the shared `postgres_uri` and `pg_schema` fixtures against a
+  real server named by `POSTGRES_URI` with `wal_level=logical`. Without
+  it the live tests skip with the posture stated. The parser tests run
+  offline against change lines captured verbatim from a real server.
+- Not claimed: Debezium itself, MySQL, Oracle, or any non-postgres
+  source, streaming protocol consumption (this polls), and exactly-once
+  across restarts beyond what replication slot semantics give. Changes
+  made before the slot exists are gone, by design.
+
 ## Dependencies
 
 Runtime deps for rungs 1 and 2 live in the new `connectors` extra
 (boto3, adbc-driver-manager, adbc-driver-sqlite). moto is dev-only.
-Rungs 3 and 4 need nothing beyond the base install.
+Rungs 3 and 4 need nothing beyond the base install. Rung 5 needs
+psycopg, which today lives in the `dev` extra; moving it to a runtime
+extra is the integrator's call since `pyproject.toml` is theirs.
 
 ## Not shipped
 
-Rung 5 (CDC) is not started. SFTP (the other half of rung 1 in the
-sketch) is not started. Neither is claimed anywhere.
+SFTP (the other half of rung 1 in the sketch) is not started and is not
+claimed anywhere.

@@ -59,7 +59,7 @@ def read_source(src: dict[str, Any], legacy_dir: Path) -> pa.Table:
         for f in sorted(glob.glob(str(legacy_dir / src["glob"]))):
             rows += [json.loads(line) for line in Path(f).read_text().splitlines() if line.strip()]
     else:
-        # connector-ladder kinds (s3, adbc, idoc, stream_window) live in
+        # connector-ladder kinds (s3, adbc, idoc, stream_window, cdc) live in
         # ironwright.connectors; it raises on a kind nobody implements.
         from .connectors import read_connector
         return read_connector(src, legacy_dir)
