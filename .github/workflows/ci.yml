@@ -7,10 +7,21 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      POSTGRES_URI: postgresql://postgres:iw@127.0.0.1:5432/postgres
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
+      # A real postgres with logical WAL so the postgres-backed rungs (adbc
+      # source, CDC capture, engine swap, BI mirror) are proven in CI, not
+      # skipped. Started by hand because service containers cannot pass the
+      # server the -c wal_level=logical argument.
+      - run: |
+          docker run -d --name ci-pg -p 5432:5432 -e POSTGRES_PASSWORD=iw \
+            postgres:16 -c wal_level=logical
+          for i in $(seq 1 30); do
+            docker exec ci-pg pg_isready -U postgres && break; sleep 1; done
       - run: pip install -e ".[dev]"
       - run: pytest -q
 

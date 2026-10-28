@@ -124,12 +124,11 @@ class Lakehouse:
                 qc = duckdb.connect()
                 qc.register("_incoming", data)
                 for c in q_checks:
-                    bad = qc.execute(f"select * from _incoming where not ({c['condition']})").arrow()
-                    if hasattr(bad, "read_all"):
-                        bad = bad.read_all()
+                    # fetch_arrow_table, not .arrow(): the alias left DuckDB's
+                    # connection API and CI resolves the newest release
+                    bad = qc.execute(f"select * from _incoming where not ({c['condition']})").fetch_arrow_table()
                     if bad.num_rows:
-                        keep = qc.execute(f"select * from _incoming where {c['condition']}").arrow()
-                        data = keep.read_all() if hasattr(keep, "read_all") else keep
+                        data = qc.execute(f"select * from _incoming where {c['condition']}").fetch_arrow_table()
                         qc.unregister("_incoming")
                         qc.register("_incoming", data)
                         bad = bad.append_column("_quarantine_reason", pa.array([c.get("name", c["condition"])] * bad.num_rows))
@@ -221,9 +220,7 @@ def migrate(pack: Pack, tracer: Tracer, run_id: str | None = None) -> dict[str, 
                 con = lake.connect()
                 for name, sql in pack.models(layer):
                     with tracer.span("model.run", model=f"{layer}.{name}") as sp:
-                        data = con.execute(sql).arrow()
-                        if hasattr(data, "read_all"):  # newer DuckDB returns a reader
-                            data = data.read_all()
+                        data = con.execute(sql).fetch_arrow_table()
                         sp.set(rows=data.num_rows)
                     res = lake.write_wap(f"{layer}.{name}", data, quality.get(f"{layer}.{name}", []),
                                          run_id, "overwrite", tracer)
