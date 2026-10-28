@@ -232,7 +232,7 @@ def _run_duckdb_pipeline(frames, models):
             con.execute(f"create view bronze_{name} as select * from _bronze_{name}")
         out = {}
         for layer, name, sql in models:
-            data = con.execute(sql).fetch_arrow_table()
+            data = con.sql(sql).to_arrow_table()
             con.register(f"_{layer}_{name}", data)
             con.execute(f"create or replace view {layer}_{name} as select * from _{layer}_{name}")
             out[f"{layer}.{name}"] = data

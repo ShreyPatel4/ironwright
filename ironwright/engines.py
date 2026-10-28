@@ -72,7 +72,9 @@ def bronze_frames(pack: Pack) -> dict[str, pa.Table]:
             ns, name = ident.split(".")
             if ns != "bronze":
                 continue
-            frame = con.execute(f"select * from bronze_{name}").fetch_arrow_table()
+            # relation.to_arrow_table: the one fetch spelling every DuckDB
+            # release in play shares (the connection aliases keep leaving)
+            frame = con.sql(f"select * from bronze_{name}").to_arrow_table()
             lowered = [c.lower() for c in frame.column_names]
             if len(set(lowered)) != len(lowered):
                 raise ValueError(f"bronze.{name} has columns that differ only in case; "
@@ -96,7 +98,7 @@ def run_models_duckdb(pack: Pack, frames: dict[str, pa.Table]) -> list[dict[str,
         out: list[dict[str, Any]] = []
         for layer in ("silver", "gold"):
             for name, sql in pack.models(layer):
-                data = con.execute(sql).fetch_arrow_table()
+                data = con.sql(sql).to_arrow_table()
                 con.register(f"_{layer}_{name}", data)
                 con.execute(f"create or replace view {layer}_{name} as select * from _{layer}_{name}")
                 out.append({"layer": layer, "name": name, "sql": sql, "data": data})
