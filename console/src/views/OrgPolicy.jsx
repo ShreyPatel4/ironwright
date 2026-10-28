@@ -9,7 +9,7 @@ import { Err } from "../components.jsx";
 export default function OrgPolicy({ ws }) {
   const [preview, setPreview] = useState(null);
   const [applied, setApplied] = useState(null);
-  const [approver, setApprover] = useState("user:shreypatel");
+  const [approver, setApprover] = useState("");
   const [escs, setEscs] = useState([]);
   const [expires, setExpires] = useState("");
   const [err, setErr] = useState(null);
@@ -47,12 +47,19 @@ export default function OrgPolicy({ ws }) {
       <div className="row">
         <label className="note" htmlFor="op-approver">acting as</label>
         <input id="op-approver" onChange={(e) => setApprover(e.target.value)}
-               placeholder="who approves this application" type="text" value={approver} />
-        <button className="btn" disabled={!preview} onClick={apply}>
+               placeholder="who approves this application, e.g. user:…"
+               style={{ minWidth: 220 }} type="text" value={approver} />
+        <button className="btn" disabled={!preview || !approver.trim()} onClick={apply}>
           Apply {d ? `(${d.added.length} added, ${d.removed.length} removed)` : ""}
         </button>
         {applied && <span aria-live="polite" className="badge ok">applied · logged</span>}
       </div>
+      {(preview?.conflicts ?? []).length > 0 && (
+        <p className="note" style={{ color: "var(--danger)" }}>
+          {preview.conflicts.length} conflict(s) with hand-written rules; the generated rule
+          loses each time: {preview.conflicts.map((c) => `${c.generated} vs ${c.hand_written}`).join(", ")}.
+        </p>
+      )}
       {preview && (
         <>
           <h3>The diff under review</h3>

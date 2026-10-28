@@ -120,10 +120,6 @@ function NewOrganization({ onCreated, startOpen = false }) {
 
 const KIND_LABEL = { pack: "demo company", organization: "your organization" };
 
-function storedPrincipal() {
-  try { return localStorage.getItem("iw.principal"); } catch { return null; }
-}
-
 function onboarded() {
   try { return localStorage.getItem("iw.onboarded") === "1"; } catch { return true; }
 }
@@ -156,6 +152,17 @@ export default function App() {
     try { localStorage.removeItem("iw.session"); localStorage.removeItem("iw.last"); } catch { /* fine */ }
     setSession(null); setWsName(null); setView(null);
   }
+
+  // Sessions live in the server process; after a restart a stored token is
+  // dead and the door must ask again instead of trusting localStorage.
+  useEffect(() => {
+    if (!session?.token) return;
+    api.me(session.token).catch(() => {
+      try { localStorage.removeItem("iw.session"); } catch { /* fine */ }
+      setSession(null); setWsName(null); setView(null);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -285,7 +292,8 @@ export default function App() {
           </>
         )}
         {ws && Active && (
-          <Active onDeleted={async () => { setWsName(null); setView(null); await refresh(); }}
+          <Active key={ws.name}
+                  onDeleted={async () => { setWsName(null); setView(null); await refresh(); }}
                   refresh={refresh} setView={setView} ws={ws} />
         )}
       </main>

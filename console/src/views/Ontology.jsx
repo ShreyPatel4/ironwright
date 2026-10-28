@@ -9,7 +9,21 @@ export default function Ontology({ ws }) {
   const [detail, setDetail] = useState(null);
   const [asofTs, setAsofTs] = useState("");
   const [asofOut, setAsofOut] = useState(null);
+  const [escalated, setEscalated] = useState(null);
   const [err, setErr] = useState(null);
+
+  async function escalate(a) {
+    setErr(null); setEscalated(null);
+    const rule = a.reason?.startsWith("forbidden by ")
+      ? a.reason.slice("forbidden by ".length) : "default-deny";
+    try {
+      const out = await api.escalate(ws.name, {
+        principal: detail._as, action: a.action,
+        object_id: detail._id, denying_rule: rule,
+      });
+      setEscalated(out);
+    } catch (e) { setErr(e); }
+  }
 
   async function readAsOf() {
     setErr(null); setAsofOut(null);
@@ -27,7 +41,7 @@ export default function Ontology({ ws }) {
   }
 
   async function open(id) {
-    setErr(null); setAsofOut(null); setAsofTs("");
+    setErr(null); setAsofOut(null); setAsofTs(""); setEscalated(null);
     try { setDetail(await api.objectDashboard(ws.name, type, id)); } catch (e) { setErr(e); }
   }
 
@@ -92,14 +106,28 @@ export default function Ontology({ ws }) {
               <h3>What may {detail._as} do here?</h3>
               <div className="row">
                 {(detail._allowed_actions ?? []).map((a) => (
-                  <span className={`badge ${a.allowed ? "ok" : "bad"}`} key={a.action}
-                        title={a.reason}>
-                    {a.action}{a.allowed ? (a.requires_approval ? " · needs approval" : "") : " · denied"}
+                  <span key={a.action} style={{ whiteSpace: "nowrap" }}>
+                    <span className={`badge ${a.allowed ? "ok" : "bad"}`} title={a.reason}>
+                      {a.action}{a.allowed ? (a.requires_approval ? " · needs approval" : "") : " · denied"}
+                    </span>
+                    {!a.allowed && (
+                      <button className="linklike" onClick={() => escalate(a)}
+                              style={{ marginLeft: 4 }}
+                              title="raise this exact denial to the owning role">escalate</button>
+                    )}
                   </span>
                 ))}
               </div>
-              <p className="note">Derived from live policy dry-runs for your identity; a denied
-                action shows its rule on hover. Change identity to see a different row.</p>
+              {escalated && (
+                <p aria-live="polite" className="note">
+                  escalated as <span className="mono">{escalated.id}</span> to{" "}
+                  <span className="mono">{escalated.owner_role}</span>; it waits in OPERATE,
+                  Approvals. {escalated.note}
+                </p>
+              )}
+              <p className="note">Derived from live policy dry-runs for your identity against
+                this object, grants and generated policy included; a denied action shows its
+                rule on hover and can be escalated to the owning role from here.</p>
 
               <h3>Audit trail on this object</h3>
               {(detail._trail ?? []).length === 0

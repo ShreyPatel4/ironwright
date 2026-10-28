@@ -36,8 +36,15 @@ export default function Ask({ ws }) {
   async function replay() {
     setErr(null);
     try {
+      // Replay the entry whose calls are on screen, not the log tail: another
+      // ask (a second tab, an agent) may have appended since this answer.
       const log = await api.askLog(ws.name);
-      setReplayOut(await api.askReplay(ws.name, log.length - 1));
+      const ids = new Set((answer?.calls ?? []).map((c) => c.call_id));
+      let index = log.length - 1;
+      for (let i = log.length - 1; i >= 0; i--) {
+        if ((log[i].calls ?? []).some((c) => ids.has(c.call_id))) { index = i; break; }
+      }
+      setReplayOut(await api.askReplay(ws.name, index));
     } catch (e) { setErr(e); }
   }
 
@@ -75,7 +82,10 @@ export default function Ask({ ws }) {
           <div aria-live="polite" className="row"><span className="badge ok">answered · {answer.narrator}</span>
             <Badge v={answer.verification} />
             <button className="btn ghost" onClick={replay}>Replay this answer</button>
-            {replayOut && (
+            {replayOut && replayOut.replayable === false && (
+              <span className="badge hold">not replayable: {replayOut.reason}</span>
+            )}
+            {replayOut && replayOut.replayable !== false && (
               <span className={`badge ${replayOut.match ? "ok" : "bad"}`}>
                 {replayOut.match ? "replay matches, digest for digest" : "REPLAY DIVERGED"}
               </span>

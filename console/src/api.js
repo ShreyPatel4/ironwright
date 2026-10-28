@@ -62,6 +62,7 @@ export const api = {
   discovery: (ws) => req(`/workspaces/${ws}/discovery`),
   authStatus: () => req("/auth/status"),
   login: (email, password) => post("/auth/login", { email, password }),
+  me: (token) => req("/auth/me", { headers: { "x-session": token } }),
   logout: (token) => req("/auth/logout", { method: "POST", headers: { "x-session": token } }),
   sources: (ws) => req(`/workspaces/${ws}/sources`),
   loads: (ws) => req(`/workspaces/${ws}/loads`),

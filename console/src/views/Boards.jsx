@@ -70,8 +70,12 @@ export default function Boards({ ws }) {
     setErr(null);
     try {
       const tables = await api.lakeTables(ws.name);
+      if (!tables.length) {
+        setErr(new Error("the lake is empty; run the pipeline first, then build boards over it"));
+        return;
+      }
       const gold = tables.find((t) => t.layer === "gold");
-      const tiles = STARTER(gold ? `${gold.layer}_${gold.name}` : "bronze_" + tables[0].name);
+      const tiles = STARTER(gold ? `${gold.layer}_${gold.name}` : `${tables[0].layer}_${tables[0].name}`);
       const b = await api.saveBoard(ws.name, newSlug, { title: newSlug, tiles });
       setNewSlug(""); load(); setCurrent(b);
     } catch (e) { setErr(e); }
@@ -94,7 +98,10 @@ export default function Boards({ ws }) {
   async function addTile() {
     const tiles = [...current.tiles, { title: `Tile ${current.tiles.length + 1}`,
                                        sql: "select 1 as n", viz: "number" }];
-    setCurrent(await api.saveBoard(ws.name, current.slug, { title: current.title, tiles }));
+    try {
+      setCurrent(await api.saveBoard(ws.name, current.slug, { title: current.title, tiles }));
+      setErr(null);
+    } catch (e) { setErr(e); }
   }
 
   const byId = Object.fromEntries((results?.tiles ?? []).map((t) => [t.id, t]));

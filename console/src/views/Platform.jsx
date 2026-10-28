@@ -16,7 +16,14 @@ const NODE_H = 46;
 const LANE_W = 196;
 const GAP_Y = 12;
 
-export default function Platform({ setView }) {
+// Views the console only offers for one workspace kind; opening a pack-only
+// surface from an organization workspace would 404 on every call.
+const PACK_ONLY = new Set(["data", "pipeline", "loads", "explorer", "semantic",
+                           "discovery", "ask", "boards", "agents", "approvals",
+                           "audit", "governance", "principals"]);
+const ORG_ONLY = new Set(["organization", "orgpolicy"]);
+
+export default function Platform({ setView, ws }) {
   const [map, setMap] = useState(null);
   const [sel, setSel] = useState(null);
   const [err, setErr] = useState(null);
@@ -101,7 +108,15 @@ export default function Platform({ setView }) {
               </p>
               <p style={{ fontSize: 13.5, lineHeight: 1.65 }}>{sel.detail}</p>
               {sel.status === "live" ? (
-                <button className="btn" onClick={() => setView(sel.view)}>Open the surface</button>
+                (ws?.kind === "organization" ? PACK_ONLY : ORG_ONLY).has(sel.view) ? (
+                  <p className="note">
+                    This surface lives on a {ws?.kind === "organization"
+                      ? "demo company workspace; switch to one in the rail to open it"
+                      : "created organization; create or open one from Workspaces"}.
+                  </p>
+                ) : (
+                  <button className="btn" onClick={() => setView(sel.view)}>Open the surface</button>
+                )
               ) : (
                 <p className="note">
                   depends on: <span className="mono">{sel.depends_on ?? "nothing in the map"}</span>

@@ -36,12 +36,13 @@ export default function Organization({ ws, onDeleted }) {
     try { await api.deleteWorkspace(ws.name); onDeleted(); } catch (e) { setErr(e); }
   }
 
-  if (err) return <Err e={err} />;
+  if (err && !org) return <><h2>Organization</h2><Err e={err} /></>;
   if (!org) return <p className="note">Loading the organization…</p>;
 
   return (
     <>
       <h2>{org.company}</h2>
+      <Err e={err} />
       <p className="sub">Generated from seed {org.seed} under the {org.archetype} archetype:
         hierarchy, departments, data ownership and approval chains, byte-identical on every
         regeneration of the same spec. The systems estate and runnable packs are the scenario
