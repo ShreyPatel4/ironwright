@@ -52,3 +52,27 @@ row naming variant, gates, and numbers.
 Fine-tuning infrastructure (prompt variants first; the seam accepts both);
 cross-workspace learning; any training on L1 user data without an explicit
 per-workspace opt-in recorded in audit.
+
+## Shipped slice
+
+`ironwright/training.py`, with `tests/test_training.py` proving each claim.
+
+Proven:
+
+- Labels replay from the hash-chained audit log and nowhere else. Each
+  needs_approval row pairs with its later applied or denied settlement,
+  seq ordered, the same way the approvals inbox pairs them. A re-request
+  pairs with its own settlement. A straight policy denial is a label too,
+  verdict denied_by_policy with the deciding rule. Unsettled requests are
+  not labels.
+- Gated offline evaluation of proposed rules against the human verdicts:
+  `evaluate` replays every label through the pack rules plus the proposal
+  and reports agreement, with every disagreement listed by seq. `adopted`
+  is always false; adoption happens only through the reviewed orgpolicy
+  and escalation paths.
+- `write_labels` rewrites reports/training_labels.jsonl atomically and a
+  rerun over the same audit log is byte-identical.
+
+NOT claimed: model fine-tuning, automatic adoption, online learning, or
+the serve-and-promote loop sketched above. The router ships unmounted;
+the console view (console/src/views/Training.jsx) ships unwired.
