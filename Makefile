@@ -29,6 +29,7 @@ demo-check:
 	    || { echo "evals not green in $$p export"; exit 1; }; \
 	done; \
 	test -s web/index.html || { echo "showcase missing"; exit 1; }; \
+	$(PY) scripts/demo_console_check.py || exit 1; \
 	end=$$(date +%s); took=$$((end-start)); echo "demo path: $$took s"; \
 	test $$took -le 300 || { echo "demo path exceeded 300 s"; exit 1; }
 

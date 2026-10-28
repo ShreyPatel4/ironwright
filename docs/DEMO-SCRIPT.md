@@ -44,9 +44,13 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         fixture-proven byte-identical to the local path, with what is
         NOT claimed written on the Sources page itself.
 - 1:41b A created org generates its own governance: the diff is the
-        review, applying is logged, an escalation grant becomes a
-        narrow expiring rule, and hand-written forbids still win.
-        Objects read as-of any moment; traces export as OTLP.
+        review, applying is logged, and a conflict with a hand-written
+        rule drops the generated rule and says so. A denied action chip
+        on any object page escalates to the owning role in one click;
+        the grant is a narrow rule that every serving decision consults
+        (act, the dashboard chips, the governance tester, Ask) until it
+        dies at the start of its expiry date, and hand-written forbids
+        still win. Objects read as-of any moment; traces export as OTLP.
 - 1:42  Any object opens to its governed page: props with per-field
         provenance, the three-source identity, the audit trail that
         touched it, and action chips that render permit or deny from a
@@ -67,4 +71,7 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         because generated is not proven and the badge says which is which.
 - 2:10  Done at the long cut; the 90-second cut stops at 1:30 before the
         console and says "and there is an operator console on top". If
-        asked for depth: `uv run pytest -q` (69 tests).
+        asked for depth: `uv run pytest -q` (118 tests; the review gates
+        at the end of test_platform_api.py each pin a fixed defect).
+        CI's `make demo-check` walks the pipeline half AND every console
+        phase above headlessly, bounded at 300 s.
