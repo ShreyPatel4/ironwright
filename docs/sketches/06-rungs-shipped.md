@@ -96,3 +96,39 @@ extra is the integrator's call since `pyproject.toml` is theirs.
 
 SFTP (the other half of rung 1 in the sketch) is not started and is not
 claimed anywhere.
+
+## Engine swap rung (lake_engines)
+
+The map node says transforms are SQL that can move engines without
+rewriting models. `ironwright/engines.py` now proves the portable half on
+a second real engine, postgres.
+
+- Proven: every retail silver and gold model runs UNCHANGED on DuckDB and
+  on postgres and returns identical results. The check loads the pack's
+  bronze tables (latest run, the exact frames the DuckDB views show) into
+  a throwaway postgres schema under the same `bronze_<name>` names, runs
+  the model files on both engines, reads each postgres result back as
+  Arrow, and compares: same columns, same row count, same values after a
+  canonical sort and a documented normalization (integer widths unified,
+  DuckDB DOUBLE vs postgres numeric as floats with exact equality, dates
+  as dates, timestamps in UTC). The comparison is a real tripwire: a test
+  corrupts one value in the postgres copy and the match flips false for
+  exactly that model.
+- Eight retail models used DuckDB-only SQL (`asof join`, `arg_max`,
+  `try_strptime`, `regexp_extract`, bare `interval 27 day`, `double`,
+  `round(double, n)`, an unaliased subquery). I rewrote them to portable
+  SQL instead of forking per engine. A test pins the original SQL text
+  verbatim and asserts the rewritten models produce the same DuckDB
+  output on the same bronze frames.
+- Surface: `run_on_postgres(pack, uri, schema)` and a `POST
+  /workspaces/{name}/engines/check` router in `ironwright/engines.py`,
+  mounted in the platform app with a check control on the Data explorer
+  view. The route reads `POSTGRES_URI`, answers 503
+  honestly when it is unset, runs the comparison in a throwaway schema
+  and drops it afterwards, also on failure. Unknown workspaces 404;
+  generated organizations get a clear 404 because they have no lake yet.
+- Fixture: `tests/test_engines.py` against the real server named by
+  `POSTGRES_URI`; the cross-engine tests skip honestly without it. The
+  404/503 routing tests and the DuckDB-identity test always run.
+- Not claimed: Trino, Spark, scale, cost, or the other three packs. One
+  pack, one extra engine, identical results. That is the whole claim.
