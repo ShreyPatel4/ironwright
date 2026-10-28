@@ -1,0 +1,28 @@
+# A BI tool over the mirrored lake, as a recipe you run yourself.
+# postgres is the mirror target the tests prove against; metabase is the
+# BI tool you set up by hand in its UI. See README.md in this directory.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: iw
+    ports:
+      - "54329:5432"
+    volumes:
+      - iw-bi-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  metabase:
+    image: metabase/metabase
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  iw-bi-pg:
