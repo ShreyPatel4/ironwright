@@ -117,6 +117,31 @@ def main() -> None:
         step("1:41b trace export fails loudly without a collector, not silently",
              otel.status_code == 502)
 
+        labels = c.get("/workspaces/retail/training/labels")
+        ev = c.post("/workspaces/retail/training/evaluate", json={"rules": []})
+        step("1:41c training mode: labels from audit, evaluation never adopts",
+             labels.status_code == 200 and ev.status_code == 200
+             and ev.json()["adopted"] is False,
+             f"{len(labels.json())} labels")
+
+        bi_bad = c.put("/workspaces/retail/bi", json={"url": "javascript:alert(1)"})
+        bi_ok = c.put("/workspaces/retail/bi", json={"url": "https://example.com/dash"})
+        step("1:41c BI embed: config round-trips and a bad scheme bounces",
+             bi_bad.status_code == 422 and bi_ok.status_code == 200
+             and c.get("/workspaces/retail/bi").json().get("url") == "https://example.com/dash")
+
+        import os
+        if os.environ.get("POSTGRES_URI"):
+            eng = c.post("/workspaces/retail/engines/check", json={}).json()
+            step("1:41c engine swap: every model identical on DuckDB and postgres",
+                 eng["match"] is True, f"{len(eng['models'])} models")
+            mir = c.post("/workspaces/retail/bi/mirror", json={}).json()
+            step("1:41c BI mirror: every table round-trips to postgres",
+                 all(t["match"] for t in mir["tables"]), f"{len(mir['tables'])} tables")
+        else:
+            print("skip  1:41c engine swap + BI mirror  POSTGRES_URI unset; "
+                  "claimed only where a real server proves them")
+
     print("console demo path: every phase answered")
 
 

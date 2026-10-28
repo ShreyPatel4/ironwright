@@ -39,10 +39,12 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         ironwright auth-set; the page says the API stays locally open
         until hosted auth is live). Wrong password bounces; the account
         decides the identity on every audit row.
-- 1:41  The connector kinds: object-store drops, ADBC warehouses, SAP
-        IDoc flat files, stream windows from recorded segments, each
-        fixture-proven byte-identical to the local path, with what is
-        NOT claimed written on the Sources page itself.
+- 1:41  The connector kinds: object-store drops, ADBC warehouses (the
+        postgres driver proven against a real server in CI), SAP IDoc
+        flat files, stream windows from recorded segments, and CDC from
+        postgres logical decoding with consume-once slots, each
+        fixture-proven, with what is NOT claimed written on the Sources
+        page itself.
 - 1:41b A created org generates its own governance: the diff is the
         review, applying is logged, and a conflict with a hand-written
         rule drops the generated rule and says so. A denied action chip
@@ -51,6 +53,15 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         (act, the dashboard chips, the governance tester, Ask) until it
         dies at the start of its expiry date, and hand-written forbids
         still win. Objects read as-of any moment; traces export as OTLP.
+- 1:41c The last planned lane, closed: training mode replays approvals
+        and denials from the audit log into labels and evaluates a
+        proposed rule change against the human verdicts before anyone
+        adopts it (nothing retrains silently); the engine swap runs
+        every retail model unchanged on postgres and compares value for
+        value from the Data explorer; silver and gold mirror into
+        postgres with a verified round trip and your BI tool renders in
+        a sandboxed frame. Profiler (gated on the first hand-mapped real
+        workspace) and hosted auth stay PLANNED, and say why.
 - 1:42  Any object opens to its governed page: props with per-field
         provenance, the three-source identity, the audit trail that
         touched it, and action chips that render permit or deny from a
@@ -71,7 +82,8 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         because generated is not proven and the badge says which is which.
 - 2:10  Done at the long cut; the 90-second cut stops at 1:30 before the
         console and says "and there is an operator console on top". If
-        asked for depth: `uv run pytest -q` (118 tests; the review gates
+        asked for depth: `uv run pytest -q` (157 tests with POSTGRES_URI
+        set, zero skips; the review gates
         at the end of test_platform_api.py each pin a fixed defect).
         CI's `make demo-check` walks the pipeline half AND every console
         phase above headlessly, bounded at 300 s.

@@ -33,6 +33,9 @@ from . import orgpolicy as orgpolicy_mod
 from .asof import router as asof_router
 from .otel_export import router as otel_router
 from . import discovery as discovery_mod
+from . import training as training_mod
+from .bi import router as bi_router
+from .engines import router as engines_router
 from . import verification
 from . import workspaces as org_mod
 from .scenario.spec import SpecError
@@ -604,6 +607,9 @@ def create_platform_app() -> FastAPI:
     app.include_router(escalation_mod.router)
     app.include_router(asof_router)
     app.include_router(otel_router)
+    app.include_router(training_mod.router)
+    app.include_router(bi_router)
+    app.include_router(engines_router)
 
     # The console is a committed build (console/dist), so a git clone needs
     # uv and nothing else at runtime. Absent (e.g. a bare pip install of the

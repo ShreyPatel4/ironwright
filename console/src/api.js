@@ -72,4 +72,10 @@ export const api = {
   agents: (ws) => req(`/workspaces/${ws}/agents`),
   traces: (ws) => req(`/workspaces/${ws}/traces`),
   trace: (ws, id) => req(`/workspaces/${ws}/traces/${id}`),
+  trainingLabels: (ws) => req(`/workspaces/${ws}/training/labels`),
+  trainingEvaluate: (ws, rules) => post(`/workspaces/${ws}/training/evaluate`, { rules }),
+  enginesCheck: (ws) => post(`/workspaces/${ws}/engines/check`, {}),
+  bi: (ws) => req(`/workspaces/${ws}/bi`),
+  setBi: (ws, url) => req(`/workspaces/${ws}/bi`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) }),
+  biMirror: (ws, schema) => post(`/workspaces/${ws}/bi/mirror`, schema ? { schema } : {}),
 };

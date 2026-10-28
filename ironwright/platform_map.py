@@ -26,8 +26,10 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
     ("src_stream", "sources", "Stream windows (recorded segments)", "live", "data",
      "Kind stream_window: recorded event segments land in deterministic windows with "
      "_window_id, idempotent re-runs. A live Kafka-protocol consumer is later, not claimed."),
-    ("src_cdc", "sources", "CDC log capture", "planned", "src_stream",
-     "Debezium-class capture into event sources. After streams, not before."),
+    ("src_cdc", "sources", "CDC log capture", "live", "data",
+     "Change capture from postgres logical decoding, polled from a replication slot: "
+     "insert, update and delete land with exact values and consume-once semantics, "
+     "fixture-proven against a real server. Debezium itself, MySQL and Oracle are not claimed."),
     # lane: pipeline
     ("pipe_contracts", "pipeline", "Inbound contracts", "live", "pipeline",
      "Versioned, fail-loud validation on every source."),
@@ -44,8 +46,10 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "Bronze, silver, gold as Iceberg tables; read-only SQL in the console."),
     ("lake_quarantine", "lakehouse", "Quarantine", "live", "loads",
      "Failed loads land beside the data, never in it."),
-    ("lake_engines", "lakehouse", "Swappable engines", "planned", "lake_iceberg",
-     "Transforms are SQL; DuckDB on a laptop, Trino or Spark later without rewriting models."),
+    ("lake_engines", "lakehouse", "Swappable engines", "live", "explorer",
+     "Transforms are SQL: every retail model runs unchanged on DuckDB and on postgres with "
+     "identical results, compared value for value from the Data explorer. Trino and Spark "
+     "are not claimed; the claim is one pack, one extra engine, zero forked models."),
     # lane: semantic
     ("sem_ontology", "semantic", "Ontology with identity resolution", "live", "semantic",
      "Objects, links, crosswalk provenance per identity."),
@@ -71,14 +75,18 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "Routes only to registered functions; refusal rate published; replayable."),
     ("op_models", "operate", "Model providers", "live", "ask",
      "offline, ollama, anthropic, openai, cloudflare behind one seam."),
-    ("op_training", "operate", "Training mode from observed actions", "planned", "op_agents",
-     "Approvals, denials and overrides are audit rows; replay them into labels, retrain gated "
-     "by pack evals plus prior human verdicts. Nothing retrains silently."),
+    ("op_training", "operate", "Training mode from observed actions", "live", "training",
+     "Approvals, denials and overrides replay from the hash-chained audit log into labels; "
+     "a proposed rule change is evaluated offline against those human verdicts before anyone "
+     "adopts it, and adoption only happens through the reviewed governance paths. Nothing "
+     "retrains silently; model fine-tuning is not claimed."),
     ("op_otel", "operate", "OTLP trace export", "live", "agents",
      "Every trace exports as OTLP/HTTP JSON to any collector endpoint; ids and parent links "
      "proven round-trip against an offline fixture collector. A managed deck is not claimed."),
-    ("op_bi_embed", "operate", "BI embed: Looker, Power BI, Metabase", "planned", "lake_iceberg",
-     "Iframe/embed SDK over the lakehouse SQL surface."),
+    ("op_bi_embed", "operate", "BI embed over a verified mirror", "live", "bi",
+     "Silver and gold mirror into postgres with a round-trip comparison that has teeth, and "
+     "your BI tool renders in a sandboxed frame beside a Metabase recipe. The mirror and the "
+     "frame are the claim; a Looker or Power BI integration is not."),
     ("op_boards", "operate", "Boards, the built-in BI", "live", "boards",
      "Tiles over the lakehouse: each carries its SQL, its viz and its last run time. Tiles "
      "pass the same SELECT-only guard as the Explorer, rejected at save. Stale tiles say "
@@ -108,7 +116,7 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
 
 LIVE_VIEWS = {"data", "pipeline", "loads", "explorer", "semantic", "ask", "agents",
               "approvals", "audit", "governance", "principals", "organization", "discovery",
-              "boards", "orgpolicy"}
+              "boards", "orgpolicy", "training", "bi"}
 
 
 def platform_map() -> dict[str, Any]:

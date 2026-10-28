@@ -8,6 +8,14 @@ export default function Explorer({ ws }) {
   const [out, setOut] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [engines, setEngines] = useState(null);
+  const [engBusy, setEngBusy] = useState(false);
+
+  async function checkEngines() {
+    setEngBusy(true); setErr(null); setEngines(null);
+    try { setEngines(await api.enginesCheck(ws.name)); } catch (e) { setErr(e); }
+    setEngBusy(false);
+  }
 
   useEffect(() => {
     setOut(null); setErr(null);
@@ -47,6 +55,35 @@ export default function Explorer({ ws }) {
           </div>
           <Err e={err} />
           {out && <Rows columns={out.columns} rows={out.rows} />}
+
+          <h3>Engine swap</h3>
+          <p className="note">Transforms are SQL. This runs every model of this workspace
+            unchanged on a second engine (postgres, from POSTGRES_URI) and compares the
+            results to DuckDB's, value for value. Trino and Spark are not claimed.</p>
+          <div className="row">
+            <button className="btn ghost" disabled={engBusy} onClick={checkEngines}>
+              {engBusy ? "Comparing engines…" : "Run models on postgres and compare"}
+            </button>
+            {engines && (
+              <span aria-live="polite" className={`badge ${engines.match ? "ok" : "bad"}`}>
+                {engines.match ? "identical on both engines" : "DIVERGED"} ·{" "}
+                {engines.models.length} models
+              </span>
+            )}
+          </div>
+          {engines && (
+            <div className="scroll"><table>
+              <thead><tr><th>model</th><th>rows</th><th>match</th></tr></thead>
+              <tbody>{engines.models.map((m) => (
+                <tr key={m.model}>
+                  <td className="mono">{m.model}</td>
+                  <td className="mono">{m.rows}</td>
+                  <td><span className={`badge ${m.match ? "ok" : "bad"}`}>
+                    {m.match ? "identical" : m.error ?? "diverged"}</span></td>
+                </tr>))}
+              </tbody>
+            </table></div>
+          )}
         </div>
       </div>
     </>

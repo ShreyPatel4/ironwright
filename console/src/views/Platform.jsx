@@ -19,8 +19,8 @@ const GAP_Y = 12;
 // Views the console only offers for one workspace kind; opening a pack-only
 // surface from an organization workspace would 404 on every call.
 const PACK_ONLY = new Set(["data", "pipeline", "loads", "explorer", "semantic",
-                           "discovery", "ask", "boards", "agents", "approvals",
-                           "audit", "governance", "principals"]);
+                           "discovery", "ask", "boards", "bi", "agents", "training",
+                           "approvals", "audit", "governance", "principals"]);
 const ORG_ONLY = new Set(["organization", "orgpolicy"]);
 
 export default function Platform({ setView, ws }) {

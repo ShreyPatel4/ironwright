@@ -17,6 +17,8 @@ import Platform from "./views/Platform.jsx";
 import Discovery from "./views/Discovery.jsx";
 import Boards from "./views/Boards.jsx";
 import OrgPolicy from "./views/OrgPolicy.jsx";
+import Training from "./views/Training.jsx";
+import BIEmbed from "./views/BIEmbed.jsx";
 import Onboarding from "./views/Onboarding.jsx";
 import Login from "./views/Login.jsx";
 import { setPrincipal, getPrincipal } from "./api.js";
@@ -30,7 +32,9 @@ const VIEWS = [
   ["discovery", "Discovery", Discovery],
   ["ask", "Ask", Ask],
   ["boards", "Boards", Boards],
+  ["bi", "BI embed", BIEmbed],
   ["agents", "Agents", Agents],
+  ["training", "Training", Training],
   ["approvals", "Approvals", Approvals],
   ["audit", "Audit", Audit],
   ["governance", "Governance", Governance],
@@ -43,7 +47,7 @@ const PACK_GROUPS = [
   ["MAP", ["platform"]],
   ["DATA", ["data", "pipeline", "loads", "explorer"]],
   ["SEMANTIC", ["discovery", "semantic", "ask"]],
-  ["OPERATE", ["boards", "agents", "approvals", "audit"]],
+  ["OPERATE", ["boards", "bi", "agents", "training", "approvals", "audit"]],
   ["GOVERN", ["governance", "principals"]],
 ];
 const ORG_GROUPS = [["MAP", ["platform"]], ["ORGANIZATION", ["organization", "orgpolicy"]]];
