@@ -277,7 +277,10 @@ def test_escalation_input_guardrails(client):
     missing = client.post(f"/workspaces/{name}/escalations", json={
         "principal": "user:analyst.7", "action": "no_such_thing_here",
         "object_id": "ITM-1", "denying_rule": "default-deny"})
-    assert missing.status_code in (201, 422)  # underivable owner is a 422
+    # an action the org knows nothing about has no derivable owner: 422, one
+    # outcome, not either
+    assert missing.status_code == 422
+    assert "no owning role" in missing.json()["detail"]
     nowhere = client.post("/workspaces/never-existed/escalations", json={
         "principal": "user:x", "action": "delist_item",
         "object_id": "ITM-1", "denying_rule": "r"})

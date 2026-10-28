@@ -97,7 +97,10 @@ def run(pack: Pack, slug: str, row_cap: int = 200) -> dict[str, Any]:
         for tile in board["tiles"]:
             t0 = time.perf_counter()
             try:
-                cur = con.execute(tile["sql"])
+                # Re-guard at run time: the file on disk is writable by the
+                # local user, so saved SQL is not trusted just for being saved.
+                # The connection itself also has external access disabled.
+                cur = con.execute(guard_sql(tile["sql"]))
                 cols = [d[0] for d in cur.description]
                 cap = 1 if tile["viz"] == "number" else 50 if tile["viz"] in ("bar", "line") else row_cap
                 rows = [[None if v is None else str(v) for v in r] for r in cur.fetchmany(cap)]

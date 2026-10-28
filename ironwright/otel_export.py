@@ -98,12 +98,15 @@ def span_to_otlp(span: dict[str, Any]) -> dict[str, Any]:
                           "attributes": _attributes(e.get("attributes", {}))}
                          for e in span["events"]]
     if span.get("links"):
-        # our links carry a trace id and a reason, never a span id; the wire
-        # format requires a spanId, so it is all zeroes and the reason is an
-        # attribute
-        out["links"] = [{"traceId": trace_id_hex(lk["trace_id"]), "spanId": "0" * 16,
-                         "attributes": _attributes({"reason": lk.get("reason", "")})}
-                        for lk in span["links"]]
+        # our links carry a trace id and a reason, never a span id. The wire
+        # format requires a non-zero spanId on a link and strict collectors
+        # drop zero-id links, so these travel as events instead: the linked
+        # trace id and reason survive in any collector.
+        out.setdefault("events", []).extend(
+            {"timeUnixNano": _nanos(span["start"]), "name": "linked_trace",
+             "attributes": _attributes({"trace_id": trace_id_hex(lk["trace_id"]),
+                                        "reason": lk.get("reason", "")})}
+            for lk in span["links"])
     return out
 
 

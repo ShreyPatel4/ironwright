@@ -17,6 +17,7 @@ import json
 import sqlite3
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from ..expr import evaluate
@@ -193,7 +194,12 @@ class Ontology:
                 env = self._env(adef.get("params", {}), {k: str(v) if isinstance(v, str) else v for k, v in params.items()})
             except Exception:
                 env = {"params": dict(params)}
-            decision = self.policy.authorize(actor, f"action:{action}", {**env, "principal": actor})
+            # The env carries a UTC clock so a time-bound rule (an escalation
+            # grant's `now < 'date'`) can evaluate; absent a clock it fails closed.
+            decision = self.policy.authorize(actor, f"action:{action}",
+                                             {**env, "principal": actor,
+                                              "approved_by": approved_by,
+                                              "now": datetime.now(timezone.utc).isoformat()})
             if not decision.allowed:
                 sp.event("policy.denied", rule=decision.reason)
                 return finish("denied", decision.reason, policy=decision.to_dict())

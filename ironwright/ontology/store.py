@@ -9,11 +9,16 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
 import time
 from pathlib import Path
 from typing import Any
 
 import duckdb
+
+# Guards the audit append's read-seq-then-insert across threads; module level
+# because separate requests open separate store instances over the same file.
+_AUDIT_LOCK = threading.Lock()
 
 SCHEMA = """
 create table if not exists objects (type varchar, id varchar, title varchar, props json, version integer,
@@ -136,14 +141,18 @@ class OntologyStore:
     JSON_COLS = {"params", "objects", "before", "after", "evidence", "policy"}
 
     def audit(self, **rec: Any) -> dict[str, Any]:
-        last = self.con.execute("select seq, hash from audit_log order by seq desc limit 1").fetchone()
-        seq, prev = ((last[0] + 1), last[1]) if last else (1, "genesis")
-        rec = {**rec, "seq": seq, "ts": round(time.time(), 6)}
-        vals = [_j(rec.get(c)) if c in self.JSON_COLS else rec.get(c) for c in self.AUDIT_COLS]
-        h = hashlib.sha256((prev + _j(vals)).encode()).hexdigest()
-        self.con.execute(f"insert into audit_log ({', '.join(self.AUDIT_COLS)}, prev_hash, hash) values "
-                         f"({', '.join('?' * (len(self.AUDIT_COLS) + 2))})", vals + [prev, h])
-        return {**rec, "hash": h}
+        # One writer at a time per process: seq is read-then-insert, and two
+        # concurrent threadpool requests taking the same seq would break the
+        # chain for an honest reason the verifier cannot tell from tampering.
+        with _AUDIT_LOCK:
+            last = self.con.execute("select seq, hash from audit_log order by seq desc limit 1").fetchone()
+            seq, prev = ((last[0] + 1), last[1]) if last else (1, "genesis")
+            rec = {**rec, "seq": seq, "ts": round(time.time(), 6)}
+            vals = [_j(rec.get(c)) if c in self.JSON_COLS else rec.get(c) for c in self.AUDIT_COLS]
+            h = hashlib.sha256((prev + _j(vals)).encode()).hexdigest()
+            self.con.execute(f"insert into audit_log ({', '.join(self.AUDIT_COLS)}, prev_hash, hash) values "
+                             f"({', '.join('?' * (len(self.AUDIT_COLS) + 2))})", vals + [prev, h])
+            return {**rec, "hash": h}
 
     def verify_audit_chain(self) -> bool:
         cols = ", ".join(self.AUDIT_COLS)

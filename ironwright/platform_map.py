@@ -51,9 +51,11 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "Objects, links, crosswalk provenance per identity."),
     ("sem_org", "semantic", "Organizations from the scenario engine", "live", "organization",
      "Create a whole org from a spec: hierarchy, owners, approval chains. L2 by construction."),
-    ("sem_org_policy", "semantic", "Org chart drives policy", "live", "governance",
+    ("sem_org_policy", "semantic", "Org chart drives policy", "live", "orgpolicy",
      "Policy generated from data owners and approval chains, applied only through a reviewed "
-     "diff with an append-only log. Hand-written rules always load first and win, loudly."),
+     "diff with an append-only log, and consumed by every serving decision. Hand-written "
+     "rules load first and win: a conflicting generated rule is dropped and the conflict "
+     "is reported, not swallowed."),
     ("sem_asof", "semantic", "As-of object reads", "live", "semantic",
      "Any object readable at any past timestamp from its version history, masked like every "
      "read. Function-level as-of needs lake snapshots and is not claimed yet."),
@@ -96,7 +98,8 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "it with real authentication end to end."),
     ("gov_escalate", "govern", "Escalation at any grain", "live", "approvals",
      "A denial raises to the owning role; a grant is a narrow expiring policy rule through "
-     "the reviewed-diff path, never a bypass, and hand-written forbids still win."),
+     "the reviewed-diff path that every serving decision consults until it expires, never "
+     "a bypass, and hand-written forbids still win."),
     ("gov_objboard", "govern", "Governed object dashboards", "live", "semantic",
      "Every object opens to its standing page: props, identity crosswalk, version history, "
      "the audit trail that touched it, pending approvals on it, and per-action permits from "
@@ -104,7 +107,8 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
 ]
 
 LIVE_VIEWS = {"data", "pipeline", "loads", "explorer", "semantic", "ask", "agents",
-              "approvals", "audit", "governance", "principals", "organization", "discovery", "boards"}
+              "approvals", "audit", "governance", "principals", "organization", "discovery",
+              "boards", "orgpolicy"}
 
 
 def platform_map() -> dict[str, Any]:

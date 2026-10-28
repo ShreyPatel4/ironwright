@@ -178,20 +178,30 @@ def _read_idoc(src: dict[str, Any], legacy_dir: Path) -> list[dict[str, Any]]:
 
 # ----------------------------------------------------- rung 4: stream_window
 
+# ISO 8601 time-part durations only, PT required when units appear: in ISO,
+# "P5M" is five MONTHS and "PT5M" five minutes, so the M is accepted only
+# after the T. Calendar durations have no place in a stream window.
 _DURATION = re.compile(
-    r"^P?T?(?:(?P<h>\d+)H)?(?:(?P<m>\d+)M)?(?:(?P<s>\d+(?:\.\d+)?)S)?$"
+    r"^PT(?:(?P<h>\d+)H)?(?:(?P<m>\d+)M)?(?:(?P<s>\d+(?:\.\d+)?)S)?$"
 )
 
 
 def _window_seconds(window: Any) -> float:
     if isinstance(window, (int, float)):
         return float(window)
-    m = _DURATION.match(str(window).strip().upper())
+    text = str(window).strip().upper()
+    m = _DURATION.match(text)
     if m and any(m.groups()):
         return (int(m.group("h") or 0) * 3600
                 + int(m.group("m") or 0) * 60
                 + float(m.group("s") or 0))
-    return float(window)  # plain number of seconds as a string
+    try:
+        return float(text)  # plain number of seconds as a string
+    except ValueError:
+        raise ValueError(
+            f"window {window!r} is not a number of seconds or an ISO time "
+            "duration like PT5M or PT1H30M (calendar units like P5M, five "
+            "months, are rejected on purpose)")
 
 
 def _epoch(value: Any, field: str) -> float:

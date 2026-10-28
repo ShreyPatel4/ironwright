@@ -48,6 +48,11 @@ class PolicyEngine:
             if not (fnmatch(principal, r.get("principal", "*")) and fnmatch(action, r.get("action", "*"))):
                 continue
             if r.get("when"):
+                # A when clause that cannot evaluate skips the rule, for
+                # permits and forbids alike: dry-runs pass partial envs, and
+                # erroring a forbid into a match would deny every dry-run.
+                # Consequence: a conditional forbid must be written so its
+                # clause evaluates in any env act() builds.
                 try:
                     if not evaluate(r["when"], env):
                         continue

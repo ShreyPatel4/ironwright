@@ -77,7 +77,11 @@ class Lakehouse:
 
     def connect(self) -> duckdb.DuckDBPyConnection:
         """DuckDB with every published table registered as a view named layer_table.
-        bronze_x shows only the latest legacy run; bronze_x_all shows every run."""
+        bronze_x shows only the latest legacy run; bronze_x_all shows every run.
+        This connection fronts user-written SQL (the explorer, board tiles), so
+        after setup it disables external access and locks its configuration:
+        read_text, read_csv, glob, httpfs and ATTACH are off at the engine, not
+        just filtered by the SELECT-only shape check."""
         con = duckdb.connect()
         for ident in self.tables():
             ns, name = ident.split(".")
@@ -89,6 +93,8 @@ class Lakehouse:
                             f"where _run_id = (select max(_run_id) from _{ns}_{name})")
             else:
                 con.execute(f"create view {ns}_{name} as select * from _{ns}_{name}")
+        con.execute("set enable_external_access = false")
+        con.execute("set lock_configuration = true")
         return con
 
     # ---------- write audit publish ----------

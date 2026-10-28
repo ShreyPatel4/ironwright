@@ -139,13 +139,14 @@ def test_lake_tables_and_readonly_query(client):
     tables = client.get("/workspaces/retail/lake/tables").json()
     idents = {t["ident"] for t in tables}
     assert any(i.startswith("gold.") for i in idents)
-    assert all(t["rows"] >= 0 for t in tables)
+    # the pipeline ran: a seeded workspace with zero rows everywhere is a bug
+    assert any(t["rows"] > 0 for t in tables)
 
     gold = sorted(i for i in idents if i.startswith("gold."))[0].replace(".", "_")
     q = client.post("/workspaces/retail/lake/query",
                     json={"sql": f"select count(*) as n from {gold}", "limit": 10}).json()
     assert q["columns"] == ["n"]
-    assert int(q["rows"][0][0]) >= 0
+    assert int(q["rows"][0][0]) > 0
 
     for bad in ("drop table gold_x", "select 1; select 2", "update t set a=1"):
         r = client.post("/workspaces/retail/lake/query", json={"sql": bad})
@@ -320,3 +321,205 @@ def test_boards_guard_persist_and_run(client):
     listed = client.get("/workspaces/retail/boards").json()
     assert any(b["slug"] == "weekly-ops" and b["tiles"] == 3 for b in listed)
     assert client.delete("/workspaces/retail/boards/weekly-ops").status_code == 200
+
+
+# ----- review gates: each test below pins a fix from the five-review pass,
+# so the defect it closed cannot ship again with a green suite.
+
+def test_sprint_routers_answer_on_the_bare_platform_app(client):
+    # The four sprint route families must be mounted by create_platform_app
+    # itself; earlier tests mounted the routers on their own fixture apps, so
+    # deleting the include_router lines stayed green.
+    assert client.get("/workspaces/retail/escalations").status_code == 200
+    preview = client.get("/workspaces/retail/orgpolicy/preview")
+    assert preview.status_code == 404 and "hand-written" in preview.json()["detail"]
+    item_id, _ = _real_item_and_open_store(0)
+    asof = client.get(f"/workspaces/retail/objects/Item/{item_id}/asof",
+                      params={"ts": "2200-01-01T00:00:00Z"})
+    assert asof.status_code == 200
+    otel = client.post("/workspaces/retail/otel/export",
+                       json={"endpoint": "http://127.0.0.1:1/v1/traces"})
+    assert otel.status_code == 502
+
+
+def test_dashboard_trail_names_the_denied_delist(client):
+    # Sketch 02's gate verbatim: the trail must contain the denied delist,
+    # not merely be a list.
+    item_id, _ = _real_item_and_open_store(0)
+    denied = client.post("/workspaces/retail/actions/delist_item",
+                         json={"params": {"item_id": item_id},
+                               "actor": "agent:retail-triage"}).json()
+    assert denied["status"] == "denied"
+    dash = client.get(f"/workspaces/retail/objects/Item/{item_id}/dashboard").json()
+    assert any(t["action"] == "delist_item" and t["status"] == "denied"
+               for t in dash["_trail"]), dash["_trail"]
+
+
+def test_escalation_grant_bites_on_serving_until_it_expires(client):
+    item_id, _ = _real_item_and_open_store(0)
+
+    def check():
+        return client.post("/workspaces/retail/governance/check",
+                           json={"principal": "user:analyst.1",
+                                 "action": "action:delist_item",
+                                 "env": {"params": {"item_id": item_id}}}).json()["decision"]
+
+    assert not check()["allowed"]
+    esc = client.post("/workspaces/retail/escalations", json={
+        "principal": "user:analyst.1", "action": "delist_item",
+        "object_id": item_id, "denying_rule": "default-deny"}).json()
+    granted = client.post(f"/workspaces/retail/escalations/{esc['id']}/decide",
+                          json={"decision": "grant", "decided_by": "role:category_manager",
+                                "expires": "2100-01-01"})
+    assert granted.status_code == 200
+    after = check()
+    assert after["allowed"] and esc["id"] in after["matched"]
+
+    # the governed dashboard chip flips for this principal on this object
+    dash = client.get(f"/workspaces/retail/objects/Item/{item_id}/dashboard",
+                      headers={"x-principal": "user:analyst.1"}).json()
+    chip = next(a for a in dash["_allowed_actions"] if a["action"] == "delist_item")
+    assert chip["allowed"], chip
+
+    # and the real act() path consults the same engine: no longer a policy denial
+    acted = client.post("/workspaces/retail/actions/delist_item",
+                        json={"params": {"item_id": item_id},
+                              "actor": "user:analyst.1"}).json()
+    assert acted["status"] != "denied", acted
+
+    # a different object stays denied: the grant is as narrow as it claims
+    items = client.get("/workspaces/retail/objects/Item", params={"limit": 2}).json()
+    other_item = next(o["_id"] for o in items if o["_id"] != item_id)
+    narrow = client.post("/workspaces/retail/governance/check",
+                         json={"principal": "user:analyst.1",
+                               "action": "action:delist_item",
+                               "env": {"params": {"item_id": other_item}}}).json()["decision"]
+    assert not narrow["allowed"]
+
+
+def test_hand_written_forbid_still_beats_a_grant(client):
+    item_id, _ = _real_item_and_open_store(1)
+    esc = client.post("/workspaces/retail/escalations", json={
+        "principal": "agent:retail-triage", "action": "delist_item",
+        "object_id": item_id, "denying_rule": "no-agent-delisting"}).json()
+    client.post(f"/workspaces/retail/escalations/{esc['id']}/decide",
+                json={"decision": "grant", "decided_by": "role:category_manager",
+                      "expires": "2100-01-01"})
+    d = client.post("/workspaces/retail/governance/check",
+                    json={"principal": "agent:retail-triage",
+                          "action": "action:delist_item",
+                          "env": {"params": {"item_id": item_id}}}).json()["decision"]
+    assert not d["allowed"] and "no-agent-delisting" in d["matched"]
+
+
+def test_generated_conflict_with_hand_written_is_dropped_and_reported(client):
+    from ironwright import orgpolicy
+
+    orgpolicy.upsert_rules("retail", [{"id": "gen-forbid-propose", "effect": "forbid",
+                                       "principal": "*",
+                                       "action": "action:propose_facing_change"}],
+                           actor="test:conflict")
+    rules, conflicts = orgpolicy.combined("retail")
+    assert any(c["generated"] == "gen-forbid-propose" for c in conflicts)
+    assert all(r["id"] != "gen-forbid-propose" for r in rules)
+    d = client.post("/workspaces/retail/governance/check",
+                    json={"principal": "user:category.manager.1",
+                          "action": "action:propose_facing_change",
+                          "env": {}}).json()["decision"]
+    assert d["allowed"]  # the hand-written permit survives the generated forbid
+
+
+def test_rerequested_approval_reappears_and_executes(client):
+    # An earlier settlement of the same action+params must not swallow a NEW
+    # needs_approval row, and approving the new row must execute, not replay.
+    item_id, store_id = _real_item_and_open_store(0)
+    body = {"params": {"item_id": item_id, "store_id": store_id, "new_facings": 4},
+            "actor": "user:category.manager.1", "idempotency_key": "re-request-1"}
+    again = client.post("/workspaces/retail/actions/propose_facing_change", json=body).json()
+    assert again["status"] == "needs_approval", again
+    pending = client.get("/workspaces/retail/approvals").json()
+    mine = [p for p in pending if p["seq"] == again["audit_seq"]]
+    assert mine, f"re-request swallowed by an earlier settlement: {pending}"
+    decided = client.post(f"/workspaces/retail/approvals/{mine[0]['seq']}/decide",
+                          json={"approved_by": "role:space_planning_lead",
+                                "decision": "approve"}).json()
+    assert decided["status"] in ("applied", "applied_pending_sync")
+    assert decided["result"].get("replayed") is not True
+
+
+def test_approval_decision_must_be_approve_or_deny(client):
+    r = client.post("/workspaces/retail/approvals/999999/decide",
+                    json={"approved_by": "role:x", "decision": "dny"})
+    assert r.status_code == 422
+
+
+def test_explorer_cannot_touch_files_or_network(client):
+    # The connection disables external access before user SQL runs; the shape
+    # guard alone cannot stop SELECTs over read_text/glob/httpfs.
+    for sql in ("select content from read_text('README.md')",
+                "select * from glob('/etc/*')",
+                "select * from read_csv_auto('/etc/hosts')",
+                "select * from read_text('http://127.0.0.1:1/x')"):
+        r = client.post("/workspaces/retail/lake/query", json={"sql": sql})
+        assert r.status_code == 400, (sql, r.text)
+        assert "disabled" in r.json()["detail"].lower(), r.json()["detail"]
+
+
+def test_grant_expiry_must_be_a_real_ascii_date(client):
+    item_id, _ = _real_item_and_open_store(0)
+    esc = client.post("/workspaces/retail/escalations", json={
+        "principal": "user:analyst.2", "action": "delist_item",
+        "object_id": item_id, "denying_rule": "default-deny"}).json()
+    for bad in ("٢٠٢٦-١١-٠١",  # arabic-indic digits
+                "9999-99-99", "2026-13-45", "20261101"):
+        r = client.post(f"/workspaces/retail/escalations/{esc['id']}/decide",
+                        json={"decision": "grant", "decided_by": "role:cm",
+                              "expires": bad})
+        assert r.status_code == 422, bad
+
+
+def test_discovery_on_a_created_org_is_empty_not_a_404(client):
+    client.post("/workspaces", json={"name": "disco-org", "size": 6, "seed": 2})
+    r = client.get("/workspaces/disco-org/discovery")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["findings"] == [] and "invented" in body["note"]
+    client.delete("/workspaces/disco-org")
+
+
+def test_stream_window_duration_is_iso_time_not_calendar():
+    from ironwright.connectors import _window_seconds
+
+    assert _window_seconds("PT5M") == 300
+    assert _window_seconds("90") == 90.0
+    with pytest.raises(ValueError, match="months"):
+        _window_seconds("P5M")  # five MONTHS in ISO 8601, never five minutes
+    with pytest.raises(ValueError):
+        _window_seconds("garbage")
+
+
+def test_empty_approver_chain_is_a_loud_error():
+    from ironwright.orgpolicy import generate
+
+    org = {"data_owners": {"item": "category_manager"},
+           "approver_chains": [{"action": "update_item", "chain": []}]}
+    with pytest.raises(ValueError, match="empty"):
+        generate(org)
+
+
+def test_live_views_exist_in_the_console_source():
+    # LIVE_VIEWS is hand-maintained next to the node table; tie it to the
+    # console's real view keys so a posing node cannot borrow a name that
+    # does not exist as a surface.
+    import pathlib
+    import re as _re
+
+    from ironwright.platform_map import LIVE_VIEWS, platform_map
+
+    src = (pathlib.Path(__file__).resolve().parents[1]
+           / "console" / "src" / "App.jsx").read_text()
+    keys = set(_re.findall(r'\["([a-z]+)",\s*"', src))
+    assert LIVE_VIEWS <= keys, LIVE_VIEWS - keys
+    for node in platform_map()["nodes"]:
+        if node["status"] == "live":
+            assert node["view"] in keys, node["id"]

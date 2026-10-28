@@ -109,6 +109,9 @@ def generate(org: dict[str, Any]) -> dict[str, Any]:
     rules: list[dict[str, Any]] = []
     for action in action_catalog(org):
         chain = chains.get(action)
+        if chain is not None and not chain:
+            raise ValueError(f"approver chain for {action} is empty; list approvers "
+                             "or remove the chain, an empty one must not waive approval")
         obj = object_for_action(org, action)
         if obj and owners.get(obj):
             rule = {"id": f"own-{obj}-{action}", "effect": "permit",
@@ -189,9 +192,52 @@ def active_rules(name: str, now: str | None = None) -> list[dict[str, Any]]:
 
 def combined_rules(name: str, now: str | None = None) -> list[dict[str, Any]]:
     """Hand-written rules first, then the active generated ones. Forbid
-    beats permit in the engine, so a hand-written forbid always wins."""
+    beats permit in the engine, so a hand-written forbid always wins; a
+    generated rule that contradicts a hand-written rule on the same action
+    is dropped entirely (combined() reports which)."""
+    rules, _ = combined(name, now=now)
+    return rules
+
+
+def _principals_overlap(a: str, b: str) -> bool:
+    """Approximate: either pattern, read as a literal, matches the other.
+    Exact pattern-intersection is undecidable cheaply and unneeded here."""
+    from fnmatch import fnmatch
+    return fnmatch(a, b) or fnmatch(b, a)
+
+
+def combined(name: str, now: str | None = None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(rules, conflicts). Hand-written rules own their decisions: a generated
+    rule of the opposite effect on the same action, whose principal pattern
+    overlaps a hand-written rule's, is dropped and reported, so generated
+    policy can never silently flip a hand-written decision in either
+    direction. Non-overlapping principals are no conflict; the engine's
+    forbid-beats-permit already covers the rest."""
     hand = load_pack(name).policies.get("rules", []) if name in list_packs() else []
-    return hand + active_rules(name, now=now)
+    kept, conflicts = [], []
+    for g in active_rules(name, now=now):
+        clash = next((h for h in hand
+                      if h.get("action") == g.get("action")
+                      and h.get("effect") != g.get("effect")
+                      and _principals_overlap(g.get("principal", "*"),
+                                              h.get("principal", "*"))), None)
+        if clash:
+            conflicts.append({"generated": g["id"], "hand_written": clash.get("id"),
+                              "action": g.get("action"),
+                              "resolution": "generated rule dropped; hand-written wins"})
+        else:
+            kept.append(g)
+    return hand + kept, conflicts
+
+
+def live_engine(name: str, now: str | None = None):
+    """The PolicyEngine every serving surface should use: hand-written rules
+    plus the active generated ones and escalation grants. The batch pipeline
+    and evals keep pack.policies alone, so planted-problem ground truth stays
+    reproducible; serving rebuilds this per request, so expiry is honored."""
+    from .policy import PolicyEngine
+
+    return PolicyEngine({"default": "deny", "rules": combined_rules(name, now=now)})
 
 
 def _write(name: str, all_rules: list[dict[str, Any]], actor: str,
@@ -256,15 +302,24 @@ def _org_or_404(name: str) -> dict[str, Any]:
 @router.get("/workspaces/{name}/orgpolicy/preview")
 def orgpolicy_preview(name: str) -> dict[str, Any]:
     org = _org_or_404(name)
-    new = generate(org)["rules"]
+    try:
+        new = generate(org)["rules"]
+    except ValueError as e:
+        raise HTTPException(422, str(e))
     old = generated_rules(name)
+    _, conflicts = combined(name)
     return {"workspace": name, "rules": new, "diff": diff(old, new),
-            "applied": len(old)}
+            "applied": len(old), "conflicts": conflicts}
 
 
 @router.post("/workspaces/{name}/orgpolicy/apply")
 def orgpolicy_apply(name: str, body: ApplyBody) -> dict[str, Any]:
     org = _org_or_404(name)
-    change = apply(name, generate(org)["rules"], approved_by=body.approved_by)
+    try:
+        rules = generate(org)["rules"]
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    change = apply(name, rules, approved_by=body.approved_by)
+    _, conflicts = combined(name)
     return {"workspace": name, "applied": True, "diff": change,
-            "file": GENERATED_FILE, "log": LOG_FILE}
+            "conflicts": conflicts, "file": GENERATED_FILE, "log": LOG_FILE}

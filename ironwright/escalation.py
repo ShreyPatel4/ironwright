@@ -42,7 +42,19 @@ _PRINCIPAL = re.compile(r"^[a-z]+:[A-Za-z0-9_.\-]{1,64}$")
 _ACTION = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _OBJECT = re.compile(r"^[A-Za-z0-9_.:\-]{1,64}$")
 _RULE = re.compile(r"^[A-Za-z0-9_.:\-* ]{1,120}$")
-_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# ASCII digits only: \d matches unicode digits, and a non-ASCII "date" would
+# compare greater than every ISO timestamp forever, a grant that never expires.
+_DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+
+
+def _valid_date(value: str) -> bool:
+    if not _DATE.match(value):
+        return False
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
 
 
 class EscalateBody(BaseModel):
@@ -73,24 +85,40 @@ def _workspace(name: str) -> tuple[str, Path]:
 
 
 def _moments(path: Path) -> list[dict[str, Any]]:
+    """Parse the JSONL record, skipping lines that are not valid JSON objects.
+    A truncated or hand-damaged line must not brick every escalation endpoint
+    for the workspace; the surviving moments still fold."""
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    out = []
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            m = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(m, dict) and "moment" in m and "id" in m:
+            out.append(m)
+    return out
 
 
 def _records(path: Path) -> dict[str, dict[str, Any]]:
-    """Fold the append-only moments into current escalation state."""
+    """Fold the append-only moments into current escalation state. A decision
+    moment whose escalated moment is missing is an orphan and is skipped."""
     out: dict[str, dict[str, Any]] = {}
     for m in _moments(path):
         if m["moment"] == "escalated":
             out[m["id"]] = {k: v for k, v in m.items() if k != "moment"}
             out[m["id"]]["status"] = "pending"
+        elif m["id"] not in out:
+            continue
         elif m["moment"] == "granted":
-            out[m["id"]].update(status="granted", decided_by=m["decided_by"],
-                                expires=m["expires"], decided_at=m["at"])
+            out[m["id"]].update(status="granted", decided_by=m.get("decided_by"),
+                                expires=m.get("expires"), decided_at=m.get("at"))
         elif m["moment"] == "denied":
-            out[m["id"]].update(status="denied", decided_by=m["decided_by"],
-                                reason=m.get("reason"), decided_at=m["at"])
+            out[m["id"]].update(status="denied", decided_by=m.get("decided_by"),
+                                reason=m.get("reason"), decided_at=m.get("at"))
     return out
 
 
@@ -130,6 +158,26 @@ def _owner_role(name: str, kind: str, action: str) -> str:
     if roles:
         return f"role:{roles[0]}"
     raise HTTPException(422, f"no owning role derivable for {action} in {name}")
+
+
+_PARAM_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,63}$")
+
+
+def _object_param(name: str, kind: str, action: str) -> str:
+    """The action's object-typed parameter name, so the grant's when clause
+    matches the env act() actually builds (params.item, not params.object_id).
+    Organizations have no ontology, so they keep the generic key."""
+    if kind != "pack":
+        return "object_id"
+    adef = (load_pack(name).ontology.get("actions", {}) or {}).get(action) or {}
+    pack = load_pack(name)
+    types = {**(pack.ontology.get("object_types", {}) or {}),
+             **(pack.ontology.get("created_types", {}) or {})}
+    for pname, p in (adef.get("params", {}) or {}).items():
+        t = p.get("type") if isinstance(p, dict) else p
+        if t in types and _PARAM_NAME.match(pname):
+            return pname
+    return "object_id"
 
 
 def _audit(name: str, actor: str, action: str, status: str,
@@ -203,17 +251,18 @@ def decide(name: str, esc_id: str, body: EscalationDecideBody) -> dict[str, Any]
     at = datetime.now(timezone.utc).isoformat()
 
     if body.decision == "grant":
-        if not body.expires or not _DATE.match(body.expires):
+        if not body.expires or not _valid_date(body.expires):
             raise HTTPException(422, "a grant needs expires as an iso date, like 2026-11-01")
+        pname = _object_param(name, kind, rec["action"])
         rule = {"id": esc_id, "effect": "permit",
                 "principal": rec["principal"],
                 "action": f"action:{rec['action']}",
-                "when": (f"params.object_id == '{rec['object_id']}' "
+                "when": (f"params.{pname} == '{rec['object_id']}' "
                          f"and now < '{body.expires}'"),
                 "expires": body.expires, "granted_by": body.decided_by,
                 "escalation": esc_id}
-        orgpolicy.upsert_rules(name, [rule], actor=body.decided_by,
-                               note=f"escalation {esc_id} granted until {body.expires}")
+        # Record before permit: if the audit write fails, the grant must not
+        # exist on file with no record of who made it.
         _append(path, {"moment": "granted", "id": esc_id, "at": at,
                        "decided_by": body.decided_by, "expires": body.expires,
                        "rule_id": rule["id"]})
@@ -221,8 +270,11 @@ def decide(name: str, esc_id: str, body: EscalationDecideBody) -> dict[str, Any]
                           params={"object_id": rec["object_id"],
                                   "escalation": esc_id, "expires": body.expires},
                           policy=rule["id"], approved_by=body.decided_by)
+        orgpolicy.upsert_rules(name, [rule], actor=body.decided_by,
+                               note=f"escalation {esc_id} granted until {body.expires}")
         return {"id": esc_id, "status": "granted", "rule": rule,
-                "expires": body.expires, "recorded": recorded}
+                "expires": body.expires, "recorded": recorded,
+                "note": f"the grant dies at the start of {body.expires} UTC"}
 
     if body.decision == "deny":
         _append(path, {"moment": "denied", "id": esc_id, "at": at,

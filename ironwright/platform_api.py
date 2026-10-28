@@ -40,7 +40,6 @@ from .cli import STAGES
 from .lake import Lakehouse
 from .ontology.runtime import Ontology
 from .packs import list_packs, load_pack
-from .policy import PolicyEngine
 from .tracing import Tracer
 
 CONSOLE_PRINCIPAL = "user:console"
@@ -103,11 +102,17 @@ class CreateOrgBody(BaseModel):
     seed: int = 7
 
 
+def _utcnow() -> str:
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
+
+
 def _guard_select_only(sql: str) -> str:
     """The explorer is read-only by contract. One statement, SELECT or WITH,
-    nothing after a terminating semicolon. The connection only holds views
-    over Arrow data, so this is discipline more than defense, and it still
-    holds the line."""
+    nothing after a terminating semicolon. This shape check is discipline;
+    the defense is the connection itself, which disables external access
+    (read_text, glob, httpfs, ATTACH) and locks its configuration before any
+    user SQL runs."""
     body = sql.strip().rstrip(";").strip()
     if ";" in body:
         raise HTTPException(422, "one statement at a time")
@@ -125,6 +130,12 @@ def _pack(name: str):
 @contextlib.contextmanager
 def _ontology(pack) -> Iterator[Ontology]:
     ont = Ontology(pack, Tracer(pack.paths.ensure().traces))
+    # Serving surfaces authorize against the live combined engine: hand-written
+    # rules plus applied generated policy and unexpired escalation grants. The
+    # batch pipeline and evals keep pack.policies alone, so planted-problem
+    # ground truth stays reproducible.
+    with contextlib.suppress(Exception):
+        ont.policy = orgpolicy_mod.live_engine(pack.name)
     try:
         yield ont
     finally:
@@ -133,12 +144,14 @@ def _ontology(pack) -> Iterator[Ontology]:
 
 
 def _pending_approvals(ont: Ontology) -> list[dict[str, Any]]:
-    """needs_approval rows with no later applied or denied row for the same
-    action and params. The audit log is the only source of truth here."""
+    """needs_approval rows with no LATER applied or denied row for the same
+    action and params. Seq order matters: an earlier settlement must not
+    swallow a re-request of the same action, or the new request can never be
+    decided. The audit log is the only source of truth here."""
     rows = ont.store.con.execute(
         "select seq, actor, action, status, params from audit_log order by seq"
     ).fetchall()
-    settled: set[tuple[str, str]] = set()
+    settled: dict[tuple[str, str], int] = {}
     pending: dict[tuple[str, str], dict[str, Any]] = {}
     for seq, actor, action, status, params in rows:
         key = (action, params or "null")
@@ -146,8 +159,8 @@ def _pending_approvals(ont: Ontology) -> list[dict[str, Any]]:
             pending[key] = {"seq": seq, "actor": actor, "action": action,
                             "params": json.loads(params) if params else {}}
         elif status in ("applied", "applied_pending_sync", "denied"):
-            settled.add(key)
-    return [p for k, p in pending.items() if k not in settled]
+            settled[key] = seq
+    return [p for k, p in pending.items() if settled.get(k, -1) < p["seq"]]
 
 
 def create_platform_app() -> FastAPI:
@@ -203,6 +216,18 @@ def create_platform_app() -> FastAPI:
 
     @app.get("/workspaces/{name}/discovery")
     def discovery(name: str) -> dict[str, Any]:
+        if name not in list_packs():
+            # Sketch 01: an empty class stays empty. A created org has no
+            # migration artifacts to discover against, and this endpoint says
+            # so instead of inventing findings or answering 404.
+            try:
+                org_mod.read_org(name)
+            except FileNotFoundError:
+                raise HTTPException(404, f"no workspace named {name}")
+            return {"findings": [], "counts": {},
+                    "note": "A created organization has no migration artifacts yet; "
+                            "discovery reads merge logs, reconcile reports and checks, "
+                            "none of which exist before a migration runs. Nothing is invented."}
         return discovery_mod.derive(_pack(name))
 
     @app.get("/workspaces/{name}/boards")
@@ -276,7 +301,8 @@ def create_platform_app() -> FastAPI:
         if bad:
             raise HTTPException(422, f"unknown stages {bad}")
         tracer = Tracer(pack.paths.ensure().traces)
-        args = argparse.Namespace(seed=body.seed or DEFAULT_SEEDS.get(name, 7), limit=None)
+        args = argparse.Namespace(seed=body.seed if body.seed is not None
+                                  else DEFAULT_SEEDS.get(name, 7), limit=None)
         report = []
         for stage in stages:
             t0 = time.perf_counter()
@@ -296,6 +322,8 @@ def create_platform_app() -> FastAPI:
 
     @app.post("/workspaces/{name}/approvals/{seq}/decide")
     def decide(name: str, seq: int, body: DecideBody) -> dict[str, Any]:
+        if body.decision not in ("approve", "deny"):
+            raise HTTPException(422, "decision must be approve or deny")
         with _ontology(_pack(name)) as ont:
             row = next((p for p in _pending_approvals(ont) if p["seq"] == seq), None)
             if row is None:
@@ -308,8 +336,12 @@ def create_platform_app() -> FastAPI:
                                 approved_by=body.approved_by, idempotency_key=None,
                                 action_run=None)
                 return {"status": "denied", "seq": seq}
+            # A fresh idempotency key per approval row: the default key is
+            # action+params, so approving a re-request would otherwise replay
+            # the earlier run's cached result instead of executing.
             result = ont.act(row["action"], row["params"], actor=row["actor"],
-                             approved_by=body.approved_by)
+                             approved_by=body.approved_by,
+                             idempotency_key=f"approval-{seq}")
             return {"status": result.get("status"), "seq": seq, "result": result}
 
     @app.post("/workspaces/{name}/actions/{action}")
@@ -339,15 +371,17 @@ def create_platform_app() -> FastAPI:
             return {"describe": ont.describe(), "stats": ont.store.stats()}
 
     @app.get("/workspaces/{name}/objects/{type_}")
-    def objects(name: str, type_: str, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    def objects(name: str, type_: str, limit: int = 50, offset: int = 0,
+                x_principal: str = Header(CONSOLE_PRINCIPAL)) -> list[dict[str, Any]]:
         with _ontology(_pack(name)) as ont:
-            return [ont.masked({**o, "_type": type_}, CONSOLE_PRINCIPAL)
+            return [ont.masked({**o, "_type": type_}, x_principal)
                     for o in ont.store.list(type_, limit, offset)]
 
     @app.get("/workspaces/{name}/objects/{type_}/{id_}")
-    def obj(name: str, type_: str, id_: str) -> dict[str, Any]:
+    def obj(name: str, type_: str, id_: str,
+            x_principal: str = Header(CONSOLE_PRINCIPAL)) -> dict[str, Any]:
         with _ontology(_pack(name)) as ont:
-            o = ont.masked(ont.store.get(type_, id_), CONSOLE_PRINCIPAL)
+            o = ont.masked(ont.store.get(type_, id_), x_principal)
             if not o:
                 raise HTTPException(404, f"no {type_} {id_}")
             xw = ont.store.con.execute(
@@ -376,20 +410,31 @@ def create_platform_app() -> FastAPI:
                 "where id = ? order by version", [id_]).fetchall()
             trail = []
             for row in ont.store.con.execute(
-                    "select seq, actor, on_behalf_of, action, status, approved_by, objects "
-                    "from audit_log where objects like ? order by seq desc limit 50",
-                    [f"%{id_}%"]).fetchall():
-                objs = json.loads(row[6]) if row[6] else []
-                if any(x.get("id") == id_ for x in objs if isinstance(x, dict)):
+                    "select seq, actor, on_behalf_of, action, status, approved_by, objects, params "
+                    "from audit_log where objects like ? or params like ? order by seq desc limit 50",
+                    [f"%{id_}%", f"%{id_}%"]).fetchall():
+                objs = (json.loads(row[6]) if row[6] else []) or []
+                params = (json.loads(row[7]) if row[7] else {}) or {}
+                # A denial touches no object, so it carries the id only in its
+                # params; the trail must show denials or governance is invisible.
+                if (any(x.get("id") == id_ for x in objs if isinstance(x, dict))
+                        or id_ in [str(v) for v in params.values()]):
                     trail.append(dict(zip(("seq", "actor", "on_behalf_of", "action",
                                            "status", "approved_by"), row[:6])))
             pending = [p for p in _pending_approvals(ont)
                        if id_ in json.dumps(p.get("params", {}))]
-            from .policy import PolicyEngine
-            engine = PolicyEngine(pack.policies)
+            # The live combined engine, dry-run against THIS object with a
+            # clock, so an escalation grant scoped to this id shows as the
+            # permit it is until it expires. Each action's env carries the id
+            # under that action's own object-typed param name, the same shape
+            # act() builds.
+            engine = orgpolicy_mod.live_engine(name)
+            now = _utcnow()
             allowed = []
             for action, adef in (pack.ontology.get("actions", {}) or {}).items():
-                d = engine.authorize(x_principal, f"action:{action}", {})
+                pname = escalation_mod._object_param(name, "pack", action)
+                env = {"params": {pname: id_}, "principal": x_principal, "now": now}
+                d = engine.authorize(x_principal, f"action:{action}", env)
                 allowed.append({"action": action, "allowed": d.allowed, "reason": d.reason,
                                 "requires_approval": bool(adef.get("requires_approval"))})
             return {**o, "_crosswalk": [dict(zip(("system", "source_key", "method", "confidence"), r)) for r in xw],
@@ -474,14 +519,20 @@ def create_platform_app() -> FastAPI:
                 "description": d.get("description", "")}
             for a, d in (pack.ontology.get("actions", {}) or {}).items()
         }
-        return {"rules": pack.policies.get("rules", []), "actions": actions,
-                "note": "Default deny. The X-Principal header is an identity claim, not "
-                        "authentication; policy is a correctness control on this local build."}
+        return {"rules": pack.policies.get("rules", []),
+                "generated_rules": orgpolicy_mod.active_rules(name),
+                "actions": actions,
+                "note": "Default deny. Serving decisions combine the hand-written rules "
+                        "with applied generated policy and unexpired escalation grants; "
+                        "hand-written wins a conflict. The X-Principal header is an "
+                        "identity claim, not authentication; policy is a correctness "
+                        "control on this local build."}
 
     @app.post("/workspaces/{name}/governance/check")
     def governance_check(name: str, body: PolicyCheckBody) -> dict[str, Any]:
-        pack = _pack(name)
-        decision = PolicyEngine(pack.policies).authorize(body.principal, body.action, body.env)
+        _pack(name)
+        env = {"now": _utcnow(), "principal": body.principal, **body.env}
+        decision = orgpolicy_mod.live_engine(name).authorize(body.principal, body.action, env)
         return {"principal": body.principal, "action": body.action,
                 "decision": decision.to_dict()}
 
