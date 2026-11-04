@@ -280,6 +280,7 @@ front of a module is not a test of the module.
 
 ## Smaller ones
 
+- A session-scoped Playwright broke four MCP and upload tests in other files. It keeps an event loop running on the main thread, so their `asyncio.run()` refused to start. Each file passed alone. The browser now lives only as long as its own module.
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.
 - The ontology build took 7 seconds with row inserts. Arrow bulk inserts brought it to about 2.
 - The audit hash check failed after a type round trip. Hashing a canonical JSON of the values fixed it.

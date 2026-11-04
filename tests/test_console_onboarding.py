@@ -63,8 +63,10 @@ def console_dist() -> None:
     subprocess.run([npm, "run", "build"], cwd=console, check=True, capture_output=True)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def browser():
+    """Module scope, not session: sync_playwright keeps an event loop running on this
+    thread, and any later test file's asyncio.run() would refuse to start."""
     sync_api = pytest.importorskip("playwright.sync_api")
     with sync_api.sync_playwright() as p:
         try:
