@@ -46,9 +46,10 @@ from .ontology.runtime import Ontology
 from .otel_export import router as otel_router
 from .packs import list_packs, load_pack
 from .scenario.spec import SpecError
-from .tenancy import DEV_ORG_ID, ROLES, Ctx
+from .tenancy import DEV_ORG_ID, ROLES, Ctx, byokey, quotas
 from .tenancy import service as tenancy
 from .tenancy.models import at_least
+from .tenancy.routes_settings import router as settings_router
 from .tracing import Tracer
 
 
@@ -164,6 +165,7 @@ WRITE_ROLES = {
     "/workspaces/{name}/bi/mirror": "admin",
     "/workspaces/{name}/bi": "admin",
     "/orgs/{slug}/invites": "admin",
+    "/orgs/{slug}/llm-key": "admin",
     "/orgs/{slug}/switch": "viewer",
     "/auth/logout": "viewer",
 }
@@ -252,6 +254,7 @@ def _pending_approvals(ont: Ontology) -> list[dict[str, Any]]:
 
 
 def create_platform_app() -> FastAPI:
+    byokey.check_startup()
     # Generated docs would be public routes outside the gate, so they stay off.
     app = FastAPI(title="ironwright platform",
                   description="One spine over every workspace: runs, approvals, audit, verification.",
@@ -427,6 +430,7 @@ def create_platform_app() -> FastAPI:
         mine = tenancy.role_in(c.user_id, slug)
         if body.role in ROLES and not at_least(mine, body.role):
             raise HTTPException(403, "you cannot invite someone above your own role")
+        quotas.check_seat(slug, body.email, auth_mod._now())
         try:
             return {"token": tenancy.invite(slug, body.email, body.role, auth_mod._now()),
                     "email": body.email.strip().lower(), "role": body.role, "org_slug": slug}
@@ -614,8 +618,9 @@ def create_platform_app() -> FastAPI:
     def ask(name: str, body: AskBody,
             c: CtxDep) -> dict[str, Any]:
         pack = _pack(name)
+        llm = quotas.start_ask(c.org_id, auth_mod._now())
         with _ontology(pack) as ont:
-            entry = ask_mod.ask(pack, ont, body.question, principal=c.principal)
+            entry = ask_mod.ask(pack, ont, body.question, principal=c.principal, llm=llm)
             entry["verification"] = verification.derive(pack)
             return entry
 
@@ -741,6 +746,7 @@ def create_platform_app() -> FastAPI:
     app.include_router(jobs_routes.router)
     app.include_router(ingest_router)
     app.include_router(ontology_router)
+    app.include_router(settings_router)
 
     # The console is a committed build (console/dist), so a git clone needs
     # uv and nothing else at runtime. Absent (e.g. a bare pip install of the

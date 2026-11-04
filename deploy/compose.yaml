@@ -8,6 +8,7 @@ x-hosted-env: &hosted-env
   IRONWRIGHT_ENV: ${IRONWRIGHT_ENV:-local}
   IRONWRIGHT_DATA: /data
   IRONWRIGHT_DEV_OPEN: ${IRONWRIGHT_DEV_OPEN:-0}
+  IRONWRIGHT_SECRET_KEY: ${IRONWRIGHT_SECRET_KEY:-}
   IRONWRIGHT_DB_URL: postgres://ironwright:${POSTGRES_PASSWORD:-ironwright-local}@postgres:5432/ironwright
   IRONWRIGHT_LAKE_URI: s3://ironwright-lake/hosted
   IRONWRIGHT_S3_ENDPOINT: http://objectstore:7070

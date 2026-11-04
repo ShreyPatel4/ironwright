@@ -13,12 +13,12 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from .. import verification
+from .. import auth, verification
 from .. import workspaces_tenant as wt
 from ..config import UnsafePath
 from ..ingest import profiler
 from ..packs import list_packs, load_pack
-from ..tenancy import DEV_ORG_ID
+from ..tenancy import DEV_ORG_ID, quotas
 from ..tracing import Tracer
 
 STAGE_ORDER = ["generate", "migrate", "reconcile", "ontology", "agents", "evals", "export"]
@@ -166,7 +166,8 @@ def ontology_propose(ctx: JobCtx, workspace: str, params: dict[str, Any], log: C
         raise JobError(f"{workspace} is a demo pack and ships its own ontology")
     ctx.check_cancel()
     try:
-        made = proposer.store_proposal(pack, llm=proposer.LLM() if params.get("narrate") else None)
+        llm = (quotas.narration_llm(ctx.org_id, auth._now()) or proposer.LLM()) if params.get("narrate") else None
+        made = proposer.store_proposal(pack, llm=llm)
     except proposer.ProposalError as e:
         raise JobError(str(e)) from e
     log(f"[{workspace}] proposed {len(made['objects'])} objects, {len(made['links'])} links")

@@ -14,11 +14,12 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
+from .. import auth
 from .. import workspaces_tenant as wt
 from ..auth import ctx
 from ..config import SAFE_NAME
 from ..packs import list_packs
-from ..tenancy import DEV_ORG_ID, Ctx
+from ..tenancy import DEV_ORG_ID, Ctx, quotas
 from ..tenancy import service as tenancy
 from . import handlers
 from .store import TERMINAL, JobStore
@@ -70,6 +71,8 @@ def _check_workspace(c: Ctx, workspace: str) -> None:
 def create_job(body: JobBody, c: CtxDep) -> dict[str, str]:
     _validate(body.kind, body.workspace, body.params)
     _check_workspace(c, body.workspace)
+    if body.kind == "run":
+        quotas.spend(c.org_id, "runs", auth._now())
     return {"id": JobStore().enqueue(c.org_id, body.workspace, body.kind, c.principal, body.params)}
 
 
@@ -124,6 +127,7 @@ def submit_run(c: Ctx, response: Response, workspace: str, seed: int | None,
         except wt.WorkspaceError as e:
             raise HTTPException(422, str(e)) from e
     org_id = c.org_id
+    quotas.spend(org_id, "runs", auth._now())
     store = JobStore()
     job_id = store.enqueue(org_id, workspace, "run", c.principal, params)
     if _waits(wait):
