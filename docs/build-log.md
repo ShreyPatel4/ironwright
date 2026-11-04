@@ -255,7 +255,7 @@ run straight on the store, so it never met the runs limit. Nothing in my suite c
 out. Out of runs, accept refuses before it writes. The lesson: grep for `LLM(` and `.enqueue(` on every
 rebase, because a limit only holds at the doors it knows about.
 
-## 16. A settings table that named my home directory
+## 21. A settings table that named my home directory
 
 **Symptom.** The new security tests went red in two places I had assumed were fine. Any tenant could
 run `select * from duckdb_settings()` on the locked connection and read `secret_directory`, which
