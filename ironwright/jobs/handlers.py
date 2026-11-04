@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .. import verification
+from .. import workspaces_tenant as wt
 from ..packs import list_packs, load_pack
 from ..tenancy import DEV_ORG_ID
 from ..tracing import Tracer
@@ -85,17 +86,26 @@ def _load(org_id: str, workspace: str) -> Any:
     if org_id == DEV_ORG_ID and workspace in list_packs():
         return load_pack(workspace)
     try:
-        from ..workspaces_tenant import load_workspace  # T2
-    except ImportError:
-        load_workspace = None
-    if load_workspace is not None:
-        try:
-            return load_workspace(org_id, workspace)
-        except FileNotFoundError:
-            pass
+        return wt.load_workspace(org_id, workspace)
+    except FileNotFoundError:
+        pass
     if workspace in list_packs():
         raise JobError(f"{workspace} is a demo pack, read only to this org")
     raise JobError(f"no workspace named {workspace}")
+
+
+def _run_tenant(ctx: JobCtx, pack: Any, params: dict[str, Any], log: Callable[[str], None]) -> dict[str, Any]:
+    """T2's run, not the demo stages: no generate, no agents, its own eval layers,
+    and it never wipes run/. It is one call, so cancel lands before it or not at all."""
+    if params.get("stages"):
+        raise JobError("a tenant workspace runs as a whole; stages cannot be chosen")
+    ctx.check_cancel()
+    log(f"[{pack.name}] started")
+    t0 = time.perf_counter()
+    report = wt.run_workspace(ctx.org_id, pack.name)
+    log(f"[{pack.name}] done in {round(time.perf_counter() - t0, 2)}s, evals passed: {report['passed']}")
+    return {"workspace": pack.name, "stages": [], "evals": {"passed": report["passed"]},
+            "layers": report["layers"], "verification": derive_verification(pack)}
 
 
 @job("run")
@@ -103,9 +113,9 @@ def run(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[str]
     """The whole pipeline, or the stages asked for. Cancel lands between stages:
     a stage holds a DuckDB or Iceberg write, and stopping inside one tears it."""
     pack = _load(ctx.org_id, workspace)
+    if pack.is_tenant:
+        return _run_tenant(ctx, pack, params, log)
     available = pipeline_stages()
-    if pack.spec.get("kind") == "workspace":  # no generator: sources are uploads
-        available = {k: v for k, v in available.items() if k != "generate"}
     stages = params.get("stages") or list(available)
     missing = [s for s in stages if s not in available]
     if missing:

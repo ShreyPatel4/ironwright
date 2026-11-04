@@ -14,6 +14,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
+from .. import workspaces_tenant as wt
 from ..auth import ctx
 from ..config import SAFE_NAME
 from ..packs import list_packs
@@ -115,6 +116,13 @@ def submit_run(c: Ctx, response: Response, workspace: str, seed: int | None,
     does, so one running job per org and the cap hold here too."""
     params = {k: v for k, v in (("seed", seed), ("stages", stages)) if v is not None}
     _validate("run", workspace, params)
+    if workspace not in list_packs():
+        try:
+            wt.load_workspace(c.org_id, workspace)
+        except FileNotFoundError as e:  # past the gate, so this org may know: not runnable
+            raise HTTPException(404, f"no workspace named {workspace}") from e
+        except wt.WorkspaceError as e:
+            raise HTTPException(422, str(e)) from e
     org_id = c.org_id
     store = JobStore()
     job_id = store.enqueue(org_id, workspace, "run", c.principal, params)

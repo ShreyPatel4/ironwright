@@ -437,7 +437,6 @@ def create_platform_app() -> FastAPI:
 
     @app.post("/workspaces/{name}/runs")
     def run(name: str, body: RunBody, response: Response, c: CtxDep) -> dict[str, Any]:
-        _pack(name)
         return jobs_routes.submit_run(c, response, name, body.seed, body.stages, body.wait)
 
     @app.get("/workspaces/{name}/approvals")

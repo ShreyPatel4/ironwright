@@ -27,7 +27,7 @@ from typing import Any
 
 import sqlalchemy as sa
 
-from ..config import UnsafePath, data_root, safe_child
+from ..config import UnsafePath, safe_child, tenants_root
 from ..tenancy import db as tenancy_db
 
 MAX_ATTEMPTS = 3  # a job that keeps killing workers stops being retried
@@ -276,5 +276,4 @@ class JobStore:
 
 def log_file(org_id: str, job_id: str) -> Path:
     """tenants/<org_id>/jobs/<job_id>.log, built so it cannot leave the org."""
-    tenants = safe_child(data_root(), "tenants")
-    return safe_child(safe_child(safe_child(tenants, org_id), "jobs"), f"{job_id}.log")
+    return safe_child(safe_child(safe_child(tenants_root(), org_id), "jobs"), f"{job_id}.log")

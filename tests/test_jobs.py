@@ -4,19 +4,22 @@ Postgres half skips and says so; it never passes vacuously."""
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
 from collections import Counter
-from types import ModuleType, SimpleNamespace
+from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+import yaml
 from fastapi.testclient import TestClient
 
-from ironwright import cli
-from ironwright.config import data_root
+from ironwright import cli, config
+from ironwright import workspaces_tenant as wt
+from ironwright.config import PackPaths, data_root
 from ironwright.jobs import handlers, routes
 from ironwright.jobs import store as store_mod
 from ironwright.jobs.store import JobStore
@@ -375,35 +378,7 @@ def test_a_foreign_org_may_not_run_a_demo_pack(store):
     got = store.get("acme", j)
     assert got["state"] == "failed"
     assert "read only" in got["error"]
-    assert not (data_root() / "retail").exists()
-
-
-def test_tenant_workspace_loads_for_its_own_org_and_skips_generate(store, monkeypatch):
-    """T2's load_workspace arrives as ironwright.workspaces_tenant. Until it
-    merges, stand in only for that one seam."""
-    from ironwright.packs import load_pack
-
-    calls: list[tuple[str, str]] = []
-    ran: list[str] = []
-
-    def load_workspace(org_id, ws_slug):
-        calls.append((org_id, ws_slug))
-        pack = load_pack("retail")
-        return SimpleNamespace(paths=pack.paths, name="acme_ws", spec={"kind": "workspace"})
-
-    fake = ModuleType("ironwright.workspaces_tenant")
-    fake.load_workspace = load_workspace
-    monkeypatch.setitem(sys.modules, "ironwright.workspaces_tenant", fake)
-    monkeypatch.setattr(handlers, "pipeline_stages", lambda: {
-        s: (lambda pack, tracer, args, s=s: ran.append(s))
-        for s in ("generate", "migrate", "reconcile")})
-    monkeypatch.setattr(handlers, "derive_verification", lambda pack: {"level": "L1"})
-    j = store.enqueue("acme", "claims", "run", "user:a", {})
-    Worker(store).run_once()
-    got = store.get("acme", j)
-    assert got["state"] == "succeeded", got["error"]
-    assert calls == [("acme", "claims")]
-    assert ran == ["migrate", "reconcile"]
+    assert not PackPaths("retail").root.exists()
 
 
 # --- crash safety
@@ -590,7 +565,7 @@ def test_acceptance_post_runs_returns_id_and_the_worker_completes_it(client, cap
     job_id = r.json()["id"]
     assert r.json()["state"] == "queued"
     assert client.get(f"/jobs/{job_id}").json()["state"] == "queued"
-    assert not (data_root() / "retail" / "reports" / "evals.json").exists()
+    assert not (PackPaths("retail").reports / "evals.json").exists()
 
     cli.main(["worker", "--once"])
 
@@ -805,6 +780,87 @@ def test_roles_on_job_writes(orgs):
     assert c.get(f"/jobs/{j}/log", headers=_bearer(viewer)).status_code == 200
     assert c.post(f"/jobs/{j}/cancel", headers=_bearer(viewer)).status_code == 403
     assert c.post(f"/jobs/{j}/cancel", headers=_bearer(member)).status_code == 200
+
+
+# --- tenant workspaces (T2)
+
+FIXTURE = Path(__file__).parent / "fixtures" / "tenant_ws"
+SLUG = "acme-claims"
+
+
+def _tenant_workspace(org_id: str, slug: str = SLUG) -> None:
+    """T2's fixture: two real CSVs, models and an ontology, in this org's tree."""
+    dest = config.uploads_root(org_id) / "fixture"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(FIXTURE / "uploads" / "fixture", dest)
+    models = {layer: {f.name: f.read_text() for f in sorted((FIXTURE / "models" / layer).glob("*.sql"))}
+              for layer in ("silver", "gold")}
+    wt.create_workspace(org_id, slug, yaml.safe_load((FIXTURE / "workspace.yaml").read_text()),
+                        models=models, ontology=yaml.safe_load((FIXTURE / "ontology.yaml").read_text()),
+                        policies=yaml.safe_load((FIXTURE / "policies.yaml").read_text()))
+
+
+def test_the_worker_runs_a_tenant_workspace_on_its_real_rows(orgs):
+    """Through T2's own run: its eval layers, in the org's own tree, and no
+    demo stage. The structure layer only exists there, and it fails on no rows."""
+    c, a, _, _ = orgs
+    _tenant_workspace(a["org_id"])
+    r = c.post("/jobs", headers=_bearer(a), json={"kind": "run", "workspace": SLUG})
+    assert r.status_code == 200, r.text
+    Worker().run_once()
+    got = c.get(f"/jobs/{r.json()['id']}", headers=_bearer(a)).json()
+    assert got["state"] == "succeeded", got["error"]
+    assert got["result"]["evals"]["passed"] is True
+    assert {la["layer"] for la in got["result"]["layers"]} == {"pipeline", "migration", "structure"}
+    assert got["result"]["verification"]["level"] == "L1"
+    run = config.workspace_dir(a["org_id"], SLUG) / "run"
+    assert (run / "reports" / "evals.json").exists()
+    assert not (run / "reports" / "agents.json").exists()
+    tail = c.get(f"/jobs/{r.json()['id']}/log", headers=_bearer(a)).json()["data"]
+    assert SLUG in tail
+
+
+def test_post_runs_works_for_a_tenant_workspace(orgs):
+    c, a, b, _ = orgs
+    _tenant_workspace(a["org_id"])
+    r = c.post(f"/workspaces/{SLUG}/runs", headers=_bearer(a), json={})
+    assert r.status_code == 200, r.text
+    assert r.json()["state"] == "succeeded"
+    assert r.json()["evals"]["passed"] is True
+    assert c.post(f"/workspaces/{SLUG}/runs", headers=_bearer(b), json={}).status_code == 404
+
+
+def test_post_runs_can_leave_a_tenant_workspace_to_the_worker(orgs):
+    c, a, _, _ = orgs
+    _tenant_workspace(a["org_id"])
+    r = c.post(f"/workspaces/{SLUG}/runs", headers=_bearer(a), json={"wait": False})
+    assert r.status_code == 202, r.text
+    assert r.json()["state"] == "queued"
+
+
+def test_a_tenant_run_refuses_a_stage_list_it_would_ignore(orgs):
+    c, a, _, _ = orgs
+    _tenant_workspace(a["org_id"])
+    r = c.post("/jobs", headers=_bearer(a),
+               json={"kind": "run", "workspace": SLUG, "params": {"stages": ["migrate"]}})
+    Worker().run_once()
+    got = c.get(f"/jobs/{r.json()['id']}", headers=_bearer(a)).json()
+    assert got["state"] == "failed"
+    assert "stages" in got["error"]
+
+
+def test_a_job_cannot_reach_another_orgs_workspace_by_slug(orgs):
+    """Queued straight into the store, past every route check. The handler still
+    loads by the job's own org, so the slug means nothing to the other org."""
+    _, a, b, _ = orgs
+    _tenant_workspace(a["org_id"])
+    store = JobStore()
+    j = store.enqueue(b["org_id"], SLUG, "run", "user:b", {})
+    Worker(store).run_once()
+    got = store.get(b["org_id"], j)
+    assert got["state"] == "failed"
+    assert "no workspace" in got["error"]
+    assert not (config.workspace_dir(a["org_id"], SLUG) / "run" / "reports" / "evals.json").exists()
 
 
 # --- engine and CLI
