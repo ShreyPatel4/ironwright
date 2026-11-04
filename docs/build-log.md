@@ -137,6 +137,14 @@ and the CLI imports it lazily, so the whole suite stayed green.
 **Fix.** Moved to `MCPServer`, and `tests/test_posture.py` now builds the server and calls its tools.
 Lesson: a surface with no test is a claim, not a feature.
 
+## 10. A 404 proves nothing until the owner gets through
+
+**Symptom.** The first isolation sweep passed for B on every route. Then I added the other half, where A walks the same routes and must get past the gate, and it failed on `DELETE /workspaces/{name}/boards/{slug}`.
+
+**Cause.** The bug was in my test. It deleted the workspace partway through the sweep, so every later route was 404 for A too. But it showed me what the B half alone is worth: a gate that refuses everyone passes it, and so does a test aimed at a name that never existed.
+
+**Fix.** The delete goes last. Each route now has to do three things: stop B, give B the same bytes it gets for a name nobody has, and let A through. I also broke the gate on purpose in seven ways and watched the file go red each time. Lesson: every "cannot see" test needs a "can see" twin, or it only proves the request failed.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.

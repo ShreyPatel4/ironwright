@@ -1,41 +1,38 @@
-"""Real identity for the platform API, and the local accounts behind it.
+"""Request identity: from a bearer token to a Ctx, through the tenancy store.
 
-Accounts live as salted PBKDF2 hashes in a file under the data root (user
-data, never in the repo). Sessions live server side for the life of the
-process, expire after 8 hours idle and rotate on login. The principal on a
-request comes from its bearer token and nowhere else. Seeding happens through
-`ironwright auth-set <email>`, which prompts for the password so no secret
-ever lands in code, logs or history.
+ctx() is the one FastAPI dependency that says who is calling and for which org.
+The principal is user:<user_id> and comes from the session and nowhere else. An
+agent principal can never come from a request, because no user id starts that way.
 
-IRONWRIGHT_DEV_OPEN=1 keeps the old open behavior for tests and demo-check:
-no token needed, and the X-Principal header names the caller.
+IRONWRIGHT_DEV_OPEN=1 keeps the old open behavior for tests and demo-check: no
+token needed, a fixed dev org, and the X-Principal header names the caller.
+Seeding a local operator happens through `ironwright auth-set <email>`, which
+prompts for the password so no secret ever lands in code, logs or history.
 """
 from __future__ import annotations
 
-import hashlib
-import json
 import os
-import secrets
 import threading
 import time
-from pathlib import Path
+from collections import defaultdict, deque
 from typing import Any
 
 from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from .config import data_root
+from .tenancy import service
+from .tenancy.models import DEV_ORG_ID, DEV_ORG_SLUG, DEV_USER_ID, Ctx
 
 CONSOLE_PRINCIPAL = "user:console"
-IDLE_SECONDS = 8 * 3600
+IDLE_SECONDS = service.IDLE_SECONDS
 # "/" only redirects to the console. The console itself is a mount, which
 # route dependencies never reach.
-PUBLIC_ROUTES = frozenset({"/auth/status", "/auth/login", "/"})
+PUBLIC_ROUTES = frozenset({"/auth/status", "/auth/login", "/auth/signup",
+                           "/auth/accept-invite", "/"})
+AUTH_ATTEMPTS = 10
+AUTH_WINDOW = 60
 
-_ITERATIONS = 200_000
-_SESSIONS: dict[str, dict[str, Any]] = {}  # token -> email, last_seen; process-lifetime only
-_LOCK = threading.Lock()
 _now = time.time
 
 
@@ -47,85 +44,15 @@ def is_agent(principal: str) -> bool:
     return principal.strip().lower().startswith("agent:")
 
 
-def _path() -> Path:
-    return data_root() / "auth" / "credentials.json"
-
-
-def _load() -> dict[str, Any]:
-    p = _path()
-    if not p.exists():
-        return {}
-    return json.loads(p.read_text())
-
-
-def _hash(password: str, salt: bytes) -> str:
-    return hashlib.pbkdf2_hmac("sha256", password.encode(), salt, _ITERATIONS).hex()
-
-
-def principal_for(email: str) -> str:
-    local = email.split("@", 1)[0].lower().replace(".", "")
-    return f"user:{local}"
-
-
-def set_account(email: str, password: str, principal: str | None = None) -> None:
-    email = email.strip().lower()
-    if "@" not in email or len(password) < 8:
-        raise ValueError("an email and a password of at least 8 characters")
-    if principal and is_agent(principal):
-        raise ValueError("agent principals cannot have accounts")
-    accounts = _load()
-    salt = secrets.token_bytes(16)
-    accounts[email] = {"salt": salt.hex(), "hash": _hash(password, salt),
-                       "principal": principal or principal_for(email)}
-    p = _path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(accounts, indent=1, sort_keys=True))
-    p.chmod(0o600)
+def set_account(email: str, password: str) -> None:
+    try:
+        service.seed_operator(email, password, _now())
+    except service.Invalid as e:
+        raise ValueError(str(e)) from e
 
 
 def seeded() -> bool:
-    return bool(_load())
-
-
-def _expired(session: dict[str, Any]) -> bool:
-    return _now() - session["last_seen"] >= IDLE_SECONDS
-
-
-def login(email: str, password: str) -> str | None:
-    email = email.strip().lower()
-    acct = _load().get(email)
-    if not acct or is_agent(acct["principal"]):
-        return None
-    if not secrets.compare_digest(_hash(password, bytes.fromhex(acct["salt"])), acct["hash"]):
-        return None
-    token = secrets.token_urlsafe(32)
-    with _LOCK:
-        for old, session in list(_SESSIONS.items()):
-            if session["email"] == email or _expired(session):
-                del _SESSIONS[old]
-        _SESSIONS[token] = {"email": email, "last_seen": _now()}
-    return token
-
-
-def me(token: str) -> dict[str, str] | None:
-    with _LOCK:
-        session = _SESSIONS.get(token)
-        if not session:
-            return None
-        if _expired(session):
-            del _SESSIONS[token]
-            return None
-        session["last_seen"] = _now()
-    email = session["email"]
-    acct = _load().get(email)
-    if not acct or is_agent(acct["principal"]):
-        return None
-    return {"email": email, "principal": acct["principal"]}
-
-
-def logout(token: str) -> None:
-    with _LOCK:
-        _SESSIONS.pop(token, None)
+    return service.any_users()
 
 
 def bearer_token(headers: Headers) -> str:
@@ -133,27 +60,67 @@ def bearer_token(headers: Headers) -> str:
     return token.strip() if scheme.lower() == "bearer" else ""
 
 
-def current_principal(request: Request) -> str:
-    """Who is calling. The FastAPI dependency every principal-aware route uses."""
+def session_ctx(token: str) -> Ctx | None:
+    return service.resolve(token, _now())
+
+
+def _dev_ctx(request: Request) -> Ctx:
+    return Ctx(org_id=DEV_ORG_ID, org_slug=DEV_ORG_SLUG, user_id=DEV_USER_ID, role="owner",
+               principal=request.headers.get("x-principal", CONSOLE_PRINCIPAL))
+
+
+def ctx(request: Request) -> Ctx:
+    """Who is calling, and for which org. The one dependency; see contract 1."""
     if dev_open():
-        return request.headers.get("x-principal", CONSOLE_PRINCIPAL)
-    info = me(bearer_token(request.headers))
-    if not info:
+        return _dev_ctx(request)
+    found = getattr(request.state, "ctx", None) or session_ctx(bearer_token(request.headers))
+    if found is None:
         raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
-    return info["principal"]
+    request.state.ctx = found
+    return found
 
 
-def require_session(request: Request) -> None:
-    """The app-wide gate. Default deny: a new route is closed unless listed above."""
-    if getattr(request.scope.get("route"), "path", None) not in PUBLIC_ROUTES:
-        current_principal(request)
+class DoorLimit:
+    """Attempts per IP per route, per app, in memory: each worker counts for itself.
+
+    The key is the socket peer. X-Forwarded-For is whatever the client wants it
+    to be, so a proxy in front must set the peer address (uvicorn --proxy-headers).
+    """
+
+    MAX_KEYS = 50_000
+
+    def __init__(self) -> None:
+        self._hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+        self._lock = threading.Lock()
+
+    def __call__(self, request: Request) -> None:
+        now = _now()
+        host = request.client.host if request.client else "unknown"
+        key = (request.url.path, host)
+        with self._lock:
+            if len(self._hits) > self.MAX_KEYS:
+                self._hits.clear()
+            hits = self._hits[key]
+            while hits and now - hits[0] >= AUTH_WINDOW:
+                hits.popleft()
+            if len(hits) >= AUTH_ATTEMPTS:
+                wait = max(1, int(AUTH_WINDOW - (now - hits[0])) + 1)
+                raise HTTPException(429, "too many attempts, try again soon",
+                                    headers={"Retry-After": str(wait)})
+            hits.append(now)
+
+
+def describe(found: Ctx) -> dict[str, Any]:
+    if found.org_id == DEV_ORG_ID and found.user_id == DEV_USER_ID:
+        return {**found.__dict__, "email": None, "orgs": []}
+    return service.describe(found)
 
 
 class BindPrincipalHeader:
     """Makes X-Principal the session's principal, whatever the client sent.
 
     Only asof.py still reads the header. This stops that route trusting the
-    client until it moves to current_principal, then this class can go.
+    client until it moves to ctx(), then this class can go.
     """
 
     def __init__(self, app: ASGIApp) -> None:
@@ -162,8 +129,10 @@ class BindPrincipalHeader:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http" and not dev_open():
             headers = [h for h in scope["headers"] if h[0] != b"x-principal"]
-            info = me(bearer_token(Headers(scope=scope)))
-            if info:
-                headers.append((b"x-principal", info["principal"].encode()))
-            scope = {**scope, "headers": headers}
+            found = session_ctx(bearer_token(Headers(scope=scope)))
+            state = dict(scope.get("state") or {})
+            if found:
+                headers.append((b"x-principal", found.principal.encode()))
+                state["ctx"] = found
+            scope = {**scope, "headers": headers, "state": state}
         await self.app(scope, receive, send)

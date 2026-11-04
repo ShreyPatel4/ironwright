@@ -14,7 +14,8 @@ import contextlib
 import json
 import pathlib
 import time
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -28,24 +29,27 @@ import re
 from . import ask as ask_mod
 from . import auth as auth_mod
 from . import boards as boards_mod
+from . import discovery as discovery_mod
 from . import escalation as escalation_mod
 from . import orgpolicy as orgpolicy_mod
-from . import sqlguard
-from .asof import router as asof_router
-from .otel_export import router as otel_router
-from . import discovery as discovery_mod
+from . import sqlguard, verification
 from . import training as training_mod
-from .bi import router as bi_router
-from .engines import router as engines_router
-from . import verification
 from . import workspaces as org_mod
-from .scenario.spec import SpecError
+from .asof import router as asof_router
+from .auth import ctx
+from .bi import router as bi_router
 from .cli import STAGES
+from .config import data_root, safe_child, write_private
+from .engines import router as engines_router
 from .lake import Lakehouse
 from .ontology.runtime import Ontology
+from .otel_export import router as otel_router
 from .packs import list_packs, load_pack
+from .scenario.spec import SpecError
+from .tenancy import DEV_ORG_ID, ROLES, Ctx
+from .tenancy import service as tenancy
+from .tenancy.models import at_least
 from .tracing import Tracer
-
 
 STAGE_ORDER = ["generate", "migrate", "reconcile", "ontology", "agents", "evals", "export"]
 DEFAULT_SEEDS = {"retail": 7, "supply_chain": 11, "banking_aml": 23, "insurance_claims": 31}
@@ -97,11 +101,98 @@ class LoginBody(BaseModel):
     password: str
 
 
+class SignupBody(BaseModel):
+    email: str
+    password: str
+    org_name: str
+
+
+class InviteBody(BaseModel):
+    email: str
+    role: str = "member"
+
+
+class AcceptInviteBody(BaseModel):
+    token: str
+    password: str
+
+
 class CreateOrgBody(BaseModel):
     name: str
     archetype: str = "regional_retail_chain"
     size: int = 16
     seed: int = 7
+
+
+CtxDep = Annotated[Ctx, Depends(ctx)]
+
+# Everything a tenant cannot see answers this, whether or not it exists.
+NOT_FOUND = "no such resource"
+# A tenant's scenario folder is "o<8 hex of org id>-<name>", at most 40 characters.
+_TENANT_PREFIX_LEN = 10
+_MAX_TENANT_WS_NAME = 40 - _TENANT_PREFIX_LEN
+# Folders under the data root that hold every tenant. Deleting a workspace removes
+# its folder, so no workspace may ever take one of these names.
+_TENANT_TREE = frozenset({"tenants", "demo"})
+
+# Writes in the sense of HTTP, reads in the sense of data. A viewer may run
+# them, and a tenant may run them on a demo pack.
+READ_ONLY_POSTS = frozenset({
+    "/workspaces/{name}/lake/query",
+    "/workspaces/{name}/governance/check",
+})
+# The lowest role for each write. A write not listed here needs owner, so a
+# route nobody thought about fails closed. Reads need viewer.
+WRITE_ROLES = {
+    "/workspaces/{name}/runs": "member",
+    "/workspaces/{name}/ask": "member",
+    "/workspaces/{name}/ask/replay": "member",
+    "/workspaces/{name}/actions/{action}": "member",
+    "/workspaces/{name}/boards/{slug}": "member",
+    "/workspaces/{name}/boards/{slug}/run": "member",
+    "/workspaces/{name}/escalations": "member",
+    "/workspaces/{name}/engines/check": "member",
+    "/workspaces/{name}/training/evaluate": "member",
+    "/workspaces": "admin",
+    "/workspaces/{name}": "admin",
+    "/workspaces/{name}/approvals/{seq}/decide": "admin",
+    "/workspaces/{name}/escalations/{esc_id}/decide": "admin",
+    "/workspaces/{name}/orgpolicy/apply": "admin",
+    # These send a workspace's data to a place the caller names.
+    "/workspaces/{name}/otel/export": "admin",
+    "/workspaces/{name}/bi/mirror": "admin",
+    "/workspaces/{name}/bi": "admin",
+    "/orgs/{slug}/invites": "admin",
+    "/orgs/{slug}/switch": "viewer",
+    "/auth/logout": "viewer",
+}
+
+
+def _gate(request: Request) -> None:
+    """The app-wide door. It runs before any handler, on every route, router or not.
+
+    In order: who are you (401), can your org see this (404, the same answer as
+    if it did not exist), is it a shared demo pack you would be writing to (403),
+    does your role allow this (403).
+    """
+    template = getattr(request.scope.get("route"), "path", None)
+    if template in auth_mod.PUBLIC_ROUTES:
+        return
+    c = ctx(request)
+    role: str | None = c.role
+    writing = request.method not in ("GET", "HEAD") and template not in READ_ONLY_POSTS
+    if template.startswith("/orgs/{slug}"):
+        role = tenancy.role_in(c.user_id, request.path_params["slug"])
+        if role is None:
+            raise HTTPException(404, NOT_FOUND)
+    elif template.startswith("/workspaces/{name}"):
+        name = request.path_params["name"]
+        if not tenancy.can_see_workspace(c, name):
+            raise HTTPException(404, NOT_FOUND)
+        if writing and c.org_id != DEV_ORG_ID and name in list_packs():
+            raise HTTPException(403, "demo packs are read only; work in your own workspace")
+    if writing and not at_least(role, WRITE_ROLES.get(template, "owner")):
+        raise HTTPException(403, f"your role in this org is {role}, which cannot do this")
 
 
 def _utcnow() -> str:
@@ -163,12 +254,13 @@ def create_platform_app() -> FastAPI:
     # Generated docs would be public routes outside the gate, so they stay off.
     app = FastAPI(title="ironwright platform",
                   description="One spine over every workspace: runs, approvals, audit, verification.",
-                  dependencies=[Depends(auth_mod.require_session)],
+                  dependencies=[Depends(_gate)],
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(auth_mod.BindPrincipalHeader)
+    door = [Depends(auth_mod.DoorLimit())]
 
     @app.get("/workspaces")
-    def workspaces() -> list[dict[str, Any]]:
+    def workspaces(c: CtxDep) -> list[dict[str, Any]]:
         out = []
         for name in list_packs():
             pack = load_pack(name)
@@ -176,6 +268,8 @@ def create_platform_app() -> FastAPI:
                         "decision": pack.spec.get("decision"),
                         "verification": verification.derive(pack)})
         for org in org_mod.list_organizations():
+            if not tenancy.can_see_workspace(c, org["name"]):
+                continue
             out.append({"name": org["name"], "kind": "organization",
                         "title": org["company"],
                         "decision": f"{org['stores']} stores, {org['roles']} roles · "
@@ -184,12 +278,21 @@ def create_platform_app() -> FastAPI:
         return out
 
     @app.post("/workspaces", status_code=201)
-    def create_workspace(body: CreateOrgBody) -> dict[str, Any]:
+    def create_workspace(body: CreateOrgBody, c: CtxDep) -> dict[str, Any]:
+        # Scenario folders share one namespace under the data root. A tenant's
+        # get a prefix, or "name taken" would tell it another org used that name.
+        if body.name in _TENANT_TREE:
+            raise HTTPException(422, f"{body.name} is reserved by the platform")
+        if c.org_id != DEV_ORG_ID and len(body.name) > _MAX_TENANT_WS_NAME:
+            raise HTTPException(422, f"a workspace name can be at most {_MAX_TENANT_WS_NAME} characters")
+        name = body.name if c.org_id == DEV_ORG_ID else f"o{c.org_id[:8]}-{body.name}"
         try:
-            org = org_mod.create_organization(body.name, body.archetype, body.size, body.seed)
+            org = org_mod.create_organization(name, body.archetype, body.size, body.seed)
         except SpecError as e:
             raise HTTPException(422, str(e))
-        return {"name": body.name, "kind": "organization", "org": org,
+        if c.org_id != DEV_ORG_ID:
+            write_private(safe_child(data_root(), name) / tenancy.OWNER_FILE, c.org_id)
+        return {"name": name, "kind": "organization", "org": org,
                 "verification": verification.derive_organization(None)}
 
     @app.delete("/workspaces/{name}")
@@ -266,27 +369,69 @@ def create_platform_app() -> FastAPI:
     @app.get("/auth/status")
     def auth_status() -> dict[str, Any]:
         return {"seeded": auth_mod.seeded(), "dev_open": auth_mod.dev_open(),
-                "note": "Every API route needs a session from an invited account. "
-                        "Seed accounts with: ironwright auth-set <email>"}
+                "note": "Every API route needs a session. Sign up to make an org, "
+                        "or accept an invite to join one."}
 
-    @app.post("/auth/login")
+    @app.post("/auth/signup", status_code=201, dependencies=door)
+    def auth_signup(body: SignupBody) -> dict[str, Any]:
+        try:
+            return tenancy.signup(body.email, body.password, body.org_name, auth_mod._now())
+        except tenancy.Invalid as e:
+            raise HTTPException(422, str(e)) from e
+        except tenancy.EmailTaken as e:
+            raise HTTPException(409, "that email already has an account; sign in instead") from e
+
+    @app.post("/auth/login", dependencies=door)
     def auth_login(body: LoginBody) -> dict[str, Any]:
-        token = auth_mod.login(body.email, body.password)
-        if not token:
-            raise HTTPException(401, "that email and password do not match an invited account")
-        return {"token": token, **(auth_mod.me(token) or {})}
+        try:
+            return tenancy.login(body.email, body.password, auth_mod._now())
+        except tenancy.BadCredentials as e:
+            raise HTTPException(401, "that email and password do not match") from e
+
+    @app.post("/auth/accept-invite", dependencies=door)
+    def auth_accept_invite(body: AcceptInviteBody) -> dict[str, Any]:
+        try:
+            return tenancy.accept_invite(body.token, body.password, auth_mod._now())
+        except tenancy.NoSuchInvite as e:
+            raise HTTPException(404, "that invite is not valid") from e
+        except tenancy.BadCredentials as e:
+            raise HTTPException(401, "that email and password do not match") from e
+        except tenancy.Invalid as e:
+            raise HTTPException(422, str(e)) from e
 
     @app.get("/auth/me")
-    def auth_me(request: Request) -> dict[str, Any]:
-        info = auth_mod.me(auth_mod.bearer_token(request.headers))
-        if not info:
-            raise HTTPException(401, "no session")
-        return info
+    def auth_me(request: Request, c: CtxDep) -> dict[str, Any]:
+        # A dev open server has no need of a token, but one it was handed still
+        # has to be alive, or a client would never learn it logged out.
+        token = auth_mod.bearer_token(request.headers)
+        if token:
+            c = auth_mod.session_ctx(token)
+            if c is None:
+                raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
+        return auth_mod.describe(c)
 
     @app.post("/auth/logout")
     def auth_logout(request: Request) -> dict[str, Any]:
-        auth_mod.logout(auth_mod.bearer_token(request.headers))
+        tenancy.revoke(auth_mod.bearer_token(request.headers))
         return {"ok": True}
+
+    @app.post("/orgs/{slug}/switch")
+    def org_switch(slug: str, c: CtxDep) -> dict[str, Any]:
+        answer = tenancy.switch(c, slug, auth_mod._now())
+        if answer is None:
+            raise HTTPException(404, NOT_FOUND)
+        return answer
+
+    @app.post("/orgs/{slug}/invites", status_code=201)
+    def org_invite(slug: str, body: InviteBody, c: CtxDep) -> dict[str, Any]:
+        mine = tenancy.role_in(c.user_id, slug)
+        if body.role in ROLES and not at_least(mine, body.role):
+            raise HTTPException(403, "you cannot invite someone above your own role")
+        try:
+            return {"token": tenancy.invite(slug, body.email, body.role, auth_mod._now()),
+                    "email": body.email.strip().lower(), "role": body.role, "org_slug": slug}
+        except tenancy.Invalid as e:
+            raise HTTPException(422, str(e)) from e
 
     @app.get("/platform/map")
     def get_platform_map() -> dict[str, Any]:
@@ -348,8 +493,8 @@ def create_platform_app() -> FastAPI:
 
     @app.post("/workspaces/{name}/actions/{action}")
     def act(name: str, action: str, body: ActionBody,
-            principal: str = Depends(auth_mod.current_principal)) -> dict[str, Any]:
-        actor = body.actor if auth_mod.dev_open() else principal
+            c: CtxDep) -> dict[str, Any]:
+        actor = body.actor if auth_mod.dev_open() else c.principal
         with _ontology(_pack(name)) as ont:
             return ont.act(action, body.params, actor=actor,
                            on_behalf_of=body.on_behalf_of,
@@ -375,17 +520,17 @@ def create_platform_app() -> FastAPI:
             return {"describe": ont.describe(), "stats": ont.store.stats()}
 
     @app.get("/workspaces/{name}/objects/{type_}")
-    def objects(name: str, type_: str, limit: int = 50, offset: int = 0,
-                principal: str = Depends(auth_mod.current_principal)) -> list[dict[str, Any]]:
+    def objects(name: str, type_: str, c: CtxDep,
+                limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
         with _ontology(_pack(name)) as ont:
-            return [ont.masked({**o, "_type": type_}, principal)
+            return [ont.masked({**o, "_type": type_}, c.principal)
                     for o in ont.store.list(type_, limit, offset)]
 
     @app.get("/workspaces/{name}/objects/{type_}/{id_}")
     def obj(name: str, type_: str, id_: str,
-            principal: str = Depends(auth_mod.current_principal)) -> dict[str, Any]:
+            c: CtxDep) -> dict[str, Any]:
         with _ontology(_pack(name)) as ont:
-            o = ont.masked(ont.store.get(type_, id_), principal)
+            o = ont.masked(ont.store.get(type_, id_), c.principal)
             if not o:
                 raise HTTPException(404, f"no {type_} {id_}")
             xw = ont.store.con.execute(
@@ -397,10 +542,11 @@ def create_platform_app() -> FastAPI:
 
     @app.get("/workspaces/{name}/objects/{type_}/{id_}/dashboard")
     def object_dashboard(name: str, type_: str, id_: str,
-                         principal: str = Depends(auth_mod.current_principal)) -> dict[str, Any]:
+                         c: CtxDep) -> dict[str, Any]:
         """Sketch 02: the governed object page. Props, identity, history,
         the audit trail touching this object, pending approvals on it, and
         per-action permits from the real policy engine for the caller."""
+        principal = c.principal
         pack = _pack(name)
         with _ontology(pack) as ont:
             o = ont.masked(ont.store.get(type_, id_), principal)
@@ -484,10 +630,10 @@ def create_platform_app() -> FastAPI:
 
     @app.post("/workspaces/{name}/ask")
     def ask(name: str, body: AskBody,
-            principal: str = Depends(auth_mod.current_principal)) -> dict[str, Any]:
+            c: CtxDep) -> dict[str, Any]:
         pack = _pack(name)
         with _ontology(pack) as ont:
-            entry = ask_mod.ask(pack, ont, body.question, principal=principal)
+            entry = ask_mod.ask(pack, ont, body.question, principal=c.principal)
             entry["verification"] = verification.derive(pack)
             return entry
 
@@ -581,10 +727,10 @@ def create_platform_app() -> FastAPI:
 
     @app.get("/workspaces/{name}/ask/examples")
     def ask_examples(name: str,
-                     principal: str = Depends(auth_mod.current_principal)) -> list[dict[str, Any]]:
+                     c: CtxDep) -> list[dict[str, Any]]:
         pack = _pack(name)
         with _ontology(pack) as ont:
-            return ask_mod.examples(pack, ont, principal=principal)
+            return ask_mod.examples(pack, ont, principal=c.principal)
 
     @app.get("/workspaces/{name}/ask/log")
     def ask_log(name: str) -> list[dict[str, Any]]:

@@ -23,7 +23,7 @@ def postgres_uri() -> str:
     try:
         with psycopg.connect(uri, connect_timeout=3):
             pass
-    except Exception as e:  # unreachable server: skip honestly, never error
+    except Exception as e:  # noqa: BLE001  unreachable server: skip honestly, never error
         pytest.skip(f"POSTGRES_URI set but unreachable: {e}")
     return uri
 
@@ -42,3 +42,31 @@ def pg_schema(postgres_uri: str):
     finally:
         with psycopg.connect(postgres_uri, autocommit=True) as con:
             con.execute(f"drop schema {name} cascade")
+
+
+@pytest.fixture(params=["sqlite", "postgres"])
+def meta_db(request, monkeypatch, tmp_path):
+    """A fresh tenancy store on each backend, with the door closed.
+
+    CI has POSTGRES_URI, so there the postgres half fails instead of skipping.
+    A proof of tenant isolation that quietly did not run is worse than a red build.
+    """
+    monkeypatch.delenv("IRONWRIGHT_DEV_OPEN", raising=False)
+    monkeypatch.delenv("IRONWRIGHT_DB_URL", raising=False)
+    monkeypatch.setenv("IRONWRIGHT_DATA", str(tmp_path))
+    from ironwright.tenancy import db
+    if request.param == "sqlite":
+        yield "sqlite"
+        db.dispose_current()
+        return
+    try:
+        schema = request.getfixturevalue("pg_schema")
+    except pytest.skip.Exception as e:
+        if os.environ.get("CI"):
+            pytest.fail(f"postgres half of the tenancy proof cannot run in CI: {e}")
+        raise
+    uri = os.environ["POSTGRES_URI"]
+    sep = "&" if "?" in uri else "?"
+    monkeypatch.setenv("IRONWRIGHT_DB_URL", f"{uri}{sep}options=-csearch_path%3D{schema}")
+    yield "postgres"
+    db.dispose_current()  # CI's server allows 100 connections, and each test's URL is new

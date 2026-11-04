@@ -5,7 +5,6 @@ proves the derivation found the planted facts without being told they
 were planted. The auth tests prove the gate rejects wrong credentials and
 stores no plaintext anywhere.
 """
-import argparse
 import json
 
 import pytest
@@ -75,13 +74,15 @@ def test_invite_gate_accepts_and_rejects(client, tmp_path):
     assert bad.status_code == 401
     good = client.post("/auth/login",
                        json={"email": "tester@example.com", "password": "correct-horse-9"}).json()
-    assert good["token"] and good["principal"] == "user:tester"
+    assert good["token"] and good["principal"] == f"user:{good['user_id']}"
 
     me = client.get("/auth/me", headers={"Authorization": f"Bearer {good['token']}"}).json()
     assert me["email"] == "tester@example.com"
     client.post("/auth/logout", headers={"Authorization": f"Bearer {good['token']}"})
     assert client.get("/auth/me", headers={"Authorization": f"Bearer {good['token']}"}).status_code == 401
 
-    # No plaintext anywhere in the credentials file.
-    raw = (auth._path()).read_text()
-    assert "correct-horse-9" not in raw
+    # No plaintext in the store.
+    from ironwright.tenancy import db
+    with db.engine().connect() as con:
+        hashes = [r.pw_hash for r in con.execute(db.users.select())]
+    assert hashes and not [h for h in hashes if "correct-horse-9" in h]

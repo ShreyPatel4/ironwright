@@ -873,6 +873,8 @@ dependencies = [
     { name = "pyarrow", version = "26.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pyiceberg", extra = ["pyarrow", "sql-sqlite"] },
     { name = "pyyaml" },
+    { name = "sqlalchemy", version = "2.0.54", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "sqlalchemy", version = "2.1.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "uvicorn" },
 ]
 
@@ -892,6 +894,9 @@ dev = [
     { name = "playwright" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pytest" },
+]
+postgres = [
+    { name = "psycopg", extra = ["binary"] },
 ]
 
 [package.metadata]
@@ -913,13 +918,15 @@ requires-dist = [
     { name = "pandas", specifier = ">=2" },
     { name = "playwright", marker = "extra == 'dev'", specifier = ">=1.47" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'dev'", specifier = ">=3.1" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'postgres'", specifier = ">=3.1" },
     { name = "pyarrow", specifier = ">=16" },
     { name = "pyiceberg", extras = ["sql-sqlite", "pyarrow"], specifier = ">=0.9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pyyaml", specifier = ">=6" },
+    { name = "sqlalchemy", specifier = ">=2" },
     { name = "uvicorn", specifier = ">=0.29" },
 ]
-provides-extras = ["connectors", "dev"]
+provides-extras = ["postgres", "connectors", "dev"]
 
 [[package]]
 name = "jmespath"
