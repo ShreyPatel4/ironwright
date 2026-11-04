@@ -132,3 +132,4 @@ not the one path I was thinking about.
 - The ontology build took 7 seconds with row inserts. Arrow bulk inserts brought it to about 2.
 - The audit hash check failed after a type round trip. Hashing a canonical JSON of the values fixed it.
 - A LangGraph interrupt was logged as an error span. It's now an `interrupt` event, because pausing for a human is not a failure.
+- The new link filter read customer emails as links. Scanning every string cell of every pack through the guardrail found it; no narration happened to carry one, so no eval would have. The bare domain pattern now skips anything after an `@`.

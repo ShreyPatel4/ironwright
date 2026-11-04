@@ -17,7 +17,7 @@ import pytest
 import yaml
 
 from ironwright.agents.graph import check_action_is_rule_derived, run_usecase
-from ironwright.agents.guardrail import guard, settle
+from ironwright.agents.guardrail import LINK_REMOVED, REMOVED, guard, settle
 from ironwright.ask import QUESTION_CAP, ask, metrics, read_log
 from ironwright.llm import LLM, VALUE_CAP, LLMResult, fence_record, sanitize, untrusted
 from ironwright.ontology.runtime import Ontology
@@ -261,6 +261,14 @@ def test_a_template_keeps_its_citations_when_a_sentence_is_dropped():
     assert grounded and cited == ["a#1"] and "[ev:a#1]" in text and "approved" not in text
 
 
+def test_an_email_address_is_data_not_a_link():
+    """The banking pack's customers have emails. Found by scanning every
+    string cell of every pack through the guardrail."""
+    g = guard("Contact brian.kim18@mail.example for detail.", set())
+    assert g.clean and g.text == "Contact brian.kim18@mail.example for detail."
+    assert "evil.example" not in guard("Contact mailto:x@evil.example now.", set()).text
+
+
 def test_guard_flags_an_echoed_prompt():
     assert guard('x <untrusted-n1 kind="cell">y</untrusted-n1>', set()).echoed
 
@@ -487,7 +495,10 @@ def test_an_echoed_prompt_is_not_grounded(pack):
 
 # ---------- the real packs, end to end ----------
 
-def test_synthetic_narratives_and_decisions_survive_the_boundary(tmp_path, monkeypatch):
+def test_the_guardrail_removes_nothing_from_a_real_pack(tmp_path, monkeypatch):
+    """A false positive here would quietly eat real data, and no eval would
+    notice: they read diagnoses and citations, not the words."""
+    from ironwright.ask import examples
     from ironwright.cli import STAGES
 
     monkeypatch.setenv("IRONWRIGHT_DATA", str(tmp_path))
@@ -496,9 +507,20 @@ def test_synthetic_narratives_and_decisions_survive_the_boundary(tmp_path, monke
     args = argparse.Namespace(seed=7, limit=None)
     for stage in ("generate", "migrate", "ontology"):
         STAGES[stage](p, tracer, args)
-    uc = next(iter(p.usecases["usecases"]))
-    offline = run_usecase(p, uc, tracer, limit=3, llm=LLM("offline"))
-    assert offline["runs"]
-    for r in offline["runs"]:
-        assert guard(r["narrative"], set(r["evidence_ids"])).text == r["narrative"]
-        assert r["grounded"] is True and set(r["cited"]) <= set(r["evidence_ids"])
+    seen = 0
+    for uc in p.usecases["usecases"]:
+        for r in run_usecase(p, uc, tracer, limit=5, llm=LLM("offline"))["runs"]:
+            seen += 1
+            assert REMOVED not in r["narrative"] and LINK_REMOVED not in r["narrative"], r["narrative"]
+            assert r["grounded"] is True and set(r["cited"]) <= set(r["evidence_ids"])
+    assert seen
+    o = Ontology(p)
+    try:
+        exs = examples(p, o)
+        assert exs
+        for ex in exs:
+            a = ask(p, o, ex["question"])
+            assert a["status"] == "answered" and "guardrail" not in a, ex
+            assert REMOVED not in a["answer"] and LINK_REMOVED not in a["answer"], a["answer"]
+    finally:
+        o.store.con.close()

@@ -44,7 +44,7 @@ _LINK_REMOVALS = [
     re.compile(r"\bdata:[a-z]+/[^\s\]]+", re.IGNORECASE),
     re.compile(r"(?<![\w/])//[a-z0-9-]+(?:\.[a-z0-9-]+)+[^\s\]]*", re.IGNORECASE),
     re.compile(r"\bwww\.[^\s\]]+", re.IGNORECASE),
-    re.compile(rf"\b(?:[a-z0-9-]+\.)+(?:{_TLDS})\b(?:/[^\s\]]*)?", re.IGNORECASE),
+    re.compile(rf"(?<![\w@.-])(?:[a-z0-9-]+\.)+(?:{_TLDS})\b(?:/[^\s\]]*)?", re.IGNORECASE),  # not an email
 ]
 _INSTRUCTION = re.compile(
     r"\b(?:ignore|disregard|forget|override)\s+(?:\w+\s+){0,3}?(?:instructions?|prompts?|rules?|guardrails?|directions?)\b"
