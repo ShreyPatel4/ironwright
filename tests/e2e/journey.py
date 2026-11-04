@@ -223,6 +223,32 @@ def _sweep(stack: Stack, state: State, workspace: str) -> tuple[int, list[str]]:
     return len(ISOLATION_ROUTES), leaks
 
 
+def _b_profile_error(stack: Stack, state: State, workspace: str, upload_id: str) -> str | None:
+    """Org B profiles an upload by id, on a workspace of its own. None means it ran."""
+    step = "isolation"
+    job_id = expect(stack, "POST", "/jobs", 200, step, token=state.b_token,
+                    body={"kind": "profile", "workspace": workspace, "params": {"upload_id": upload_id}})["id"]
+    while time.monotonic() < state.deadline:
+        job = expect(stack, "GET", f"/jobs/{job_id}", 200, step, token=state.b_token)
+        if job["state"] == "succeeded":
+            return None
+        if job["state"] in ("failed", "cancelled"):
+            return str(job.get("error"))
+        stack.pump(job_id)
+    raise Broken(step, f"org B's job {job_id} did not finish inside the budget")
+
+
+def _names_an_upload_of_a(stack: Stack, state: State) -> list[str]:
+    """The gate cannot see params. A's upload has to read exactly like an id nobody has."""
+    workspace = expect(stack, "POST", "/workspaces", 201, "isolation", token=state.b_token, timeout=120,
+                       body={"name": f"isob-{state.tag}", "size": 4, "seed": 3})["name"]
+    theirs = _b_profile_error(stack, state, workspace, state.upload_id)
+    ghost = _b_profile_error(stack, state, workspace, uuid.uuid4().hex)
+    if theirs is None or theirs != ghost:
+        return [f"a job naming an upload of org A answered {theirs!r}, and an id nobody has answered {ghost!r}"]
+    return []
+
+
 def isolation(stack: Stack, state: State) -> int:
     """Returns how many requests org B made and had refused. Raises Broken on any leak."""
     step = "isolation"
@@ -260,6 +286,7 @@ def isolation(stack: Stack, state: State) -> int:
                              body={"kind": "run", "workspace": workspace, "params": {}})
             if got.status != 404:
                 leaks.append(f"POST /jobs naming {workspace} answered {got.status}")
+    leaks += _names_an_upload_of_a(stack, state)
     if leaks:
         raise Broken(step, f"{len(leaks)} leaks: " + "; ".join(leaks[:10]))
     _controls(stack, state)  # a write that answered 404 and landed anyway shows up here

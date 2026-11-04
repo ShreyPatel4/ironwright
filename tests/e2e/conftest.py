@@ -7,12 +7,17 @@ way submit_run drives them when there is no worker process.
 from __future__ import annotations
 
 import json
+import shutil
 import time
+from pathlib import Path
 
 import journey
 import pytest
+import yaml
 from fastapi.testclient import TestClient
 
+from ironwright import workspaces_tenant as wt
+from ironwright.config import ensure_tenant
 from ironwright.jobs.store import JobStore
 from ironwright.jobs.worker import Worker
 from ironwright.platform_api import create_platform_app
@@ -44,3 +49,23 @@ class InProcess:
 def stack(meta_db):
     with TestClient(create_platform_app(), raise_server_exceptions=False) as client:
         yield InProcess(client)
+
+
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "tenant_ws"
+
+
+@pytest.fixture()
+def tenant_workspace(stack):
+    """A contract 3 workspace made behind the API, to reach past the route nobody owns yet."""
+    def make(state: journey.State) -> str:
+        org_id = journey.expect(stack, "GET", "/auth/me", 200, "setup", token=state.a_token)["org_id"]
+        root = ensure_tenant(org_id)
+        shutil.copytree(FIXTURE / "uploads" / "fixture", root / "uploads" / "fixture")
+        models = {layer: {f.name: f.read_text() for f in (FIXTURE / "models" / layer).glob("*.sql")}
+                  for layer in ("silver", "gold")}
+        wt.create_workspace(org_id, state.workspace, yaml.safe_load((FIXTURE / "workspace.yaml").read_text()),
+                            models=models,
+                            ontology=yaml.safe_load((FIXTURE / "ontology.yaml").read_text()),
+                            policies=yaml.safe_load((FIXTURE / "policies.yaml").read_text()))
+        return org_id
+    return make

@@ -242,7 +242,11 @@ Four things to know before you rely on it:
 The `e2e` job boots the compose stack with the worker and walks a customer's whole journey from
 `tests/e2e/journey.py`: sign up, upload two CSVs, profile, accept the proposal, run, accept the
 ontology, Ask. Then a second org signs up and gets a 404 with the same body on every scoped route, with
-org A's real ids. Then org A reads its things again, in case a refused write landed anyway.
+org A's real ids. It also tries to profile an upload of org A's from its own workspace, and must get the
+answer an id nobody has gets. Then org A reads its things again, in case a refused write landed anyway.
+
+On compose today the sweep covers uploads, jobs, orgs and a scenario workspace. It covers a tenant workspace
+once the walk gets past the accept step. Until then that half runs in process, in `tests/e2e`.
 
 ```mermaid
 flowchart LR

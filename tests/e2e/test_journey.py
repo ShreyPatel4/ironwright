@@ -5,15 +5,12 @@ a real bug and stays red.
 """
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 import journey
 import pytest
-import yaml
 
 from ironwright import workspaces_tenant as wt
-from ironwright.config import ensure_tenant
 from ironwright.ingest import profiler
 from ironwright.lake import lake_location
 
@@ -81,60 +78,46 @@ def test_a_proposal_with_a_fixed_width_file_can_become_a_workspace(stack):
     wt.create_workspace(org_id, state.workspace, proposal["workspace"])
 
 
-def test_a_tenant_workspace_can_pick_a_warehouse_on_object_storage(stack, monkeypatch):
+def test_a_tenant_workspace_can_pick_a_warehouse_on_object_storage(stack, tenant_workspace, monkeypatch):
     """CI hit this on compose: the walk was green, and the first tenant run had no warehouse."""
     state = journey.fresh_state()
     journey.signup_a(stack, state)
-    org_id = _fixture_workspace(stack, state)
+    org_id = tenant_workspace(state)
     monkeypatch.setenv("IRONWRIGHT_LAKE_URI", "s3://bucket/prefix")
     loc = lake_location(wt.load_workspace(org_id, state.workspace))
     assert f"tenants/{org_id}/workspaces/{state.workspace}/lake" in str(loc)
 
 
-def _fixture_workspace(stack, state: journey.State) -> str:
-    """A workspace made behind the API, to reach the steps past the missing route."""
-    org_id = journey.expect(stack, "GET", "/auth/me", 200, "setup", token=state.a_token)["org_id"]
-    root = ensure_tenant(org_id)
-    shutil.copytree(FIXTURE / "uploads" / "fixture", root / "uploads" / "fixture")
-    spec = yaml.safe_load((FIXTURE / "workspace.yaml").read_text())
-    models = {layer: {f.name: f.read_text() for f in (FIXTURE / "models" / layer).glob("*.sql")}
-              for layer in ("silver", "gold")}
-    wt.create_workspace(org_id, state.workspace, spec, models=models,
-                        ontology=yaml.safe_load((FIXTURE / "ontology.yaml").read_text()),
-                        policies=yaml.safe_load((FIXTURE / "policies.yaml").read_text()))
-    return org_id
-
-
-def test_a_run_job_on_a_tenant_workspace_succeeds_with_a_real_worker(stack):
+def test_a_run_job_on_a_tenant_workspace_succeeds_with_a_real_worker(stack, tenant_workspace):
     state = journey.fresh_state()
     journey.signup_a(stack, state)
-    _fixture_workspace(stack, state)
+    tenant_workspace(state)
     journey.run_job(stack, state)
 
 
 @_waiting_on("T2 or W2: GET /workspaces lists packs and scenario orgs, never a tenant workspace")
-def test_a_tenant_workspace_shows_up_in_its_own_list(stack):
+def test_a_tenant_workspace_shows_up_in_its_own_list(stack, tenant_workspace):
     state = journey.fresh_state()
     journey.signup_a(stack, state)
-    _fixture_workspace(stack, state)
+    tenant_workspace(state)
     journey.workspace_is_listed(stack, state)
 
 
 @_waiting_on("W2: _pack() in platform_api answers 404 for anything that is not a demo pack")
-def test_ask_reaches_a_tenant_workspace(stack):
+def test_ask_reaches_a_tenant_workspace(stack, tenant_workspace):
     state = journey.fresh_state()
     journey.signup_a(stack, state)
-    _fixture_workspace(stack, state)
+    tenant_workspace(state)
     journey.run_job(stack, state)
     journey.expect(stack, "POST", f"/workspaces/{state.workspace}/ask", 200, "ask", token=state.a_token,
                    body={"question": "how many claims are there"})
 
 
 @_waiting_on("W2: GET /workspaces/{ws}/ontology/proposal and POST .../accept")
-def test_the_ontology_is_proposed_and_accepted(stack):
+def test_the_ontology_is_proposed_and_accepted(stack, tenant_workspace):
     state = journey.fresh_state()
     journey.signup_a(stack, state)
-    _fixture_workspace(stack, state)
+    tenant_workspace(state)
     journey.run_job(stack, state)
     journey.ontology_accept(stack, state)
 

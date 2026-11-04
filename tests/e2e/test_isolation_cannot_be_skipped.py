@@ -6,6 +6,7 @@ holds it to that.
 from __future__ import annotations
 
 import ast
+import json
 import re
 from pathlib import Path
 
@@ -101,6 +102,60 @@ def test_a_job_body_naming_a_workspace_of_org_a_goes_red(stack):
 
     with pytest.raises(journey.Broken, match="isolation"):
         journey.isolation(Leaky(stack, lie), journey.fresh_state())
+
+
+def _with_a_tenant_workspace(stack, tenant_workspace) -> journey.State:
+    state = journey.fresh_state()
+    journey.signup_a(stack, state)
+    tenant_workspace(state)
+    journey.run_job(stack, state)
+    return state
+
+
+def test_org_b_gets_a_404_on_a_tenant_workspace_that_has_really_run(stack, tenant_workspace):
+    """The product's real resource. A scenario org goes through another branch of the
+    visibility rule, so sweeping only that one would prove nothing about this one."""
+    state = _with_a_tenant_workspace(stack, tenant_workspace)
+    assert journey.isolation(stack, state) == 2 * len(journey.ISOLATION_ROUTES)
+
+
+def test_a_leak_on_the_tenant_workspace_goes_red(stack, tenant_workspace):
+    state = _with_a_tenant_workspace(stack, tenant_workspace)
+
+    def lie(method, path, token, answer):
+        return journey.Answer(200, b"{}") if state.workspace in path and answer.status == 404 else None
+
+    with pytest.raises(journey.Broken, match=state.workspace):
+        journey.isolation(Leaky(stack, lie), state)
+
+
+def test_a_job_that_profiles_an_upload_of_org_a_goes_red(stack):
+    """The gate cannot see params. B queues on its own workspace and names A's upload."""
+    state = journey.fresh_state()
+
+    def lie(method, path, token, answer):
+        if token == state.b_token and method == "GET" and path.startswith("/jobs/") and answer.status == 200:
+            return journey.Answer(200, b'{"state": "succeeded", "error": null}')
+        return None
+
+    with pytest.raises(journey.Broken, match="upload of org A"):
+        journey.isolation(Leaky(stack, lie), state)
+
+
+def test_a_refusal_that_differs_from_a_ghost_upload_goes_red(stack):
+    """A different error tells B that the id is real."""
+    state = journey.fresh_state()
+    answers = iter(["that upload belongs to someone else", "no such upload"])
+
+    def lie(method, path, token, answer):
+        if token == state.b_token and method == "GET" and path.startswith("/jobs/") and answer.status == 200:
+            got = answer.json()
+            if got["state"] == "failed":
+                return journey.Answer(200, json.dumps({"state": "failed", "error": next(answers)}).encode())
+        return None
+
+    with pytest.raises(journey.Broken, match="upload of org A"):
+        journey.isolation(Leaky(stack, lie), state)
 
 
 def test_a_stack_that_answers_404_to_everyone_proves_nothing(stack):
