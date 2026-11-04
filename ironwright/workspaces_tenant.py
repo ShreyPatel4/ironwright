@@ -831,12 +831,13 @@ def _gate_drift(org_id: str, d: Path, pack: Pack) -> None:
     blocked = []
     for src in pack.spec["sources"]:
         source = src["name"]
-        records = _read_versions(d, source)
-        latest = _loaded_version(records, src)
         # The spec, not the record: a record keeps the narrower shape its last run loaded under.
         shape = {"format": src["format"], "layout": src["layout"], "columns": src["columns"]}
-        latest["drift"] = _assess(org_id, d, source, shape, latest["upload"], latest["version"], records)
-        _save_version(d, source, latest)
+        with _versions_lock(d):
+            records = _read_versions(d, source)
+            latest = _loaded_version(records, src)
+            latest["drift"] = _assess(org_id, d, source, shape, latest["upload"], latest["version"], records)
+            _save_version(d, source, latest)
         if latest["drift"]["blocking"]:
             blocked.append(drift.blocking_message(latest["drift"]))
             continue
@@ -877,16 +878,19 @@ def _rebuild_bronze(org_id: str, d: Path, pack: Pack, tracer: Any, base_id: str)
     for src in pack.spec["sources"]:
         with contextlib.suppress(NoSuchTableError):
             lake.catalog.drop_table(f"bronze.{src['name']}")
-        latest = _loaded_version(_read_versions(d, src["name"]), src)
-        latest["runs"] = []
-        _save_version(d, src["name"], latest)
+        with _versions_lock(d):
+            latest = _loaded_version(_read_versions(d, src["name"]), src)
+            latest["runs"] = []
+            _save_version(d, src["name"], latest)
     for k, (src, record, data) in enumerate(replays, 1):
         run_id = f"{base_id}r{k:03d}"
         data = data.append_column("_run_id", pa.array([run_id] * data.num_rows, pa.string()))
         data = data.append_column("_source_system", pa.array([src.get("system", src["name"])] * data.num_rows, pa.string()))
         lake.write_wap(f"bronze.{src['name']}", data, [], run_id, "append", tracer)
-        record["runs"] = [{"run_id": run_id, "rows": data.num_rows}]
-        _save_version(d, src["name"], record)
+        with _versions_lock(d):
+            record = next(r for r in _read_versions(d, src["name"]) if r["version"] == record["version"])
+            record["runs"] = [{"run_id": run_id, "rows": data.num_rows}]
+            _save_version(d, src["name"], record)
 
 
 def _record_runs(d: Path, pack: Pack, report: dict[str, Any]) -> None:
@@ -895,10 +899,11 @@ def _record_runs(d: Path, pack: Pack, report: dict[str, Any]) -> None:
         w = writes.get(f"bronze.{src['name']}")
         if not w or not w["published"]:
             continue
-        latest = _loaded_version(_read_versions(d, src["name"]), src)
-        latest["runs"].append({"run_id": report["run_id"], "rows": w["rows"]})
-        latest["source"] = {"format": src["format"], "layout": src["layout"], "columns": src["columns"]}
-        _save_version(d, src["name"], latest)
+        with _versions_lock(d):
+            latest = _loaded_version(_read_versions(d, src["name"]), src)
+            latest["runs"].append({"run_id": report["run_id"], "rows": w["rows"]})
+            latest["source"] = {"format": src["format"], "layout": src["layout"], "columns": src["columns"]}
+            _save_version(d, src["name"], latest)
 
 
 def _version_layer(org_id: str, d: Path, pack: Pack) -> dict[str, Any] | None:

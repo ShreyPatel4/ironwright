@@ -6,7 +6,9 @@ key and an amount that does not cast, and none of that may read as drift.
 """
 from __future__ import annotations
 
+import fcntl
 import json
+import os
 import shutil
 import threading
 import uuid
@@ -474,6 +476,29 @@ def test_an_upload_during_a_run_is_not_credited_with_that_run(root, monkeypatch)
     report = wt.run_workspace(DEV_ORG_ID, SLUG)
     got = {la["layer"]: la for la in report["layers"]}["version_reconcile"]["metrics"]["sources"]["orders"]
     assert (got["from_version"], got["to_version"]) == (1, 2)
+
+
+def test_a_run_never_saves_a_version_outside_the_lock(root, monkeypatch):
+    """A spec update rewrites the same record. Unlocked, it can drop a run's entry."""
+    make("csv")
+    wt.run_workspace(DEV_ORG_ID, SLUG)
+    add("csv", base_rows(4))
+    d = config.workspace_dir(DEV_ORG_ID, SLUG)
+    real, saves = wt._save_version, []
+
+    def checked(*args):
+        fd = os.open(d / ".source_versions.lock", os.O_RDWR)
+        try:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(fd)
+        saves.append(args[1])
+        real(*args)
+
+    monkeypatch.setattr(wt, "_save_version", checked)
+    assert wt.run_workspace(DEV_ORG_ID, SLUG, mode="full")["passed"] is True
+    assert saves
 
 
 def test_append_is_the_default_and_keeps_every_run(root):
