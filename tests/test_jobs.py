@@ -324,15 +324,6 @@ def test_a_kind_cannot_register_twice(handler):
         handlers.job("t_once")(one)
 
 
-@pytest.mark.parametrize("kind", ["ontology_propose"])
-def test_stubs_fail_out_loud_instead_of_faking_success(store, kind):
-    j = store.enqueue("a", "retail", kind, "user:a", {})
-    Worker(store).run_once()
-    got = store.get("a", j)
-    assert got["state"] == "failed"
-    assert "not built" in got["error"]
-
-
 def test_a_failing_handler_marks_the_job_failed_and_the_worker_lives(store, handler):
     @handler("t_boom")
     def boom(ctx, workspace, params, log):

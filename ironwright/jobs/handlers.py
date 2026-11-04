@@ -159,4 +159,16 @@ def profile(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[
 
 @job("ontology_propose")
 def ontology_propose(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[str], None]) -> Any:
-    raise JobError("ontology_propose is not built yet (wave 3 fills this)")
+    from ..ontology import propose as proposer
+
+    pack = _load(ctx.org_id, workspace)
+    if not pack.is_tenant:
+        raise JobError(f"{workspace} is a demo pack and ships its own ontology")
+    ctx.check_cancel()
+    try:
+        made = proposer.store_proposal(pack, llm=proposer.LLM() if params.get("narrate") else None)
+    except proposer.ProposalError as e:
+        raise JobError(str(e)) from e
+    log(f"[{workspace}] proposed {len(made['objects'])} objects, {len(made['links'])} links")
+    return {"workspace": workspace, "objects": len(made["objects"]), "links": len(made["links"]),
+            "functions": len(made["functions"])}
