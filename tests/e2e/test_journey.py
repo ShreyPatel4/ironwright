@@ -1,5 +1,5 @@
 """The whole journey, in process. Each step not on the hosted stack yet is a strict xfail
-that names who it waits on, so it goes red the day the piece lands and someone has to
+that says who owes it, so it goes red the day the piece lands and someone has to
 take the mark off. Only journey.Broken counts as the expected failure. Anything else is
 a real bug and stays red.
 """
@@ -17,8 +17,7 @@ from ironwright.lake import lake_location
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "tenant_ws"
 
 
-def _waiting_on(who: str):
-    return pytest.mark.xfail(strict=True, raises=journey.Broken, reason=f"waiting on {who}")
+X1 = pytest.mark.xfail(strict=True, raises=journey.Broken, reason="X1: journey routes")
 
 
 def _signed_up_with_upload(stack) -> journey.State:
@@ -51,13 +50,15 @@ def test_upload_answers_for_its_own_org(stack):
     assert sorted(f["name"] for f in got["files"]) == ["customers.csv", "orders.csv"]
 
 
-@_waiting_on("no ticket yet: POST /jobs answers 404 for a workspace that does not exist, and a profile job runs before one can")
+# no ticket yet: POST /jobs answers 404 for a workspace that does not exist, and a profile job runs before one can
+@X1
 def test_a_profile_job_runs_through_the_api(stack):
     state = _signed_up_with_upload(stack)
     journey.profile_job(stack, state)
 
 
-@_waiting_on("nobody yet: no route calls workspaces_tenant.create_workspace. W1's ticket assumes one exists")
+# nobody yet: no route calls workspaces_tenant.create_workspace. W1's ticket assumes one exists
+@X1
 def test_accepting_the_proposal_makes_a_workspace(stack):
     state = _signed_up_with_upload(stack)
     org_id = journey.expect(stack, "GET", "/auth/me", 200, "accept_proposal", token=state.a_token)["org_id"]
@@ -95,7 +96,8 @@ def test_a_run_job_on_a_tenant_workspace_succeeds_with_a_real_worker(stack, tena
     journey.run_job(stack, state)
 
 
-@_waiting_on("T2 or W2: GET /workspaces lists packs and scenario orgs, never a tenant workspace")
+# T2 or W2: GET /workspaces lists packs and scenario orgs, never a tenant workspace
+@X1
 def test_a_tenant_workspace_shows_up_in_its_own_list(stack, tenant_workspace):
     state = journey.fresh_state()
     journey.signup_a(stack, state)
@@ -103,7 +105,8 @@ def test_a_tenant_workspace_shows_up_in_its_own_list(stack, tenant_workspace):
     journey.workspace_is_listed(stack, state)
 
 
-@_waiting_on("W2: _pack() in platform_api answers 404 for anything that is not a demo pack")
+# W2: _pack() in platform_api answers 404 for anything that is not a demo pack
+@X1
 def test_ask_reaches_a_tenant_workspace(stack, tenant_workspace):
     state = journey.fresh_state()
     journey.signup_a(stack, state)
@@ -113,7 +116,8 @@ def test_ask_reaches_a_tenant_workspace(stack, tenant_workspace):
                    body={"question": "how many claims are there"})
 
 
-@_waiting_on("W2: GET /workspaces/{ws}/ontology/proposal and POST .../accept")
+# W2: GET /workspaces/{ws}/ontology/proposal and POST .../accept
+@X1
 def test_the_ontology_is_proposed_and_accepted(stack, tenant_workspace):
     state = journey.fresh_state()
     journey.signup_a(stack, state)
@@ -122,7 +126,8 @@ def test_the_ontology_is_proposed_and_accepted(stack, tenant_workspace):
     journey.ontology_accept(stack, state)
 
 
-@_waiting_on("everything above: this is the acceptance test for the ticket")
+# everything above: this is the acceptance test for the ticket
+@X1
 def test_the_whole_journey_ends_on_a_grounded_answer(stack):
     state = journey.fresh_state()
     for _name, step in journey.STEPS:

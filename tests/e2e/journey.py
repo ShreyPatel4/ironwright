@@ -37,12 +37,10 @@ NOT_FOUND = "no such resource"
 ISOLATION_ROUTES: list[tuple[str, str]] = [tuple(r) for r in json.loads((HERE / "isolation_routes.json").read_text())]
 MIN_ISOLATION_ROUTES = 50
 
-BLOCKED: dict[str, str] = {
-    "profile_job": "no ticket yet: POST /jobs answers 404 for a workspace that does not exist, and a profile job runs before one can",
-    "accept_proposal": "no ticket owns it: no route calls workspaces_tenant.create_workspace, and GET /workspaces never lists one",
-    "ontology_accept": "W2: the proposal and accept routes",
-    "ask": "W2: _pack() in platform_api answers 404 for anything that is not a demo pack",
-}
+# What each one waits on: a profile job needs POST /jobs to take a workspace that does not exist
+# yet. Accepting needs a route that calls create_workspace, and GET /workspaces has to list the
+# result. Ontology needs its routes. Ask needs _pack() to resolve a tenant workspace.
+BLOCKED: dict[str, str] = dict.fromkeys(["profile_job", "accept_proposal", "ontology_accept", "ask"], "X1: journey routes")
 
 
 @dataclass

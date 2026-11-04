@@ -100,8 +100,8 @@ def test_the_script_runs_from_stdin_since_the_image_has_no_scripts_folder():
     assert "__file__" not in text
 
 
-@pytest.mark.xfail(strict=True, raises=journey.Broken,
-                   reason="waiting on W2: the seed accepts a proposed ontology once it exists, and Ask routes to it")
+# The seed accepts a proposed ontology once that exists, and Ask routes to it.
+@pytest.mark.xfail(strict=True, raises=journey.Broken, reason="X1: journey routes")
 def test_the_seeded_org_can_ask_a_grounded_question(seed, stack):
     done = seed()
     token = service.login(done["email"], PASSWORD, time.time())["token"]
