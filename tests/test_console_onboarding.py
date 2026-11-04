@@ -1,17 +1,16 @@
 """The onboarding wizard, in a real headless browser, against a real platform app.
 
-Real here: the built console, signup, login, invites, roles, the app gate, the job
-queue, the worker, the log tail, T2's spec validation and T2's run, down to the
-silver tables in the lake.
+Real here: the built console, signup, login, invites, roles, the app gate, uploads,
+the profiler and its proposal, the job queue, the worker, the log tail, T2's spec
+validation and T2's run, down to the silver tables in the lake.
 
 Not real yet: the routes in the GAP table below. They do not exist on main, so an
 adapter stands in for each and names the ticket that owes the real one. An adapter
-drops out by itself once a real route of that method and path exists, except the two
-marked `replaces`, which change a route that already exists. The profile and proposal
-payloads are real T3 output (bc6fb95), captured into tests/fixtures/onboarding/. The
-ontology proposal and every Ask answer are hand written stubs of W2's contract. So
-this suite proves the wizard, and it does not prove a grounded answer over tenant
-data. W4's journey on the hosted stack is what proves that.
+drops out by itself once a real route of that method and path exists, except those
+marked `replaces`, which change a route that already exists. The ontology proposal
+and every Ask answer are hand written stubs of W2's contract. So this suite proves
+the wizard, and it does not prove a grounded answer over tenant data. W4's journey on
+the hosted stack is what proves that.
 
 Each test states the break it catches in its name.
 """
@@ -22,7 +21,6 @@ import shutil
 import subprocess
 import threading
 import time
-import uuid
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -48,8 +46,7 @@ JobBody = job_routes.JobBody
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures"
 T2_FILES = sorted((FIXTURES / "tenant_ws" / "uploads" / "fixture").glob("*.csv"))
-JOIN_FILES = sorted((FIXTURES / "onboarding" / "join").glob("*.csv"))
-PLACEHOLDER_UPLOAD = "a" * 32
+JOIN_FILES = sorted((FIXTURES / "ingest" / "join").glob("*.csv"))
 PASSWORD = "correct horse battery"
 SLOW = 60_000  # a real pipeline run sits behind some of these waits
 
@@ -99,11 +96,6 @@ class Stack:
         self.worker_thread.start()
 
 
-def _capture_for(names: list[str]) -> dict[str, Any]:
-    file = "join_capture.json" if "customers.csv" in names else "t2_capture.json"
-    return json.loads((FIXTURES / "onboarding" / file).read_text())
-
-
 def _uploads_root(org_id: str) -> Path:
     return cfg.uploads_root(org_id)
 
@@ -142,51 +134,14 @@ def _install_gaps(app: Any, stack: Stack) -> None:
     def missing() -> HTTPException:
         return HTTPException(404, "no such resource")
 
-    def upload_folder(c: Ctx, upload_id: str) -> Path:
-        try:
-            return cfg.safe_child(_uploads_root(c.org_id), upload_id)
-        except cfg.UnsafePath as e:
-            raise missing() from e
-
-    def read_upload_json(c: Ctx, upload_id: str, name: str) -> Any:
-        try:
-            return json.loads((upload_folder(c, upload_id) / name).read_text())
-        except FileNotFoundError as e:
-            raise missing() from e
-
-    async def post_upload(request: Request, c: CtxDep) -> dict[str, Any]:
-        form = await request.form()
-        upload_id = uuid.uuid4().hex
-        cfg.ensure_tenant(c.org_id)
-        files = []
-        for part in form.getlist("files"):
-            data = await part.read()
-            path = cfg.upload_file(c.org_id, f"{upload_id}/{part.filename}")
-            cfg.private_dir(path.parent)
-            path.write_bytes(data)
-            files.append({"name": part.filename, "bytes": len(data)})
-        made = {"id": upload_id, "files": files}
-        (upload_folder(c, upload_id) / "manifest.json").write_text(json.dumps(made))
-        return made
-
     def list_uploads(c: CtxDep) -> list[dict[str, Any]]:
         root = _uploads_root(c.org_id)
         found = sorted(root.glob("*/manifest.json"), key=lambda p: p.stat().st_mtime, reverse=True)
         return [json.loads(p.read_text()) for p in found]
 
-    def get_upload(upload_id: str, c: CtxDep) -> Any:
-        return read_upload_json(c, upload_id, "manifest.json")
-
-    def get_profile(upload_id: str, c: CtxDep) -> Any:
-        return read_upload_json(c, upload_id, "profile.json")
-
-    def get_proposal(upload_id: str, c: CtxDep) -> Any:
-        return read_upload_json(c, upload_id, "proposal.json")
-
     def create_job(body: JobBody, c: CtxDep) -> dict[str, str]:
         # _check_workspace needs a workspace folder, and Profile comes before Map.
         if body.kind == "profile":
-            upload_folder(c, body.params.get("upload_id", ""))
             return {"id": JobStore().enqueue(c.org_id, body.workspace, "profile", c.principal, body.params)}
         return create_job_real(body, c)
 
@@ -243,11 +198,7 @@ def _install_gaps(app: Any, stack: Stack) -> None:
                 "verification": {"level": "L1", "meaning": "your files, structural checks only"}}
 
     gaps = [
-        ("POST", "/uploads", "T3", post_upload, False),
         ("GET", "/uploads", "ask: no list route", list_uploads, False),
-        ("GET", "/uploads/{upload_id}", "T3", get_upload, False),
-        ("GET", "/uploads/{upload_id}/profile", "T3", get_profile, False),
-        ("GET", "/uploads/{upload_id}/proposal", "T3", get_proposal, False),
         ("POST", "/jobs", "ask: profile before a workspace exists", create_job, True),
         ("GET", "/workspaces", "ask: tenant workspaces are not listed", list_workspaces, True),
         ("POST", "/workspaces", "ask: wt.create_workspace has no route", create_workspace, True),
@@ -263,21 +214,10 @@ def _install_gaps(app: Any, stack: Stack) -> None:
         app.add_api_route(path, fn, methods=[method])
         app.router.routes.insert(0, app.router.routes.pop())
 
-    def profile_handler(ctx: Any, workspace: str, params: dict[str, Any], log: Any) -> dict[str, Any]:
-        folder = cfg.safe_child(_uploads_root(ctx.org_id), params["upload_id"])
-        names = [f["name"] for f in json.loads((folder / "manifest.json").read_text())["files"]]
-        log(f"profiling {len(names)} files")
-        text = json.dumps(_capture_for(names)).replace(PLACEHOLDER_UPLOAD, params["upload_id"])
-        capture = json.loads(text)
-        (folder / "profile.json").write_text(json.dumps(capture["profile"]))
-        (folder / "proposal.json").write_text(json.dumps(capture["proposal"]))
-        return {"files": len(names)}
-
     def propose_handler(ctx: Any, workspace: str, params: dict[str, Any], log: Any) -> dict[str, Any]:
         log("proposed 2 objects and 1 link")
         return {"objects": 2, "links": 1}
 
-    handlers.HANDLERS["profile"] = profile_handler
     handlers.HANDLERS["ontology_propose"] = propose_handler
 
 
@@ -529,7 +469,7 @@ def test_a_run_whose_evals_failed_cannot_continue(browser, stack):
     def failed_evals(route):
         reply = route.fetch()
         job = reply.json()
-        if job.get("result"):
+        if job.get("kind") == "run" and job.get("result"):
             job["result"]["evals"]["passed"] = False
         route.fulfill(response=reply, json=job)
 
@@ -584,6 +524,17 @@ def test_map_refuses_a_bad_rename_before_it_asks_the_server(browser, stack):
     page.get_by_label("rename policies.holder").fill("Not A Name")
     expect()(page.get_by_text("Not A Name is not a usable column name")).to_be_visible()
     expect()(button).to_be_disabled()
+
+
+def test_map_says_which_files_the_draft_left_out(browser, stack, tmp_path):
+    """The proposal drops a file the run cannot read. Nobody should learn that later."""
+    odd = tmp_path / "wide.csv"
+    odd.write_text("a,b\n1,2\n3,4\n", encoding="utf-32")
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    upload(page, [*JOIN_FILES, odd])
+    to_map(page)
+    expect()(page.get_by_text("The run cannot read utf-32")).to_be_visible()
 
 
 def test_map_shows_the_servers_refusal(browser, stack):

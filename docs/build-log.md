@@ -270,6 +270,14 @@ smaller miss: `$` with `re.match` lets a trailing newline through.
 shape checks use `fullmatch`. Lesson: "locked" and "hidden" are different promises, and a gate in
 front of a module is not a test of the module.
 
+## 22. A fast worker skipped the step I wanted you to read
+
+**Symptom.** The wizard test uploaded two files and waited for the Profile heading. It got Map. Some runs passed and most failed.
+
+**Cause.** After an upload the wizard asked the server which step comes next. That is the right question on a resume and the wrong one here. When the worker finished the profile before the reload came back, the server's honest answer was Map, so you never saw the types, keys and joins you were meant to check.
+
+**Fix.** Upload now names the step it wants, and every other step still asks the server. Lesson: "the furthest step you could be on" and "the step you should look at now" are different questions. They only look the same when the worker is slow.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.

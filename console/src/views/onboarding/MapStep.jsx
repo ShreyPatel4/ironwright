@@ -10,14 +10,12 @@ import { canAdmin, Loading, Panel } from "./shared.jsx";
 
 const TYPES = ["string", "int", "bigint", "double", "boolean", "date", "timestamp"];
 const IDENT = /^[a-z][a-z0-9_]{0,62}$/;
-// The profiler spells it bool, and the workspace spec only accepts boolean.
-const specType = (t) => (t === "bool" ? "boolean" : t);
 const quoted = (name) => `"${name}"`;
 
 function toDraft(workspace) {
   return workspace.sources.map((s) => ({
     ...s,
-    columns: s.columns.map((c) => ({ source: c.name, name: c.name, type: specType(c.type),
+    columns: s.columns.map((c) => ({ source: c.name, name: c.name, type: c.type,
                                      key: !!c.key, keep: true })),
   }));
 }
@@ -125,7 +123,7 @@ export default function MapStep({ journey, advance }) {
     } catch (e) { setErr(e); setBusy(false); }
   }
 
-  const gaps = proposal?.decisions.filter((d) => d.contract_gap) ?? [];
+  const gaps = proposal?.decisions.filter((d) => d.contract_gap || d.value === "left out") ?? [];
   return (
     <>
       <h2>Map</h2>
