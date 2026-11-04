@@ -79,6 +79,9 @@ def validate_params(kind: str, params: dict[str, Any]) -> None:
     seed = params.get("seed")
     if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool)):
         raise ValueError("seed must be an integer")
+    mode = params.get("mode")
+    if mode is not None and mode not in wt.RUN_MODES:
+        raise ValueError(f"mode must be one of {', '.join(wt.RUN_MODES)}")
 
 
 def _load(org_id: str, workspace: str) -> Any:
@@ -101,12 +104,17 @@ def _run_tenant(ctx: JobCtx, pack: Any, params: dict[str, Any], log: Callable[[s
     and it never wipes run/. It is one call, so cancel lands before it or not at all."""
     if params.get("stages"):
         raise JobError("a tenant workspace runs as a whole; stages cannot be chosen")
+    mode = params.get("mode", "append")
     ctx.check_cancel()
-    log(f"[{pack.name}] started")
+    log(f"[{pack.name}] started, mode {mode}")
     t0 = time.perf_counter()
-    report = wt.run_workspace(ctx.org_id, pack.name)
+    try:
+        report = wt.run_workspace(ctx.org_id, pack.name, mode=mode)
+    except wt.DriftBlocked as e:
+        log(f"[{pack.name}] stopped by drift")
+        raise JobError(str(e)) from e
     log(f"[{pack.name}] done in {round(time.perf_counter() - t0, 2)}s, evals passed: {report['passed']}")
-    return {"workspace": pack.name, "stages": [], "evals": {"passed": report["passed"]},
+    return {"workspace": pack.name, "stages": [], "mode": mode, "evals": {"passed": report["passed"]},
             "layers": report["layers"], "verification": derive_verification(pack)}
 
 
@@ -117,6 +125,8 @@ def run(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[str]
     pack = _load(ctx.org_id, workspace)
     if pack.is_tenant:
         return _run_tenant(ctx, pack, params, log)
+    if params.get("mode"):
+        raise JobError("run modes are for tenant workspaces; a demo pack regenerates from scratch")
     available = pipeline_stages()
     stages = params.get("stages") or list(available)
     missing = [s for s in stages if s not in available]

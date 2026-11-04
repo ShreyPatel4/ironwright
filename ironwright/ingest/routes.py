@@ -6,13 +6,17 @@ what an id nobody has answers.
 """
 from __future__ import annotations
 
+import contextlib
 import json
+from collections.abc import Iterator
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from .. import auth
+from .. import workspaces_tenant as wt
 from ..config import UnsafePath
 from ..tenancy import Ctx, quotas
 from . import uploads
@@ -69,3 +73,56 @@ def get_profile(upload_id: str, c: CtxDep) -> dict[str, Any]:
 @router.get("/uploads/{upload_id}/proposal")
 def get_proposal(upload_id: str, c: CtxDep) -> dict[str, Any]:
     return _read(c.org_id, upload_id, "proposal.json")
+
+
+# ---------------------------------------------------------------- source versions
+# The app-wide gate scopes every /workspaces/{name} route to the caller's org. Past it an
+# org may learn its own state, so these answers read differently from the gate's NOT_FOUND
+# (the isolation sweep holds them apart). The upload ref in the body resolves under
+# ctx.org_id, so another org's id reads as one nobody has.
+NOT_TENANT = "this is not one of your workspaces, so it has no source versions"
+
+
+class VersionBody(BaseModel):
+    upload: str
+
+
+class SpecBody(BaseModel):
+    columns: list[dict[str, Any]] | None = None
+    layout: dict[str, Any] | None = None
+
+
+@contextlib.contextmanager
+def _answers() -> Iterator[None]:
+    try:
+        yield
+    except FileNotFoundError as e:
+        raise HTTPException(404, NOT_TENANT) from e
+    except wt.NoSuchSource as e:
+        raise HTTPException(404, str(e)) from e
+    except wt.WorkspaceError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@router.get("/workspaces/{name}/sources/{source}/versions")
+def list_versions(name: str, source: str, c: CtxDep) -> dict[str, Any]:
+    with _answers():
+        return {"source": source, "versions": wt.source_versions(c.org_id, name, source)}
+
+
+@router.post("/workspaces/{name}/sources/{source}/versions", status_code=201)
+def add_version(name: str, source: str, body: VersionBody, c: CtxDep) -> dict[str, Any]:
+    with _answers():
+        return wt.add_source_version(c.org_id, name, source, body.upload, c.principal)
+
+
+@router.post("/workspaces/{name}/sources/{source}/spec")
+def update_spec(name: str, source: str, body: SpecBody, c: CtxDep) -> dict[str, Any]:
+    with _answers():
+        return wt.update_source_spec(c.org_id, name, source, columns=body.columns, layout=body.layout)
+
+
+@router.get("/workspaces/{name}/drift")
+def workspace_drift(name: str, c: CtxDep) -> dict[str, Any]:
+    with _answers():
+        return wt.drift_overview(c.org_id, name)
