@@ -25,6 +25,7 @@ from starlette.routing import Mount
 
 from ironwright import auth
 from ironwright.config import data_root
+from ironwright.ingest import profiler
 from ironwright.platform_api import NOT_FOUND, READ_ONLY_POSTS, create_platform_app
 
 PASSWORD = "correct-horse-9"
@@ -46,6 +47,7 @@ UNSCOPED = {
     "/auth/logout": "acts on the caller's own session",
     "/workspaces": "filtered by ctx; the canary sweep proves it",
     "/jobs": "filtered by ctx; world queues a canary job, and the POST body is checked in the handler",
+    "/uploads": "POST only, and it answers with what the caller just stored",
 }
 # Param routes that scope themselves: template -> f(client, a_session) -> path values
 # of a real resource in org A.
@@ -56,14 +58,25 @@ def _a_job(c, a) -> dict[str, str]:
     return {"job_id": r.json()["id"]}
 
 
+def _a_profiled_upload(c, a):
+    made = c.post("/uploads", headers=bearer(a), files=[("files", (f"{A_WS}.csv", b"id,name\n1,ann\n"))])
+    assert made.status_code == 201, made.text
+    profiler.profile(a["org_id"], made.json()["id"], lambda *_: None)
+    return {"upload_id": made.json()["id"]}
+
+
 SELF_SCOPED: dict[str, object] = {
     "/jobs/{job_id}": _a_job,
     "/jobs/{job_id}/log": _a_job,
     "/jobs/{job_id}/cancel": _a_job,
+    "/uploads/{upload_id}": _a_profiled_upload,
+    "/uploads/{upload_id}/profile": _a_profiled_upload,
+    "/uploads/{upload_id}/proposal": _a_profiled_upload,
 }
 
 
-def bearer(token: str) -> dict[str, str]:
+def bearer(session: str | dict) -> dict[str, str]:
+    token = session["token"] if isinstance(session, dict) else session
     return {"Authorization": f"Bearer {token}"}
 
 

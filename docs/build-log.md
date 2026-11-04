@@ -195,6 +195,32 @@ thread that dies leaves fewer claimers, which hides the very race the test exist
 job per org, so only the cap can stop a claim. Lesson: a concurrency test has to prove every thread
 finished, not just check the final tally. And delete the safeguard once to see the test go red.
 
+## 16. The profiler looked right until I ran it on a real file
+
+**Symptom.** My hand built fixtures passed. Then I pointed the profiler at what the retail generator
+really writes. `STORMAST.dat` got a boundary in the middle of `Brightline #101`, and a join came back
+between `field_3` and `field_1`. The join was real, by luck.
+
+**Cause.** One blank column after text that never changes is not a field gutter, it is a word break
+in a constant. And `difflib` scores `field_3` and `field_1` as similar, but I made those names up, so
+they are no evidence of anything. My own review found a third one the same day: capping a column's
+values at the first N seen meant two big files in different row orders compared different slices of
+the ids and reported no overlap.
+
+**Fix.** A lone gutter after constant text is not a boundary. Generated names and siblings like
+`addr_1` and `addr_2` score zero. The value cap is now a fixed hash sample, so both sides keep the same
+slice. The real generator files are in the test suite now. It pins the two boundaries alignment can
+never see too (abutting unpadded digits, abutting single letters), so that limit is written down and
+not a surprise. Lesson: a fixture I built only proves what I already thought of.
+
+## 17. My proposal passed my copy of the schema and failed the real one
+
+**Symptom.** T2 merged, so I ran a proposal through it end to end. `create_workspace` refused two of my three fixtures. One had `type: bool`, the other had `header` in a fixed width layout. A UTF-32 file would have failed too.
+
+**Cause.** Until then the check was `validate_contract3`, my own strict copy of contract 3. I wrote it from the same reading of the contract as the code it checked, so it agreed with me. The contract never spells out a flag type, and T2 chose `boolean`.
+
+**Fix.** The proposal now says `boolean`, leaves `header` off fixed width layouts, and leaves out a file the run cannot read, with a decision saying why. A fixed width header is on the record as a contract gap. The test now calls T2's validator, and each fixture goes from upload to a green `run_workspace`. Lesson: a stand-in for someone else's check only proves I agree with myself, so replace it the day the real one lands.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.

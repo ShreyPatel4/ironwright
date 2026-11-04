@@ -324,7 +324,7 @@ def test_a_kind_cannot_register_twice(handler):
         handlers.job("t_once")(one)
 
 
-@pytest.mark.parametrize("kind", ["profile", "ontology_propose"])
+@pytest.mark.parametrize("kind", ["ontology_propose"])
 def test_stubs_fail_out_loud_instead_of_faking_success(store, kind):
     j = store.enqueue("a", "retail", kind, "user:a", {})
     Worker(store).run_once()

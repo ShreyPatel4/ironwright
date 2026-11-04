@@ -15,6 +15,8 @@ from typing import Any
 
 from .. import verification
 from .. import workspaces_tenant as wt
+from ..config import UnsafePath
+from ..ingest import profiler
 from ..packs import list_packs, load_pack
 from ..tenancy import DEV_ORG_ID
 from ..tracing import Tracer
@@ -142,7 +144,17 @@ def run(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[str]
 
 @job("profile")
 def profile(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[str], None]) -> Any:
-    raise JobError("profile is not built yet (T3 fills this)")
+    """Contract 5. The upload id comes from the body, and the org from the job, so
+    another org's id answers exactly what an id nobody has answers. One call, so
+    cancel lands before it or not at all."""
+    upload_id = params.get("upload_id")
+    if not isinstance(upload_id, str):
+        raise JobError("profile needs params.upload_id")
+    ctx.check_cancel()
+    try:
+        return profiler.profile(ctx.org_id, upload_id, log)
+    except (UnsafePath, FileNotFoundError) as e:
+        raise JobError("no such upload") from e
 
 
 @job("ontology_propose")

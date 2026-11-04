@@ -1,0 +1,207 @@
+{
+ "candidate_joins": [],
+ "files": [
+  {
+   "bad_rows": {
+    "count": 0,
+    "lines": []
+   },
+   "candidate_keys": [
+    {
+     "column": "field_1",
+     "confidence": 0.6,
+     "reason": "Unique and never null in every row read."
+    },
+    {
+     "column": "field_2",
+     "confidence": 0.6,
+     "reason": "Unique and never null in every row read."
+    },
+    {
+     "column": "field_3",
+     "confidence": 0.6,
+     "reason": "Unique and never null in every row read."
+    },
+    {
+     "column": "field_6",
+     "confidence": 0.6,
+     "reason": "Unique and never null in every row read."
+    }
+   ],
+   "columns": [
+    {
+     "confidence": 0.95,
+     "distinct": 8,
+     "distinct_ratio": 1.0,
+     "name": "field_1",
+     "null_rate": 0.0,
+     "null_tokens": {},
+     "nulls": 0,
+     "reason": "Every value is a whole number with no leading zeros.",
+     "samples": [
+      "100234",
+      "100871",
+      "101502",
+      "102119",
+      "103446"
+     ],
+     "source_name": "field_1",
+     "type": "int"
+    },
+    {
+     "confidence": 0.9,
+     "distinct": 8,
+     "distinct_ratio": 1.0,
+     "name": "field_2",
+     "null_rate": 0.0,
+     "null_tokens": {},
+     "nulls": 0,
+     "reason": "Numbers with leading zeros stay strings. The zeros may mean something, as in an id or a UPC. Cast it later if it is a quantity.",
+     "samples": [
+      "0000123",
+      "0000004",
+      "0000987",
+      "0000050",
+      "0002210"
+     ],
+     "source_name": "field_2",
+     "type": "string"
+    },
+    {
+     "confidence": 0.8,
+     "distinct": 8,
+     "distinct_ratio": 1.0,
+     "name": "field_3",
+     "null_rate": 0.0,
+     "null_tokens": {},
+     "nulls": 0,
+     "reason": "Some values fit no narrower type, so string keeps every byte.",
+     "samples": [
+      "WIDGET BLUE 12OZ",
+      "HEAVY DUTY CLAMP SET",
+      "GASKET",
+      "SEAL KIT 3 PACK",
+      "BRASS FITTING"
+     ],
+     "source_name": "field_3",
+     "type": "string"
+    },
+    {
+     "confidence": 0.9,
+     "distinct": 4,
+     "distinct_ratio": 0.5,
+     "name": "field_4",
+     "null_rate": 0.0,
+     "null_tokens": {},
+     "nulls": 0,
+     "reason": "Numbers with leading zeros stay strings. The zeros may mean something, as in an id or a UPC. Cast it later if it is a quantity.",
+     "samples": [
+      "04417",
+      "07120",
+      "09031",
+      "01188"
+     ],
+     "source_name": "field_4",
+     "type": "string"
+    },
+    {
+     "confidence": 0.8,
+     "distinct": 2,
+     "distinct_ratio": 0.25,
+     "name": "field_5",
+     "null_rate": 0.0,
+     "null_tokens": {},
+     "nulls": 0,
+     "reason": "Some values fit no narrower type, so string keeps every byte.",
+     "samples": [
+      "A",
+      "I"
+     ],
+     "source_name": "field_5",
+     "type": "string"
+    },
+    {
+     "confidence": 0.9,
+     "distinct": 8,
+     "distinct_ratio": 1.0,
+     "name": "field_6",
+     "null_rate": 0.0,
+     "null_tokens": {},
+     "nulls": 0,
+     "reason": "Numbers with leading zeros stay strings. The zeros may mean something, as in an id or a UPC. Cast it later if it is a quantity.",
+     "samples": [
+      "000001299",
+      "000008450",
+      "000000035",
+      "000002210",
+      "000000499"
+     ],
+     "source_name": "field_6",
+     "type": "string"
+    }
+   ],
+   "encoding_confidence": 0.9,
+   "encoding_reason": "Every byte is ASCII, which UTF-8 reads the same way.",
+   "format": "fixed_width",
+   "format_confidence": 0.8,
+   "format_reason": "No delimiter fits, most lines share one length, and the columns line up.",
+   "header_confidence": 0.7,
+   "header_reason": "Mainframe records usually carry no names, so fields are numbered.",
+   "layout": {
+    "encoding": "utf-8",
+    "fields": [
+     {
+      "boundary": "record_start",
+      "confidence": 1.0,
+      "name": "field_1",
+      "start": 0,
+      "width": 6
+     },
+     {
+      "boundary": "zero_pad",
+      "confidence": 0.5,
+      "name": "field_2",
+      "start": 6,
+      "width": 7
+     },
+     {
+      "boundary": "class_change",
+      "confidence": 0.8,
+      "name": "field_3",
+      "start": 13,
+      "width": 20
+     },
+     {
+      "boundary": "class_change",
+      "confidence": 0.8,
+      "name": "field_4",
+      "start": 33,
+      "width": 5
+     },
+     {
+      "boundary": "class_change",
+      "confidence": 0.8,
+      "name": "field_5",
+      "start": 38,
+      "width": 1
+     },
+     {
+      "boundary": "class_change",
+      "confidence": 0.8,
+      "name": "field_6",
+      "start": 39,
+      "width": 9
+     }
+    ],
+    "header": false
+   },
+   "leader_rows": 0,
+   "name": "ITEMMAST.DAT",
+   "rows": 8,
+   "source": "itemmast",
+   "trailer_rows": 1,
+   "truncated": false
+  }
+ ],
+ "skipped": []
+}
