@@ -153,7 +153,7 @@ Lesson: a surface with no test is a claim, not a feature.
 
 **Fix.** I rebased, deleted my limiter, and pointed S5's at signup and accept-invite too, so there is one limiter on one clock. Lesson: fetch and rebase before the last test run, because the tree I test has to be the tree that merges.
 
-## 10. The contract's own example did not parse
+## 13. The contract's own example did not parse
 
 **Symptom.** The first run of the tenant fixture failed with `sources.claims.columns: unknown key 2)`.
 The fixture used the column spelling from contract 3 word for word.
@@ -169,7 +169,7 @@ type and carried on. Lesson: load the examples in a contract before you build on
 already existed with mode 0755 stayed open, so every org's folder name could be listed. `ensure_tenant`
 now tightens the whole tree on every create.
 
-## 11. A grant that outlived the run
+## 14. A grant that outlived the run
 
 **Symptom.** `make demo-check` was green on a clean data dir and red on the second run. The step
 "a grant is policy the serving engine consults" reported BROKEN, because the first check, which should

@@ -20,9 +20,6 @@ FILE_NAME = re.compile(r"\w[\w. ()+,=@-]{0,254}")
 ORG_ID = re.compile(r"[0-9a-f]{32}")
 WS_SLUG = re.compile(r"[a-z][a-z0-9-]{2,39}")
 
-# The fixed dev org until T1 wires ctx(). Shaped like a real org id on purpose.
-DEV_ORG = "0" * 32
-
 # workspaces.py writes this into a scenario organization it may later rmtree.
 # A platform folder holding one belongs to that organization, so nothing of
 # ours may land in it.

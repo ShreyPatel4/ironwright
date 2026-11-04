@@ -10,6 +10,7 @@ import argparse
 import json
 import shutil
 import stat
+import time
 from pathlib import Path
 
 import pytest
@@ -18,9 +19,10 @@ import yaml
 from ironwright import config, legacy, orgpolicy, verification, workspaces
 from ironwright import workspaces_tenant as wt
 from ironwright.cli import STAGES
-from ironwright.config import DEV_ORG, PackPaths, UnsafePath
+from ironwright.config import PackPaths, UnsafePath
 from ironwright.lake import Lakehouse
 from ironwright.packs import NoGenerator, load_pack
+from ironwright.tenancy import DEV_ORG_ID, service
 from ironwright.tracing import Tracer
 from ironwright.workspaces_tenant import WorkspaceError
 
@@ -37,7 +39,7 @@ def root(tmp_path, monkeypatch):
     return d.resolve()
 
 
-def seed_uploads(org: str = DEV_ORG) -> Path:
+def seed_uploads(org: str = DEV_ORG_ID) -> Path:
     dest = config.uploads_root(org) / "fixture"
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(FIXTURE / "uploads" / "fixture", dest)
@@ -53,7 +55,7 @@ def bundle() -> dict:
             "policies": yaml.safe_load((FIXTURE / "policies.yaml").read_text())}
 
 
-def create(org: str = DEV_ORG, slug: str = SLUG, **overrides) -> dict:
+def create(org: str = DEV_ORG_ID, slug: str = SLUG, **overrides) -> dict:
     b = {**bundle(), **overrides}
     return wt.create_workspace(org, slug, b["spec"], models=b["models"],
                                ontology=b["ontology"], policies=b["policies"])
@@ -76,7 +78,7 @@ def minimal(**top) -> dict:
 
 
 def create_minimal(spec: dict | None = None, **kw) -> dict:
-    return wt.create_workspace(DEV_ORG, SLUG, spec if spec is not None else minimal(), **kw)
+    return wt.create_workspace(DEV_ORG_ID, SLUG, spec if spec is not None else minimal(), **kw)
 
 
 # ------------------------------------------------------------ storage layout
@@ -103,8 +105,8 @@ def test_regenerating_a_demo_pack_drops_its_generated_grants(root):
 def test_tenant_paths_follow_the_contract_layout(root):
     seed_uploads()
     create()
-    pack = wt.load_workspace(DEV_ORG, SLUG)
-    base = root / "tenants" / DEV_ORG / "workspaces" / SLUG
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
+    base = root / "tenants" / DEV_ORG_ID / "workspaces" / SLUG
     assert pack.dir == base
     assert pack.paths.root == base / "run"
     assert pack.paths.lake == base / "run" / "lake"
@@ -116,10 +118,10 @@ def test_tenant_paths_follow_the_contract_layout(root):
 def test_ensure_closes_every_new_level_to_other_users(root):
     seed_uploads()
     create()
-    wt.load_workspace(DEV_ORG, SLUG).paths.ensure()
-    for d in (root / "tenants", root / "tenants" / DEV_ORG, root / "tenants" / DEV_ORG / "workspaces",
-              root / "tenants" / DEV_ORG / "workspaces" / SLUG,
-              root / "tenants" / DEV_ORG / "workspaces" / SLUG / "run"):
+    wt.load_workspace(DEV_ORG_ID, SLUG).paths.ensure()
+    for d in (root / "tenants", root / "tenants" / DEV_ORG_ID, root / "tenants" / DEV_ORG_ID / "workspaces",
+              root / "tenants" / DEV_ORG_ID / "workspaces" / SLUG,
+              root / "tenants" / DEV_ORG_ID / "workspaces" / SLUG / "run"):
         assert stat.S_IMODE(d.stat().st_mode) == 0o700, d
 
 
@@ -132,7 +134,7 @@ def test_org_ids_must_be_uuid_hex(root, org):
 def test_a_run_root_swapped_for_a_symlink_is_refused(root, tmp_path):
     seed_uploads()
     create()
-    pack = wt.load_workspace(DEV_ORG, SLUG)
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
     pack.paths.ensure()
     run = pack.paths.root
     shutil.rmtree(run)
@@ -157,7 +159,7 @@ def test_a_scenario_org_cannot_adopt_the_tenants_folder(root):
         workspaces.create_organization("tenants", "regional_retail_chain", 4, 7)
     with pytest.raises(FileNotFoundError):
         workspaces.delete_organization("tenants")
-    assert wt.list_workspaces(DEV_ORG)
+    assert wt.list_workspaces(DEV_ORG_ID)
 
 
 # ------------------------------------------------------------ strict spec
@@ -178,7 +180,7 @@ def test_bad_top_level_fails_loud(root, patch):
     seed_uploads()
     with pytest.raises(WorkspaceError):
         create_minimal(minimal(**patch))
-    assert wt.list_workspaces(DEV_ORG) == []
+    assert wt.list_workspaces(DEV_ORG_ID) == []
 
 
 @pytest.mark.parametrize("missing", ["kind", "version", "title", "sources"])
@@ -234,7 +236,7 @@ quality: []
 reconcile: []
 """)
     create_minimal(spec)
-    col = wt.load_workspace(DEV_ORG, SLUG).spec["sources"][0]["columns"][1]
+    col = wt.load_workspace(DEV_ORG_ID, SLUG).spec["sources"][0]["columns"][1]
     assert col == {"name": "amount", "type": "decimal(12,2)"}
 
 
@@ -341,22 +343,22 @@ def test_a_wrong_yaml_type_in_the_ontology_is_a_spec_error_not_a_crash(root):
 def test_a_folder_among_the_models_is_a_spec_error_not_a_crash(root):
     seed_uploads()
     create()
-    (wt.load_workspace(DEV_ORG, SLUG).dir / "models" / "silver" / "sub.sql").mkdir()
+    (wt.load_workspace(DEV_ORG_ID, SLUG).dir / "models" / "silver" / "sub.sql").mkdir()
     with pytest.raises(WorkspaceError):
-        wt.load_workspace(DEV_ORG, SLUG)
+        wt.load_workspace(DEV_ORG_ID, SLUG)
 
 
 def test_quality_mapping_form_is_accepted_like_pack_yaml(root):
     seed_uploads()
     create_minimal(minimal(quality={"bronze.claims": [{"check": "not_null", "column": "claim_id"}]}))
-    pack = wt.load_workspace(DEV_ORG, SLUG)
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
     assert {"check": "not_null", "column": "claim_id"} in pack.spec["quality"]["bronze.claims"]
 
 
 def test_quality_list_form_reaches_the_engine_as_the_mapping_it_reads(root):
     seed_uploads()
     create()
-    q = wt.load_workspace(DEV_ORG, SLUG).spec["quality"]
+    q = wt.load_workspace(DEV_ORG_ID, SLUG).spec["quality"]
     assert isinstance(q, dict)
     assert {"check": "unique", "column": "claim_id"} in q["silver.claims"]
 
@@ -448,7 +450,7 @@ def test_bad_policies_fail_loud(root, policies):
 def test_load_returns_a_pack_the_engine_can_run(root):
     seed_uploads()
     create()
-    pack = wt.load_workspace(DEV_ORG, SLUG)
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
     assert pack.name == SLUG and pack.title == "Acme claims"
     assert pack.usecases == {}
     assert [s["name"] for s in pack.spec["sources"]] == ["claims", "policies"]
@@ -460,7 +462,7 @@ def test_load_returns_a_pack_the_engine_can_run(root):
 def test_a_tenant_pack_never_runs_a_generator_even_if_one_is_planted(root, tmp_path):
     seed_uploads()
     create()
-    pack = wt.load_workspace(DEV_ORG, SLUG)
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
     canary = tmp_path / "ran"
     (pack.dir / "generator.py").write_text(f"open({str(canary)!r}, 'w').close()\n")
     with pytest.raises(NoGenerator):
@@ -475,40 +477,40 @@ def test_a_demo_pack_still_has_its_generator(root):
 def test_load_rejects_a_workspace_yaml_edited_into_something_bad(root):
     seed_uploads()
     create()
-    f = wt.load_workspace(DEV_ORG, SLUG).dir / "workspace.yaml"
+    f = wt.load_workspace(DEV_ORG_ID, SLUG).dir / "workspace.yaml"
     spec = yaml.safe_load(f.read_text())
     spec["surprise"] = 1
     f.write_text(yaml.safe_dump(spec))
     with pytest.raises(WorkspaceError):
-        wt.load_workspace(DEV_ORG, SLUG)
+        wt.load_workspace(DEV_ORG_ID, SLUG)
 
 
 def test_load_rejects_an_oversized_workspace_yaml(root):
     seed_uploads()
     create()
-    f = wt.load_workspace(DEV_ORG, SLUG).dir / "workspace.yaml"
+    f = wt.load_workspace(DEV_ORG_ID, SLUG).dir / "workspace.yaml"
     f.write_text("title: " + "x" * (2 * 1024 * 1024))
     with pytest.raises(WorkspaceError):
-        wt.load_workspace(DEV_ORG, SLUG)
+        wt.load_workspace(DEV_ORG_ID, SLUG)
 
 
 def test_load_rejects_a_symlinked_workspace_yaml(root, tmp_path):
     seed_uploads()
     create()
-    d = wt.load_workspace(DEV_ORG, SLUG).dir
+    d = wt.load_workspace(DEV_ORG_ID, SLUG).dir
     outside = tmp_path / "outside.yaml"
     outside.write_text((d / "workspace.yaml").read_text())
     (d / "workspace.yaml").unlink()
     (d / "workspace.yaml").symlink_to(outside)
     with pytest.raises(WorkspaceError):
-        wt.load_workspace(DEV_ORG, SLUG)
+        wt.load_workspace(DEV_ORG_ID, SLUG)
 
 
 def test_a_workspace_with_no_ontology_yet_still_loads(root):
     """Run comes before ontology in the flow: the ontology is proposed later."""
     seed_uploads()
     create_minimal()
-    pack = wt.load_workspace(DEV_ORG, SLUG)
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
     assert pack.ontology == {} and pack.policies == {}
 
 
@@ -516,34 +518,34 @@ def test_a_workspace_with_no_ontology_yet_still_loads(root):
 def test_bad_slugs_fail_on_every_road(root, slug):
     seed_uploads()
     with pytest.raises(WorkspaceError):
-        wt.create_workspace(DEV_ORG, slug, minimal())
+        wt.create_workspace(DEV_ORG_ID, slug, minimal())
     for fn in (wt.load_workspace, wt.read_workspace, wt.delete_workspace):
         with pytest.raises(FileNotFoundError):
-            fn(DEV_ORG, slug)
+            fn(DEV_ORG_ID, slug)
 
 
 # ------------------------------------------------------------ CRUD
 
 def test_crud_round_trip(root):
     seed_uploads()
-    assert wt.list_workspaces(DEV_ORG) == []
+    assert wt.list_workspaces(DEV_ORG_ID) == []
     create()
-    assert [w["slug"] for w in wt.list_workspaces(DEV_ORG)] == [SLUG]
-    assert wt.list_workspaces(DEV_ORG)[0]["title"] == "Acme claims"
-    got = wt.read_workspace(DEV_ORG, SLUG)
+    assert [w["slug"] for w in wt.list_workspaces(DEV_ORG_ID)] == [SLUG]
+    assert wt.list_workspaces(DEV_ORG_ID)[0]["title"] == "Acme claims"
+    got = wt.read_workspace(DEV_ORG_ID, SLUG)
     assert got["slug"] == SLUG and got["title"] == "Acme claims"
     assert got["spec"]["sources"][0]["upload"] == "fixture/claims.csv"
-    wt.delete_workspace(DEV_ORG, SLUG)
-    assert wt.list_workspaces(DEV_ORG) == []
+    wt.delete_workspace(DEV_ORG_ID, SLUG)
+    assert wt.list_workspaces(DEV_ORG_ID) == []
     with pytest.raises(FileNotFoundError):
-        wt.read_workspace(DEV_ORG, SLUG)
-    assert (root / "tenants" / DEV_ORG / "uploads" / "fixture" / "claims.csv").exists()
+        wt.read_workspace(DEV_ORG_ID, SLUG)
+    assert (root / "tenants" / DEV_ORG_ID / "uploads" / "fixture" / "claims.csv").exists()
 
 
 def test_what_a_reader_gets_never_names_a_server_path(root):
     seed_uploads()
     create()
-    assert str(root) not in json.dumps([wt.read_workspace(DEV_ORG, SLUG), wt.list_workspaces(DEV_ORG)])
+    assert str(root) not in json.dumps([wt.read_workspace(DEV_ORG_ID, SLUG), wt.list_workspaces(DEV_ORG_ID)])
 
 
 def test_create_refuses_to_adopt_an_existing_slug(root):
@@ -555,7 +557,7 @@ def test_create_refuses_to_adopt_an_existing_slug(root):
 
 def test_create_refuses_to_adopt_a_foreign_folder(root):
     seed_uploads()
-    d = config.workspaces_root(DEV_ORG) / SLUG
+    d = config.workspaces_root(DEV_ORG_ID) / SLUG
     d.mkdir(parents=True)
     (d / "precious.txt").write_text("keep")
     with pytest.raises(WorkspaceError):
@@ -567,25 +569,25 @@ def test_a_failed_create_leaves_nothing_behind(root):
     seed_uploads()
     with pytest.raises(WorkspaceError):
         create(models={"silver": {"x.sql": "drop table y"}})
-    assert not (config.workspaces_root(DEV_ORG) / SLUG).exists()
+    assert not (config.workspaces_root(DEV_ORG_ID) / SLUG).exists()
 
 
 def test_delete_refuses_a_folder_without_our_marker(root):
     seed_uploads()
-    d = config.workspaces_root(DEV_ORG) / SLUG
+    d = config.workspaces_root(DEV_ORG_ID) / SLUG
     d.mkdir(parents=True)
     (d / "workspace.yaml").write_text("kind: workspace\n")
     with pytest.raises(FileNotFoundError):
-        wt.delete_workspace(DEV_ORG, SLUG)
+        wt.delete_workspace(DEV_ORG_ID, SLUG)
     assert (d / "workspace.yaml").exists()
-    assert wt.list_workspaces(DEV_ORG) == []
+    assert wt.list_workspaces(DEV_ORG_ID) == []
 
 
 def test_delete_refuses_a_marker_copied_from_another_workspace_or_org(root):
     seed_uploads()
     create()
-    src = config.workspaces_root(DEV_ORG) / SLUG / wt.MARKER
-    for org, slug in ((DEV_ORG, "copied"), (OTHER_ORG, SLUG)):
+    src = config.workspaces_root(DEV_ORG_ID) / SLUG / wt.MARKER
+    for org, slug in ((DEV_ORG_ID, "copied"), (OTHER_ORG, SLUG)):
         d = config.workspaces_root(org) / slug
         d.mkdir(parents=True)
         shutil.copy(src, d / wt.MARKER)
@@ -598,18 +600,18 @@ def test_delete_refuses_a_marker_copied_from_another_workspace_or_org(root):
 def test_delete_refuses_a_symlinked_marker_and_a_symlinked_workspace(root, tmp_path):
     seed_uploads()
     create()
-    real = config.workspaces_root(DEV_ORG) / SLUG
-    (config.workspaces_root(DEV_ORG) / "a-link").symlink_to(real)
+    real = config.workspaces_root(DEV_ORG_ID) / SLUG
+    (config.workspaces_root(DEV_ORG_ID) / "a-link").symlink_to(real)
     with pytest.raises(FileNotFoundError):
-        wt.delete_workspace(DEV_ORG, "a-link")
-    assert [w["slug"] for w in wt.list_workspaces(DEV_ORG)] == [SLUG]
+        wt.delete_workspace(DEV_ORG_ID, "a-link")
+    assert [w["slug"] for w in wt.list_workspaces(DEV_ORG_ID)] == [SLUG]
     marker = real / wt.MARKER
     outside = tmp_path / "m"
     outside.write_text(marker.read_text())
     marker.unlink()
     marker.symlink_to(outside)
     with pytest.raises(FileNotFoundError):
-        wt.delete_workspace(DEV_ORG, SLUG)
+        wt.delete_workspace(DEV_ORG_ID, SLUG)
     assert real.exists()
 
 
@@ -620,7 +622,22 @@ def test_one_org_cannot_see_or_touch_anothers_workspace(root):
     for fn in (wt.load_workspace, wt.read_workspace, wt.delete_workspace):
         with pytest.raises(FileNotFoundError):
             fn(OTHER_ORG, SLUG)
-    assert wt.read_workspace(DEV_ORG, SLUG)
+    assert wt.read_workspace(DEV_ORG_ID, SLUG)
+
+
+def test_an_org_from_a_real_signup_owns_its_workspace_and_nobody_else_sees_it(root):
+    now = time.time()
+    a = service.resolve(service.signup("a@a.example", "correct horse battery", "Acme", now)["token"], now)
+    b = service.resolve(service.signup("b@b.example", "correct horse battery", "Birch", now)["token"], now)
+    seed_uploads(a.org_id)
+    create(a.org_id)
+
+    assert service.can_see_workspace(a, SLUG)
+    assert not service.can_see_workspace(b, SLUG)
+    assert [w["slug"] for w in wt.list_workspaces(a.org_id)] == [SLUG]
+    assert wt.list_workspaces(b.org_id) == []
+    with pytest.raises(FileNotFoundError):
+        wt.load_workspace(b.org_id, SLUG)
 
 
 def test_list_for_an_org_id_that_is_not_one_is_empty(root):
@@ -630,15 +647,15 @@ def test_list_for_an_org_id_that_is_not_one_is_empty(root):
 # ------------------------------------------------------------ ingest
 
 def write_upload(name: str, data: bytes) -> str:
-    d = config.uploads_root(DEV_ORG) / "u1"
+    d = config.uploads_root(DEV_ORG_ID) / "u1"
     d.mkdir(parents=True, exist_ok=True)
     (d / name).write_bytes(data)
     return f"u1/{name}"
 
 
 def rows_of(src: dict) -> list[dict]:
-    wt.create_workspace(DEV_ORG, SLUG, minimal(sources=[src]))
-    pack = wt.load_workspace(DEV_ORG, SLUG)
+    wt.create_workspace(DEV_ORG_ID, SLUG, minimal(sources=[src]))
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
     return legacy.read_source(pack.spec["sources"][0], pack.paths.legacy).to_pylist()
 
 
@@ -711,9 +728,9 @@ def test_ingest_errors_name_the_source_not_the_server_path(root):
 
 def test_read_refuses_an_upload_swapped_for_a_symlink_after_create(root, tmp_path):
     ref = write_upload("c.csv", b"claim_id\nC1\n")
-    wt.create_workspace(DEV_ORG, SLUG, minimal(sources=[source(upload=ref)]))
-    pack = wt.load_workspace(DEV_ORG, SLUG)
-    f = config.uploads_root(DEV_ORG) / ref
+    wt.create_workspace(DEV_ORG_ID, SLUG, minimal(sources=[source(upload=ref)]))
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
+    f = config.uploads_root(DEV_ORG_ID) / ref
     secret = tmp_path / "s.csv"
     secret.write_text("claim_id\nleaked\n")
     f.unlink()
@@ -734,7 +751,7 @@ def test_existing_demo_readers_are_untouched(tmp_path):
 def test_a_tenant_workspace_is_l1_and_says_why(root):
     seed_uploads()
     create()
-    v = verification.derive(wt.load_workspace(DEV_ORG, SLUG))
+    v = verification.derive(wt.load_workspace(DEV_ORG_ID, SLUG))
     assert v["level"] == "L1" and v["ground_truth"] is False
     assert "structural and reconciliation" in v["meaning"]
 
@@ -742,7 +759,7 @@ def test_a_tenant_workspace_is_l1_and_says_why(root):
 def test_planted_artifacts_cannot_raise_a_tenant_workspace_above_l1(root):
     seed_uploads()
     create()
-    pack = wt.load_workspace(DEV_ORG, SLUG)
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
     pack.paths.ensure()
     pack.paths.ground_truth.write_text("{}")
     (pack.paths.reports / "evals.json").write_text(json.dumps({"passed": True}))
@@ -767,11 +784,11 @@ def test_a_demo_pack_derivation_is_unchanged(root):
 def ran(root):
     seed_uploads()
     create()
-    return wt.run_workspace(DEV_ORG, SLUG)
+    return wt.run_workspace(DEV_ORG_ID, SLUG)
 
 
 def test_the_fixture_runs_green_end_to_end_on_real_rows(ran):
-    pack = wt.load_workspace(DEV_ORG, SLUG)
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
     assert ran["passed"] is True
     layers = {la["layer"]: la for la in ran["layers"]}
     assert set(layers) == {"pipeline", "migration", "structure"}
@@ -805,7 +822,7 @@ def test_the_fixture_runs_green_end_to_end_on_real_rows(ran):
 
 
 def test_the_report_is_on_disk_and_claims_no_ground_truth(ran):
-    pack = wt.load_workspace(DEV_ORG, SLUG)
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
     saved = json.loads((pack.paths.reports / "evals.json").read_text())
     assert saved["passed"] is True and saved["planted"] == []
     assert not pack.paths.ground_truth.exists()
@@ -814,31 +831,31 @@ def test_the_report_is_on_disk_and_claims_no_ground_truth(ran):
 
 
 def test_everything_the_run_writes_stays_under_the_orgs_prefix(root, ran):
-    tenant = root / "tenants" / DEV_ORG
+    tenant = root / "tenants" / DEV_ORG_ID
     outside = [p for p in root.rglob("*") if p.is_file() and tenant not in p.parents]
     assert outside == []
-    export = wt.load_workspace(DEV_ORG, SLUG).paths.reports / f"{SLUG}.json"
+    export = wt.load_workspace(DEV_ORG_ID, SLUG).paths.reports / f"{SLUG}.json"
     assert json.loads(export.read_text())["pack"] == SLUG
 
 
 def test_two_orgs_with_one_slug_share_nothing(root):
     seed_uploads()
     create()
-    wt.run_workspace(DEV_ORG, SLUG)
+    wt.run_workspace(DEV_ORG_ID, SLUG)
     seed_uploads(OTHER_ORG)
     other = config.uploads_root(OTHER_ORG) / "fixture" / "claims.csv"
     other.write_bytes(b"Claim ID,Policy Ref,Amount,Loss Date,Status\nZ-1,P-100,1,2026-01-01,open\n")
     create(OTHER_ORG)
     wt.run_workspace(OTHER_ORG, SLUG)
-    mine = Lakehouse(wt.load_workspace(DEV_ORG, SLUG)).read("silver.claims").column("claim_id").to_pylist()
+    mine = Lakehouse(wt.load_workspace(DEV_ORG_ID, SLUG)).read("silver.claims").column("claim_id").to_pylist()
     theirs = Lakehouse(wt.load_workspace(OTHER_ORG, SLUG)).read("silver.claims").column("claim_id").to_pylist()
     assert "Z-1" not in mine and theirs == ["Z-1"]
 
 
 def test_a_second_run_stays_green(ran):
-    again = wt.run_workspace(DEV_ORG, SLUG)
+    again = wt.run_workspace(DEV_ORG_ID, SLUG)
     assert again["passed"] is True
-    pack = wt.load_workspace(DEV_ORG, SLUG)
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
     assert Lakehouse(pack).read("silver.claims").num_rows == 5
 
 
@@ -847,7 +864,7 @@ def test_an_unexplained_reconcile_difference_is_not_green(root):
     b = bundle()
     b["spec"]["reconcile"][0]["lake_sql"] = "select 'all' k, count(*) + 1 n from silver_claims"
     create(spec=b["spec"])
-    rep = wt.run_workspace(DEV_ORG, SLUG)
+    rep = wt.run_workspace(DEV_ORG_ID, SLUG)
     layers = {la["layer"]: la["passed"] for la in rep["layers"]}
     assert rep["passed"] is False and layers["migration"] is False
 
@@ -859,7 +876,7 @@ def test_a_blocked_model_is_not_green(root):
     b = bundle()
     b["spec"]["quality"].append({"table": "silver.claims", "check": "row_count_min", "min": 100})
     create(spec=b["spec"])
-    rep = wt.run_workspace(DEV_ORG, SLUG)
+    rep = wt.run_workspace(DEV_ORG_ID, SLUG)
     layers = {la["layer"]: la for la in rep["layers"]}
     assert rep["passed"] is False and layers["structure"]["passed"] is False
     assert "silver.claims" in layers["structure"]["headline"]
@@ -871,7 +888,7 @@ def test_a_model_with_no_rows_is_not_green(root):
     b["models"]["gold"] = {"01_claims_by_policy.sql": "select 1 as policy_no where false"}
     b["spec"]["quality"] = [q for q in b["spec"]["quality"] if q["table"] != "gold.claims_by_policy"]
     create(spec=b["spec"], models=b["models"])
-    rep = wt.run_workspace(DEV_ORG, SLUG)
+    rep = wt.run_workspace(DEV_ORG_ID, SLUG)
     assert rep["passed"] is False
 
 
@@ -880,15 +897,15 @@ def test_an_object_type_with_no_objects_is_not_green(root):
     b = bundle()
     b["ontology"]["object_types"]["Claim"]["sources"][0]["where"] = "claim_id = 'none'"
     create(ontology=b["ontology"])
-    assert wt.run_workspace(DEV_ORG, SLUG)["passed"] is False
+    assert wt.run_workspace(DEV_ORG_ID, SLUG)["passed"] is False
 
 
 def test_a_run_with_no_ontology_yet_is_green_and_builds_none(root):
     seed_uploads()
     b = bundle()
     create(ontology=None, policies=None, spec=b["spec"])
-    pack = wt.load_workspace(DEV_ORG, SLUG)
-    assert wt.run_workspace(DEV_ORG, SLUG)["passed"] is True
+    pack = wt.load_workspace(DEV_ORG_ID, SLUG)
+    assert wt.run_workspace(DEV_ORG_ID, SLUG)["passed"] is True
     assert not pack.paths.ontology_db.exists()
 
 
@@ -900,4 +917,4 @@ def test_tenant_sql_cannot_read_the_disk_during_a_run(root, tmp_path):
     b["models"]["silver"]["03_steal.sql"] = f"select content from read_text('{secret}')"
     create(models=b["models"])
     with pytest.raises(Exception, match="(?i)external|disabled|permission"):
-        wt.run_workspace(DEV_ORG, SLUG)
+        wt.run_workspace(DEV_ORG_ID, SLUG)
