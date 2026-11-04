@@ -1,0 +1,571 @@
+{
+ "manifest": {
+  "files": [
+   {
+    "name": "customers.csv"
+   },
+   {
+    "name": "orders.csv"
+   }
+  ],
+  "id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+ },
+ "profile": {
+  "candidate_joins": [
+   {
+    "confidence": 0.8,
+    "left": "customers.csv.customer_id",
+    "name_score": 0.85,
+    "orphans": 1,
+    "overlap": 0.8,
+    "reason": "The names are similar and 4 distinct values match after dropping leading zeros. Values on the many side with no match: 1.",
+    "right": "orders.csv.cust_no",
+    "sampled": false,
+    "unique_side": "customers.csv.customer_id"
+   }
+  ],
+  "files": [
+   {
+    "bad_rows": {
+     "count": 0,
+     "lines": []
+    },
+    "candidate_keys": [
+     {
+      "column": "customer_id",
+      "confidence": 0.9,
+      "reason": "Unique and never null in every row read. The name also reads like a key."
+     },
+     {
+      "column": "name",
+      "confidence": 0.6,
+      "reason": "Unique and never null in every row read."
+     }
+    ],
+    "columns": [
+     {
+      "confidence": 0.95,
+      "distinct": 6,
+      "distinct_ratio": 1.0,
+      "name": "customer_id",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Every value is a whole number with no leading zeros.",
+      "samples": [
+       "1001",
+       "1002",
+       "1003",
+       "1004",
+       "1005"
+      ],
+      "source_name": "customer_id",
+      "type": "int"
+     },
+     {
+      "confidence": 0.8,
+      "distinct": 6,
+      "distinct_ratio": 1.0,
+      "name": "name",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Some values fit no narrower type, so string keeps every byte.",
+      "samples": [
+       "Ann Lee",
+       "Bob Ray",
+       "Cy Diaz",
+       "Di Park",
+       "Ed Moss"
+      ],
+      "source_name": "name",
+      "type": "string"
+     },
+     {
+      "confidence": 0.8,
+      "distinct": 3,
+      "distinct_ratio": 0.5,
+      "name": "region",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Some values fit no narrower type, so string keeps every byte.",
+      "samples": [
+       "NE",
+       "SW",
+       "MW"
+      ],
+      "source_name": "region",
+      "type": "string"
+     },
+     {
+      "confidence": 0.8,
+      "distinct": 2,
+      "distinct_ratio": 0.3333,
+      "name": "status",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Some values fit no narrower type, so string keeps every byte.",
+      "samples": [
+       "A",
+       "I"
+      ],
+      "source_name": "status",
+      "type": "string"
+     },
+     {
+      "confidence": 0.95,
+      "distinct": 6,
+      "distinct_ratio": 1.0,
+      "format": "%Y-%m-%d",
+      "formats": {
+       "%Y-%m-%d": 6
+      },
+      "name": "signup_date",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Every value parses as a date in one format.",
+      "samples": [
+       "2021-03-04",
+       "2021-07-19",
+       "2022-01-30",
+       "2022-11-02",
+       "2023-05-11"
+      ],
+      "source_name": "signup_date",
+      "type": "date"
+     }
+    ],
+    "encoding_confidence": 0.9,
+    "encoding_reason": "Every byte is ASCII, which UTF-8 reads the same way.",
+    "format": "csv",
+    "format_confidence": 0.95,
+    "format_reason": "One delimiter gives the same field count on most rows.",
+    "header_confidence": 0.95,
+    "header_reason": "The first row is text above a column of typed values.",
+    "layout": {
+     "delimiter": ",",
+     "encoding": "utf-8",
+     "header": true
+    },
+    "leader_rows": 0,
+    "name": "customers.csv",
+    "rows": 6,
+    "source": "customers",
+    "trailer_rows": 0,
+    "truncated": false
+   },
+   {
+    "bad_rows": {
+     "count": 0,
+     "lines": []
+    },
+    "candidate_keys": [
+     {
+      "column": "order_id",
+      "confidence": 0.9,
+      "reason": "Unique and never null in every row read. The name also reads like a key."
+     }
+    ],
+    "columns": [
+     {
+      "confidence": 0.95,
+      "distinct": 7,
+      "distinct_ratio": 1.0,
+      "name": "order_id",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Every value is a whole number with no leading zeros.",
+      "samples": [
+       "50001",
+       "50002",
+       "50003",
+       "50004",
+       "50005"
+      ],
+      "source_name": "order_id",
+      "type": "int"
+     },
+     {
+      "confidence": 0.9,
+      "distinct": 5,
+      "distinct_ratio": 0.7143,
+      "name": "cust_no",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Numbers with leading zeros stay strings. The zeros may mean something, as in an id or a UPC. Cast it later if it is a quantity.",
+      "samples": [
+       "001001",
+       "001002",
+       "001004",
+       "001003",
+       "009999"
+      ],
+      "source_name": "cust_no",
+      "type": "string"
+     },
+     {
+      "confidence": 0.8,
+      "distinct": 3,
+      "distinct_ratio": 0.4286,
+      "name": "region",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Some values fit no narrower type, so string keeps every byte.",
+      "samples": [
+       "NE",
+       "SW",
+       "MW"
+      ],
+      "source_name": "region",
+      "type": "string"
+     },
+     {
+      "confidence": 0.8,
+      "distinct": 2,
+      "distinct_ratio": 0.2857,
+      "name": "status",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Some values fit no narrower type, so string keeps every byte.",
+      "samples": [
+       "OPEN",
+       "SHIPPED"
+      ],
+      "source_name": "status",
+      "type": "string"
+     },
+     {
+      "confidence": 0.95,
+      "distinct": 6,
+      "distinct_ratio": 0.8571,
+      "name": "qty",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Every value is a whole number with no leading zeros.",
+      "samples": [
+       "2",
+       "1",
+       "4",
+       "3",
+       "6"
+      ],
+      "source_name": "qty",
+      "type": "int"
+     },
+     {
+      "confidence": 0.95,
+      "distinct": 7,
+      "distinct_ratio": 1.0,
+      "name": "total",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Every value is a plain number with a decimal point in some rows. Precision and scale are the widest seen.",
+      "samples": [
+       "19.98",
+       "5.00",
+       "44.10",
+       "12.75",
+       "7.25"
+      ],
+      "source_name": "total",
+      "type": "decimal(4,2)"
+     },
+     {
+      "confidence": 0.95,
+      "distinct": 7,
+      "distinct_ratio": 1.0,
+      "format": "%Y-%m-%d",
+      "formats": {
+       "%Y-%m-%d": 7
+      },
+      "name": "order_date",
+      "null_rate": 0.0,
+      "null_tokens": {},
+      "nulls": 0,
+      "reason": "Every value parses as a date in one format.",
+      "samples": [
+       "2024-01-05",
+       "2024-01-06",
+       "2024-01-09",
+       "2024-01-11",
+       "2024-01-12"
+      ],
+      "source_name": "order_date",
+      "type": "date"
+     }
+    ],
+    "encoding_confidence": 0.9,
+    "encoding_reason": "Every byte is ASCII, which UTF-8 reads the same way.",
+    "format": "csv",
+    "format_confidence": 0.95,
+    "format_reason": "One delimiter gives the same field count on most rows.",
+    "header_confidence": 0.95,
+    "header_reason": "The first row is text above a column of typed values.",
+    "layout": {
+     "delimiter": ",",
+     "encoding": "utf-8",
+     "header": true
+    },
+    "leader_rows": 0,
+    "name": "orders.csv",
+    "rows": 7,
+    "source": "orders",
+    "trailer_rows": 0,
+    "truncated": false
+   }
+  ],
+  "skipped": [],
+  "upload_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+ },
+ "proposal": {
+  "decisions": [
+   {
+    "confidence": 0.95,
+    "path": "sources[0].format",
+    "reason": "One delimiter gives the same field count on most rows.",
+    "value": "csv"
+   },
+   {
+    "confidence": 0.9,
+    "path": "sources[0].layout.encoding",
+    "reason": "Every byte is ASCII, which UTF-8 reads the same way.",
+    "value": "utf-8"
+   },
+   {
+    "confidence": 0.95,
+    "path": "sources[0].layout.header",
+    "reason": "The first row is text above a column of typed values.",
+    "value": true
+   },
+   {
+    "confidence": 0.95,
+    "path": "sources[0].layout.delimiter",
+    "reason": "One delimiter gives the same field count on most rows.",
+    "value": ","
+   },
+   {
+    "confidence": 0.95,
+    "path": "sources[0].columns[0].type",
+    "reason": "Every value is a whole number with no leading zeros.",
+    "value": "int"
+   },
+   {
+    "confidence": 0.9,
+    "path": "sources[0].columns[0].key",
+    "reason": "Unique and never null in every row read. The name also reads like a key.",
+    "value": true
+   },
+   {
+    "confidence": 0.8,
+    "path": "sources[0].columns[1].type",
+    "reason": "Some values fit no narrower type, so string keeps every byte.",
+    "value": "string"
+   },
+   {
+    "confidence": 0.8,
+    "path": "sources[0].columns[2].type",
+    "reason": "Some values fit no narrower type, so string keeps every byte.",
+    "value": "string"
+   },
+   {
+    "confidence": 0.8,
+    "path": "sources[0].columns[3].type",
+    "reason": "Some values fit no narrower type, so string keeps every byte.",
+    "value": "string"
+   },
+   {
+    "confidence": 0.95,
+    "path": "sources[0].columns[4].type",
+    "reason": "Every value parses as a date in one format.",
+    "value": "date"
+   },
+   {
+    "confidence": 0.95,
+    "contract_gap": true,
+    "path": "sources[0].columns[4].format",
+    "reason": "Contract 3 has no field for a date format, so the format is recorded here.",
+    "value": "%Y-%m-%d"
+   },
+   {
+    "confidence": 0.95,
+    "path": "sources[1].format",
+    "reason": "One delimiter gives the same field count on most rows.",
+    "value": "csv"
+   },
+   {
+    "confidence": 0.9,
+    "path": "sources[1].layout.encoding",
+    "reason": "Every byte is ASCII, which UTF-8 reads the same way.",
+    "value": "utf-8"
+   },
+   {
+    "confidence": 0.95,
+    "path": "sources[1].layout.header",
+    "reason": "The first row is text above a column of typed values.",
+    "value": true
+   },
+   {
+    "confidence": 0.95,
+    "path": "sources[1].layout.delimiter",
+    "reason": "One delimiter gives the same field count on most rows.",
+    "value": ","
+   },
+   {
+    "confidence": 0.95,
+    "path": "sources[1].columns[0].type",
+    "reason": "Every value is a whole number with no leading zeros.",
+    "value": "int"
+   },
+   {
+    "confidence": 0.9,
+    "path": "sources[1].columns[0].key",
+    "reason": "Unique and never null in every row read. The name also reads like a key.",
+    "value": true
+   },
+   {
+    "confidence": 0.9,
+    "path": "sources[1].columns[1].type",
+    "reason": "Numbers with leading zeros stay strings. The zeros may mean something, as in an id or a UPC. Cast it later if it is a quantity.",
+    "value": "string"
+   },
+   {
+    "confidence": 0.8,
+    "path": "sources[1].columns[2].type",
+    "reason": "Some values fit no narrower type, so string keeps every byte.",
+    "value": "string"
+   },
+   {
+    "confidence": 0.8,
+    "path": "sources[1].columns[3].type",
+    "reason": "Some values fit no narrower type, so string keeps every byte.",
+    "value": "string"
+   },
+   {
+    "confidence": 0.95,
+    "path": "sources[1].columns[4].type",
+    "reason": "Every value is a whole number with no leading zeros.",
+    "value": "int"
+   },
+   {
+    "confidence": 0.95,
+    "path": "sources[1].columns[5].type",
+    "reason": "Every value is a plain number with a decimal point in some rows. Precision and scale are the widest seen.",
+    "value": "decimal(4,2)"
+   },
+   {
+    "confidence": 0.95,
+    "path": "sources[1].columns[6].type",
+    "reason": "Every value parses as a date in one format.",
+    "value": "date"
+   },
+   {
+    "confidence": 0.95,
+    "contract_gap": true,
+    "path": "sources[1].columns[6].format",
+    "reason": "Contract 3 has no field for a date format, so the format is recorded here.",
+    "value": "%Y-%m-%d"
+   },
+   {
+    "confidence": 0.8,
+    "path": "candidate_joins[0]",
+    "reason": "The names are similar and 4 distinct values match after dropping leading zeros. Values on the many side with no match: 1. Contract 3 has no joins, so this waits for the ontology step.",
+    "value": {
+     "left": "customers.csv.customer_id",
+     "right": "orders.csv.cust_no"
+    }
+   }
+  ],
+  "workspace": {
+   "kind": "workspace",
+   "quality": [],
+   "reconcile": [],
+   "sources": [
+    {
+     "columns": [
+      {
+       "key": true,
+       "name": "customer_id",
+       "type": "int"
+      },
+      {
+       "name": "name",
+       "type": "string"
+      },
+      {
+       "name": "region",
+       "type": "string"
+      },
+      {
+       "name": "status",
+       "type": "string"
+      },
+      {
+       "name": "signup_date",
+       "type": "date"
+      }
+     ],
+     "format": "csv",
+     "layout": {
+      "delimiter": ",",
+      "encoding": "utf-8",
+      "header": true
+     },
+     "name": "customers",
+     "upload": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/customers.csv"
+    },
+    {
+     "columns": [
+      {
+       "key": true,
+       "name": "order_id",
+       "type": "int"
+      },
+      {
+       "name": "cust_no",
+       "type": "string"
+      },
+      {
+       "name": "region",
+       "type": "string"
+      },
+      {
+       "name": "status",
+       "type": "string"
+      },
+      {
+       "name": "qty",
+       "type": "int"
+      },
+      {
+       "name": "total",
+       "type": "decimal(4,2)"
+      },
+      {
+       "name": "order_date",
+       "type": "date"
+      }
+     ],
+     "format": "csv",
+     "layout": {
+      "delimiter": ",",
+      "encoding": "utf-8",
+      "header": true
+     },
+     "name": "orders",
+     "upload": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/orders.csv"
+    }
+   ],
+   "title": "Draft from customers, orders",
+   "version": 1
+  }
+ }
+}

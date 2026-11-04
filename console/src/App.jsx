@@ -21,6 +21,7 @@ import Training from "./views/Training.jsx";
 import BIEmbed from "./views/BIEmbed.jsx";
 import Onboarding from "./views/Onboarding.jsx";
 import Login from "./views/Login.jsx";
+import Join from "./views/onboarding/Join.jsx";
 import { setPrincipal, getPrincipal } from "./api.js";
 
 const VIEWS = [
@@ -124,6 +125,12 @@ function NewOrganization({ onCreated, startOpen = false }) {
 
 const KIND_LABEL = { pack: "demo company", organization: "your organization" };
 
+// An invite link is /console/#invite=<token>. A fragment never reaches a server log.
+function inviteToken() {
+  const m = /^#invite=(.+)$/.exec(location.hash);
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
 function onboarded() {
   try { return localStorage.getItem("iw.onboarded") === "1"; } catch { return true; }
 }
@@ -137,6 +144,7 @@ export default function App() {
   const [view, setView] = useState(null);
   const [err, setErr] = useState(null);
   const [welcome, setWelcome] = useState(() => !onboarded());
+  const [invite, setInvite] = useState(inviteToken);
   const [orgFormOpen, setOrgFormOpen] = useState(false);
   const [session, setSession] = useState(() => {
     try {
@@ -153,8 +161,12 @@ export default function App() {
   }
   function signOut() {
     if (session?.token) api.logout().catch(() => {});
-    try { localStorage.removeItem("iw.session"); localStorage.removeItem("iw.last"); } catch { /* fine */ }
-    setSession(null); setWsName(null); setView(null);
+    try {
+      localStorage.removeItem("iw.session");
+      localStorage.removeItem("iw.last");
+      localStorage.removeItem("iw.onboarded");
+    } catch { /* fine */ }
+    setSession(null); setWsName(null); setView(null); setWelcome(true);
   }
 
   // Sessions live in the server process; after a restart a stored token is
@@ -215,6 +227,18 @@ export default function App() {
     if ((id === "byod" || id === "map") && retail) { setWsName(retail.name); setView("platform"); }
   }
 
+  if (invite) {
+    return (
+      <main style={{ margin: "0 auto" }}>
+        {devBadge}
+        <Join onEnter={(s) => {
+          history.replaceState(null, "", location.pathname);
+          setInvite(null); setWelcome(true); signIn(s);
+        }} token={invite} />
+      </main>
+    );
+  }
+
   if (!session) {
     return <main style={{ margin: "0 auto" }}>{devBadge}<Login onEnter={signIn} /></main>;
   }
@@ -222,8 +246,8 @@ export default function App() {
   if (welcome && workspaces) {
     return (
       <main style={{ margin: "0 auto" }}>
-        <Onboarding onChoose={chooseStart}
-                    onSkip={() => { setOnboarded(); setWelcome(false); }} />
+        <Onboarding onChoose={chooseStart} onSignOut={signOut}
+                    onSkip={() => { setOnboarded(); setWelcome(false); refresh(); }} />
       </main>
     );
   }
@@ -297,8 +321,8 @@ export default function App() {
               if (created) openWorkspace(created);
             }} startOpen={orgFormOpen} />
             <p className="note" style={{ marginTop: 16 }}>
-              New here? <a href="#welcome" onClick={(e) => { e.preventDefault(); setWelcome(true); }}>
-              Replay the welcome tour</a>.
+              Want your own data in here? <a href="#welcome" onClick={(e) => { e.preventDefault(); setWelcome(true); }}>
+              Open the setup wizard</a>.
             </p>
           </>
         )}
