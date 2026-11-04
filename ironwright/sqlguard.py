@@ -18,6 +18,11 @@ MAX_ROWS = 500
 MEMORY_LIMIT = "1GB"
 THREADS = 2
 TIMEOUT_SECONDS = 10
+# At most this many SQL requests running for one org, per API process. Each can
+# hold MEMORY_LIMIT and THREADS, so this is what one tenant can cost the others.
+MAX_CONCURRENT_PER_ORG = 3
+# One run walks every tile in turn, each with its own TIMEOUT_SECONDS.
+MAX_BOARD_TILES = 24
 
 _log = logging.getLogger("ironwright.sql")
 _SELECT_ONLY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
@@ -25,9 +30,39 @@ _SELECT_ONLY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 _SEMICOLONS = frozenset(";;؛︔﹔；")
 
 
+_slots: dict[str, int] = {}
+_slots_lock = threading.Lock()
+
+
 class SqlRejected(ValueError):
     """The statement never reached a connection. The message is ours, so it
     is safe to show."""
+
+
+class SqlBusy(Exception):
+    """The org already has MAX_CONCURRENT_PER_ORG SQL requests running."""
+
+
+def take_slot(org_id: str) -> None:
+    """Never waits: a queue would hold a server thread for every request over the cap."""
+    with _slots_lock:
+        if _slots.get(org_id, 0) >= MAX_CONCURRENT_PER_ORG:
+            raise SqlBusy(org_id)
+        _slots[org_id] = _slots.get(org_id, 0) + 1
+
+
+def give_slot(org_id: str) -> None:
+    with _slots_lock:
+        left = _slots.get(org_id, 0) - 1
+        if left > 0:
+            _slots[org_id] = left
+        else:
+            _slots.pop(org_id, None)
+
+
+def slots_held() -> dict[str, int]:
+    with _slots_lock:
+        return dict(_slots)
 
 
 def guard_select(sql: str) -> str:
@@ -56,10 +91,12 @@ def guard_select(sql: str) -> str:
 
 def apply_limits(con: duckdb.DuckDBPyConnection) -> None:
     """Must run before the configuration is locked. Spill stays off so a big
-    sort cannot fill the disk."""
+    sort cannot fill the disk. The directories are blank because duckdb_settings()
+    is readable by any SELECT, and a default holds the server's home path."""
     con.execute(f"set memory_limit = '{MEMORY_LIMIT}'")
     con.execute(f"set threads = {THREADS}")
-    con.execute("set temp_directory = ''")
+    for directory in ("temp_directory", "home_directory", "extension_directory", "secret_directory"):
+        con.execute(f"set {directory} = ''")
 
 
 def run_capped(con: duckdb.DuckDBPyConnection, sql: str,

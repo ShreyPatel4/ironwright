@@ -37,11 +37,13 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .config import PACKS_DIR, PackPaths, data_root
+from . import auth
+from .config import PACKS_DIR, PackPaths, UnsafePath, data_root, safe_child
 from .packs import list_packs, load_pack
+from .tenancy.models import Ctx
 
 GENERATED_FILE = "policies.generated.yaml"
 LOG_FILE = "policies.generated.log.jsonl"
@@ -143,9 +145,12 @@ def diff(old_rules: list[dict[str, Any]], new_rules: list[dict[str, Any]]) -> di
 # ------------------------------------------------------- files on disk
 
 def _org_dir(name: str) -> Path:
-    d = data_root() / name
-    if name in list_packs() or not (d / "org.json").exists():
-        raise FileNotFoundError(name)
+    try:
+        d = safe_child(data_root(), name)
+        if name in list_packs() or not safe_child(d, "org.json").exists():
+            raise FileNotFoundError(name)
+    except UnsafePath as e:
+        raise FileNotFoundError(name) from e
     return d
 
 
@@ -284,10 +289,16 @@ def upsert_rules(workspace_name: str, new_rules: list[dict[str, Any]],
 # ----------------------------------------------------------------- router
 
 class ApplyBody(BaseModel):
-    approved_by: str
+    approved_by: str = ""
 
 
 router = APIRouter()
+
+
+def acting_as(c: Ctx, claimed: str = "") -> str:
+    """Who a governance record names. Hosted, that is the session, whatever the body
+    claims. A dev open server has no sessions, so there the body still speaks."""
+    return (claimed or c.principal) if auth.dev_open() else c.principal
 
 
 def _org_or_404(name: str) -> dict[str, Any]:
@@ -313,13 +324,13 @@ def orgpolicy_preview(name: str) -> dict[str, Any]:
 
 
 @router.post("/workspaces/{name}/orgpolicy/apply")
-def orgpolicy_apply(name: str, body: ApplyBody) -> dict[str, Any]:
+def orgpolicy_apply(name: str, body: ApplyBody, c: Ctx = Depends(auth.ctx)) -> dict[str, Any]:
     org = _org_or_404(name)
     try:
         rules = generate(org)["rules"]
     except ValueError as e:
         raise HTTPException(422, str(e))
-    change = apply(name, rules, approved_by=body.approved_by)
+    change = apply(name, rules, approved_by=acting_as(c, body.approved_by))
     _, conflicts = combined(name)
     return {"workspace": name, "applied": True, "diff": change,
             "conflicts": conflicts, "file": GENERATED_FILE, "log": LOG_FILE}

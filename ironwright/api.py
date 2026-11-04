@@ -13,7 +13,8 @@ standing in for a real identity provider. Every call passes the policy engine.
 
 harden() is the serving posture both this app and the platform app run behind:
 security headers, CORS, a foreign-origin write check, a body size cap, the kill
-switch and a per-IP login limit. See docs/threat-model.md.
+switch, a per-IP login limit, a per-org SQL cap and a board tile cap. See
+docs/threat-model.md.
 """
 from __future__ import annotations
 
@@ -33,12 +34,17 @@ from pydantic import BaseModel
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.responses import JSONResponse
 
+from . import auth, sqlguard
 from .config import setting
 from .ontology.runtime import ActionError, Ontology
 from .packs import load_pack
+from .tenancy.models import DEV_ORG_ID
 from .tracing import Tracer
 
 MAX_BODY_BYTES = 2 * 1024 * 1024
+# The one route whose own streaming caps are the limit, because a real export is
+# bigger than any API body. Exact, so nothing else can reach it by accident.
+BODY_CAP_EXEMPT = frozenset({("POST", "/uploads")})
 LOGIN_ATTEMPTS = 10           # per IP, per window
 LOGIN_WINDOW_S = 60.0
 # Every route that takes a password with no session behind it.
@@ -58,6 +64,10 @@ SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 # so a route added later is off by default. These read and change nothing that matters.
 KILL_SWITCH_READS = re.compile(r"/auth/(login|logout)|/functions/[^/]+|/workspaces/[^/]+/"
                                r"(lake/query|boards/[^/]+/run|governance/check)")
+# The two routes that run tenant SQL.
+SQL_ROUTES = re.compile(r"/workspaces/[^/]+/(lake/query|boards/[^/]+/run)")
+BOARD_ROUTE = re.compile(r"/workspaces/[^/]+/boards/[^/]+")
+SQL_RETRY_AFTER_S = 5
 
 
 def kill_switch_on() -> bool:
@@ -113,7 +123,7 @@ class BodyCap:
         self.limit = limit
 
     async def __call__(self, scope, receive, send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] != "http" or (scope["method"], scope["path"]) in BODY_CAP_EXEMPT:
             return await self.app(scope, receive, send)
         seen = 0
 
@@ -170,6 +180,71 @@ class LoginLimit:
         await self.app(scope, receive, send)
 
 
+class SqlSlots:
+    """One org cannot run more than sqlguard.MAX_CONCURRENT_PER_ORG SQL requests. A caller
+    with no session passes through, so it gets the gate's 401 and holds nothing."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if not (scope["type"] == "http" and scope["method"] == "POST" and SQL_ROUTES.fullmatch(scope["path"])):
+            return await self.app(scope, receive, send)
+        found = auth.session_ctx(auth.bearer_token(Headers(scope=scope)))
+        org_id = DEV_ORG_ID if auth.dev_open() else found.org_id if found else None
+        if org_id is None:
+            return await self.app(scope, receive, send)
+        try:
+            sqlguard.take_slot(org_id)
+        except sqlguard.SqlBusy:
+            response = _refuse(429, "your org is running too many queries; try again shortly",
+                               {"retry-after": str(SQL_RETRY_AFTER_S)})
+            return await response(scope, receive, send)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            sqlguard.give_slot(org_id)
+
+
+class BoardTileCap:
+    """Refuses a board over sqlguard.MAX_BOARD_TILES at save. Sits inside BodyCap, so the
+    body it reads is already bounded. A body it cannot read as a board goes on to the
+    route, which owns that answer."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if not (scope["type"] == "http" and scope["method"] == "PUT" and BOARD_ROUTE.fullmatch(scope["path"])):
+            return await self.app(scope, receive, send)
+        body = b""
+        try:
+            while True:
+                message = await receive()
+                body += message.get("body", b"")
+                if not message.get("more_body"):
+                    break
+        except HTTPException as e:  # BodyCap's refusal. Out here nothing turns it into an answer.
+            return await _refuse(e.status_code, e.detail)(scope, receive, send)
+        try:
+            tiles = json.loads(body).get("tiles")
+        except (ValueError, AttributeError):
+            tiles = None
+        if isinstance(tiles, list) and len(tiles) > sqlguard.MAX_BOARD_TILES:
+            detail = f"a board can hold at most {sqlguard.MAX_BOARD_TILES} tiles"
+            return await _refuse(422, detail)(scope, receive, send)
+        sent = False
+
+        async def replay() -> dict:
+            nonlocal sent
+            if sent:
+                return await receive()
+            sent = True
+            return {"type": "http.request", "body": body, "more_body": False}
+
+        await self.app(scope, replay, send)
+
+
 def harden(app: FastAPI, clock: Callable[[], float] = time.monotonic) -> FastAPI:
     """Install the serving posture. Refusals still carry the security headers, which is
     why those go on last: the last middleware added is the outermost."""
@@ -177,6 +252,8 @@ def harden(app: FastAPI, clock: Callable[[], float] = time.monotonic) -> FastAPI
     if origin == "*":
         raise ValueError("IRONWRIGHT_CONSOLE_ORIGIN must name one origin, not a wildcard")
     allowed = [origin] if origin else []   # the console is same-origin unless told otherwise
+    app.add_middleware(BoardTileCap)
+    app.add_middleware(SqlSlots)
     app.add_middleware(LoginLimit, clock=clock)
     app.add_middleware(KillSwitch)
     app.add_middleware(BodyCap)
