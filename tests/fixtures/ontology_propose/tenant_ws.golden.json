@@ -1,0 +1,128 @@
+{
+ "functions": [
+  {
+   "description": "Get one claim by its id.",
+   "kind": "read",
+   "name": "get_claim",
+   "params": {
+    "id": "Claim"
+   }
+  },
+  {
+   "description": "Get one policy by its id.",
+   "kind": "read",
+   "name": "get_policy",
+   "params": {
+    "id": "Policy"
+   }
+  },
+  {
+   "description": "List the claims on one policy, by policy id.",
+   "kind": "read",
+   "name": "list_claim_by_policy",
+   "params": {
+    "policy_id": "Policy"
+   }
+  }
+ ],
+ "id": "op-3d0219a48edbee4f",
+ "identity_hints": [],
+ "links": [
+  {
+   "cardinality": "many_to_one",
+   "confidence": 0.84,
+   "from": "Claim",
+   "name": "claim_to_policy",
+   "normalize": false,
+   "orphans": 1,
+   "reason": "policy_ref reads like a key to Policy. 3 of 4 distinct values match policy_no. Values with no match, which will count as orphans: 1. Values repeat, so many claims share one Policy.",
+   "to": "Policy",
+   "to_column": "policy_no",
+   "via": "policy_ref"
+  }
+ ],
+ "narration": null,
+ "objects": [
+  {
+   "confidence": 0.95,
+   "key": "claim_id",
+   "name": "Claim",
+   "properties": [
+    {
+     "confidence": 0.8,
+     "name": "claim_id",
+     "reason": "Stored as varchar. 0 of 5 values are empty and 5 are distinct.",
+     "type": "varchar",
+     "unique": true
+    },
+    {
+     "confidence": 0.8,
+     "name": "policy_ref",
+     "reason": "Stored as varchar. 0 of 5 values are empty and 4 are distinct.",
+     "type": "varchar",
+     "unique": false
+    },
+    {
+     "confidence": 0.95,
+     "name": "amount",
+     "reason": "Stored as double. 1 of 5 values are empty and 4 are distinct.",
+     "type": "double",
+     "unique": false
+    },
+    {
+     "confidence": 0.95,
+     "name": "loss_date",
+     "reason": "Stored as date. 0 of 5 values are empty and 5 are distinct.",
+     "type": "date",
+     "unique": true
+    },
+    {
+     "confidence": 0.8,
+     "name": "status",
+     "reason": "Stored as varchar. 0 of 5 values are empty and 2 are distinct.",
+     "type": "varchar",
+     "unique": false
+    }
+   ],
+   "reason": "silver.claims has 5 rows and claim_id is unique and never empty. The name claim_id reads as this table's own key.",
+   "table": "silver.claims"
+  },
+  {
+   "confidence": 0.95,
+   "key": "policy_no",
+   "name": "Policy",
+   "properties": [
+    {
+     "confidence": 0.8,
+     "name": "policy_no",
+     "reason": "Stored as varchar. 0 of 3 values are empty and 3 are distinct.",
+     "type": "varchar",
+     "unique": true
+    },
+    {
+     "confidence": 0.8,
+     "name": "holder",
+     "reason": "Stored as varchar. 0 of 3 values are empty and 3 are distinct.",
+     "type": "varchar",
+     "unique": true
+    },
+    {
+     "confidence": 0.95,
+     "name": "premium",
+     "reason": "Stored as double. 0 of 3 values are empty and 3 are distinct.",
+     "type": "double",
+     "unique": true
+    }
+   ],
+   "reason": "silver.policies has 3 rows and policy_no is unique and never empty. The name policy_no reads as this table's own key.",
+   "table": "silver.policies"
+  }
+ ],
+ "skipped": [
+  {
+   "reason": "A gold table holds derived rows, so it is a report on objects and not an object itself.",
+   "table": "gold.claims_by_policy"
+  }
+ ],
+ "source_layer": "silver"
+}

@@ -221,6 +221,14 @@ not a surprise. Lesson: a fixture I built only proves what I already thought of.
 
 **Fix.** The proposal now says `boolean`, leaves `header` off fixed width layouts, and leaves out a file the run cannot read, with a decision saying why. A fixed width header is on the record as a contract gap. The test now calls T2's validator, and each fixture goes from upload to a green `run_workspace`. Lesson: a stand-in for someone else's check only proves I agree with myself, so replace it the day the real one lands.
 
+## 18. A key edit could pick what the proposer never would
+
+**Symptom.** Reading the first golden proposal, I saw `premium` marked unique. A new test confirmed that a `set_key` edit took it, and took `loss_date` too.
+
+**Cause.** The proposer refuses measures and dates as keys, but the edit path only asked if the column was unique. Three policies with three premiums are unique today and collide on the next load. The same rule lived in one of the two places that needed it.
+
+**Fix.** `set_key` applies the same type rule, with a test for each. Lesson: a human edit goes through the rules a proposal goes through. Approving something does not make it valid.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.
