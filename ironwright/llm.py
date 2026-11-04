@@ -9,6 +9,10 @@ fall back to templates. Plug in a provider to get model-written narratives:
   IRONWRIGHT_LLM=ollama      (local, free)              IRONWRIGHT_OLLAMA_URL
   IRONWRIGHT_LLM=cloudflare  CF_ACCOUNT_ID=... CF_API_TOKEN=...   (Workers AI free tier)
 
+resolve_llm picks the key for one org: the org's own first, the platform's second,
+the deterministic template third. An org's key lives on its LLM object and nowhere
+else, never in the environment.
+
 Everything a prompt carries that came from data goes through untrusted(): one
 value, typed, length capped, on one line, inside a fence the value cannot close.
 The fence tag holds a per-prompt random nonce, so a cell cannot guess it either.
@@ -34,6 +38,15 @@ _INVISIBLE = {0x034F, 0x115F, 0x1160, 0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x
 _FENCE_TAG = re.compile(r"</?\s*untrusted[^>]*>?", re.IGNORECASE)
 _CITE_OPEN = re.compile(r"\[\s*ev\s*:", re.IGNORECASE)
 _TYPES = {bool: "bool", int: "int", float: "float", str: "str", type(None): "null"}
+DEFAULT_MODELS = {
+    "anthropic": "claude-haiku-4-5-20251001",
+    "openai": "gpt-4o-mini",
+    "ollama": "llama3.1",
+    "cloudflare": "@cf/meta/llama-3.1-8b-instruct",
+}
+# An org key is one string. Cloudflare needs an account too, and ollama has no key.
+BYO_PROVIDERS = ("anthropic", "openai")
+_PLATFORM_KEY_ENV = {"anthropic": "ANTHROPIC_API_KEY", "openai": "OPENAI_API_KEY", "cloudflare": "CF_API_TOKEN"}
 
 
 def sanitize(value: Any) -> str:
@@ -99,14 +112,10 @@ class LLMResult:
 
 
 class LLM:
-    def __init__(self, provider: str | None = None, model: str | None = None):
+    def __init__(self, provider: str | None = None, model: str | None = None, api_key: str | None = None):
         self.provider = (provider or setting("LLM", "offline") or "offline").lower()
-        self.model = model or setting("LLM_MODEL") or {
-            "anthropic": "claude-haiku-4-5-20251001",
-            "openai": "gpt-4o-mini",
-            "ollama": "llama3.1",
-            "cloudflare": "@cf/meta/llama-3.1-8b-instruct",
-        }.get(self.provider, "offline-template")
+        self.model = model or setting("LLM_MODEL") or DEFAULT_MODELS.get(self.provider, "offline-template")
+        self._api_key = api_key
 
     @property
     def offline(self) -> bool:
@@ -119,14 +128,14 @@ class LLM:
         try:
             fn = getattr(self, f"_{self.provider}")
             res = fn(system, prompt, max_tokens)
-        except Exception as e:  # never let a provider outage break the pipeline
+        except Exception as e:  # noqa: BLE001  never let a provider outage break the pipeline
             return LLMResult(text=None, model=f"{self.model} (error: {type(e).__name__})")
         res.latency_ms = round((time.time() - t0) * 1000, 1)
         return res
 
     def _anthropic(self, system: str, prompt: str, max_tokens: int) -> LLMResult:
         r = httpx.post("https://api.anthropic.com/v1/messages", timeout=60, headers={
-            "x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01",
+            "x-api-key": self._api_key or os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01",
             "content-type": "application/json"}, json={
             "model": self.model, "max_tokens": max_tokens, "system": system,
             "messages": [{"role": "user", "content": prompt}]})
@@ -138,7 +147,7 @@ class LLM:
 
     def _openai(self, system: str, prompt: str, max_tokens: int) -> LLMResult:
         r = httpx.post("https://api.openai.com/v1/chat/completions", timeout=60, headers={
-            "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}"}, json={
+            "Authorization": f"Bearer {self._api_key or os.environ['OPENAI_API_KEY']}"}, json={
             "model": self.model, "max_tokens": max_tokens,
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]})
         r.raise_for_status()
@@ -166,3 +175,14 @@ class LLM:
                                         {"role": "user", "content": prompt}]})
         r.raise_for_status()
         return LLMResult(r.json()["result"]["response"], self.model)
+
+
+def resolve_llm(org_key: tuple[str, str] | None = None) -> LLM:
+    """Org key first, platform key second, the deterministic template third.
+    The platform's model name means nothing to an org's provider, so it is not passed on."""
+    if org_key:
+        provider, key = org_key
+        return LLM(provider, DEFAULT_MODELS[provider], api_key=key)
+    platform = LLM()
+    env = _PLATFORM_KEY_ENV.get(platform.provider)
+    return LLM("offline") if env and not os.environ.get(env) else platform

@@ -220,6 +220,18 @@ not a surprise. Lesson: a fixture I built only proves what I already thought of.
 **Cause.** Until then the check was `validate_contract3`, my own strict copy of contract 3. I wrote it from the same reading of the contract as the code it checked, so it agreed with me. The contract never spells out a flag type, and T2 chose `boolean`.
 
 **Fix.** The proposal now says `boolean`, leaves `header` off fixed width layouts, and leaves out a file the run cannot read, with a decision saying why. A fixed width header is on the record as a contract gap. The test now calls T2's validator, and each fixture goes from upload to a green `run_workspace`. Lesson: a stand-in for someone else's check only proves I agree with myself, so replace it the day the real one lands.
+## 19. A typo that read as a full org
+
+**Symptom.** With every member seat taken, inviting `not an email` answered 429 instead of 422.
+
+**Cause.** The seat check runs before the invite does, and it compared the raw text to the seats. The
+invite is what validates an email, so it never got to speak. The admin would be told to free a seat to
+fix a typo.
+
+**Fix.** The seat check cleans the email the same way the invite does, and steps aside when it cannot, so
+the invite refuses it in its own words. While I was there I took out `pydantic` on `PUT /llm-key` and put
+it back to see what it does: its 422 echoes the body, which here is a live key. That route reads its own
+body, and the leak test sends the three shapes that echo.
 
 ## 18. A key edit could pick what the proposer never would
 

@@ -14,7 +14,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .. import auth
 from ..config import UnsafePath
-from ..tenancy import Ctx
+from ..tenancy import Ctx, quotas
 from . import uploads
 
 router = APIRouter()
@@ -33,6 +33,7 @@ async def post_upload(request: Request, c: CtxDep) -> dict[str, Any]:
         limit = uploads.max_files() * (uploads.max_file_bytes() + _PART_OVERHEAD)
         if int(request.headers.get("content-length") or 0) > limit:
             raise uploads.UploadRefused(413, "the request is over the upload caps")
+        await run_in_threadpool(quotas.start_upload, c.org_id, request.headers.get("content-length"), auth._now())
         session = uploads.UploadSession(c.org_id)
         sink = uploads.MultipartSink(session, request.headers.get("content-type", ""))
         async for chunk in request.stream():
