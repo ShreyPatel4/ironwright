@@ -6,53 +6,46 @@ LangGraph or Strands agent) at it:
   ironwright mcp --pack retail
 
 Tools are generated from ontology.yaml, so a new function or action becomes a
-tool with no code. The agent identity comes from IRONWRIGHT_PRINCIPAL; every
-call goes through the same policy engine and audit log as the REST API.
+tool with no code, and there are no others. The server runs on stdio, so it binds
+nothing. The identity comes from IRONWRIGHT_PRINCIPAL, must be agent:*, and is
+never a tool argument; every call goes through the same policy engine and audit
+log as the REST API.
 """
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
+from .api import kill_switch_on
 from .config import setting
-from .ontology.runtime import Ontology
+from .ontology.runtime import ActionError, Ontology
 from .packs import load_pack
 from .tracing import Tracer
 
 
-def build_server(pack_name: str) -> FastMCP:
+def build_server(pack_name: str) -> MCPServer:
     pack = load_pack(pack_name)
     ont = Ontology(pack, Tracer(pack.paths.traces))
     principal = setting("PRINCIPAL", "agent:mcp-client")
-    mcp = FastMCP(f"ironwright-{pack_name}")
-
-    @mcp.tool(description=f"Describe the {pack.title} ontology: object types, links, functions and actions.")
-    def describe_ontology() -> str:
-        return json.dumps(ont.describe(), default=str)
-
-    @mcp.tool(description="Get one ontology object by type and id, with its neighbors.")
-    def get_object(object_type: str, object_id: str) -> str:
-        o = ont.masked(ont.store.get(object_type, object_id), principal)
-        return json.dumps({**(o or {}), "_neighbors": ont.store.neighbors(object_id)} if o else {"error": "not found"},
-                          default=str)
-
-    @mcp.tool(description="List objects of a type.")
-    def list_objects(object_type: str, limit: int = 20) -> str:
-        return json.dumps([ont.masked({**o, "_type": object_type}, principal)
-                           for o in ont.store.list(object_type, limit)], default=str)
+    if not re.fullmatch(r"agent:\S+", principal):
+        raise ValueError(f"the MCP server runs as an agent:* principal, not {principal!r}")
+    mcp = MCPServer(f"ironwright-{pack_name}")
 
     def make_fn(name: str, fdef: dict[str, Any]):
         def tool(args: dict[str, Any]) -> str:
             try:
                 return json.dumps(ont.call(name, args, principal=principal), default=str)
-            except Exception as e:
+            except (PermissionError, ActionError) as e:
                 return json.dumps({"error": str(e)})
         return tool
 
     def make_act(name: str, adef: dict[str, Any]):
         def tool(params: dict[str, Any], idempotency_key: str | None = None) -> str:
+            if kill_switch_on():
+                return json.dumps({"error": "kill switch on: actions are off"})
             res = ont.act(name, params, actor=principal, idempotency_key=idempotency_key)
             if res["status"] == "applied_pending_sync":
                 res["outbox"] = ont.deliver_outbox()

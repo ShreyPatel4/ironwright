@@ -62,6 +62,12 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         postgres with a verified round trip and your BI tool renders in
         a sandboxed frame. Profiler (gated on the first hand-mapped real
         workspace) and hosted auth stay PLANNED, and say why.
+- 1:41d The serving posture: both servers bind 127.0.0.1, and anything
+        else refuses to start without --host and
+        --i-know-this-is-exposed. IRONWRIGHT_KILL_SWITCH=1 and every
+        write answers 503 while reads stay up. docs/threat-model.md maps
+        each control to the test that proves it, and a test fails if a
+        link goes stale.
 - 1:42  Any object opens to its governed page: props with per-field
         provenance, the three-source identity, the audit trail that
         touched it, and action chips that render permit or deny from a

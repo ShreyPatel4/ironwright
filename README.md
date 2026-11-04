@@ -94,6 +94,11 @@ ironwright mcp --pack retail          # MCP server: tools are generated from ont
 pytest -q                         # every pack must pass every eval layer
 ```
 
+`ironwright serve` and `ironwright platform` bind 127.0.0.1. Anything else needs `--host` plus
+`--i-know-this-is-exposed`. `IRONWRIGHT_KILL_SWITCH=1` turns off Ask and actions and leaves reads up.
+`ironwright serve` still trusts `X-Principal`, so keep it on loopback. What I protect, from whom, and
+the test behind each control: [docs/threat-model.md](docs/threat-model.md).
+
 Each stage also runs on its own: `ironwright generate|migrate|reconcile|ontology|agents|evals|export --pack <name>`.
 
 ### Using a real LLM (optional)
