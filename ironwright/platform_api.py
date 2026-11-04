@@ -32,9 +32,9 @@ from . import discovery as discovery_mod
 from . import escalation as escalation_mod
 from . import orgpolicy as orgpolicy_mod
 from . import sqlguard, verification
-from . import workspaces_tenant as wt
 from . import training as training_mod
 from . import workspaces as org_mod
+from . import workspaces_tenant as wt
 from .asof import router as asof_router
 from .auth import ctx
 from .bi import router as bi_router
