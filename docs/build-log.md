@@ -59,6 +59,27 @@ aggregated same-day deposits, which the rule requires.
 **Fix.** Not a code fix. A `known_differences` rule documents it (new > legacy is expected,
 here's why), so cutover can proceed with the difference explained instead of hidden.
 
+## 6. The route sweep could not see the routers
+
+**Symptom.** The test that sends no token to every route crashed on an entry with no `path`. My
+structural check for the `X-Principal` header then found nothing at all, not even the one route I
+knew still declared it.
+
+**Cause.** Newer FastAPI keeps an included router as one lazy entry in `app.routes` instead of
+flattening it. A flat loop either crashes or skips every included route, and `pyproject.toml` lets
+the version float, so which one you get depends on the install.
+
+**Fix.** The walker recurses into includes and fails on anything it cannot classify. The sweep also
+asserts it reached one route from each included router. It passes on FastAPI 0.143 and 0.162.
+
+The same sweep caught `/docs`, `/redoc` and `/openapi.json` answering with no token. They sit outside
+route dependencies, so I turned them off. And a test with a real token caught `POST /actions/{action}`
+taking its actor from the request body, which let any session act as an agent. The actor now comes
+from the session.
+
+A real parked approval caught one more. `approved_by: "agent:spoofed"` on `/decide` applied the action.
+It now gets a 422. A role can still sign, because tying a person to a role needs a model I don't have yet.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.

@@ -77,10 +77,10 @@ def test_invite_gate_accepts_and_rejects(client, tmp_path):
                        json={"email": "tester@example.com", "password": "correct-horse-9"}).json()
     assert good["token"] and good["principal"] == "user:tester"
 
-    me = client.get("/auth/me", headers={"x-session": good["token"]}).json()
+    me = client.get("/auth/me", headers={"Authorization": f"Bearer {good['token']}"}).json()
     assert me["email"] == "tester@example.com"
-    client.post("/auth/logout", headers={"x-session": good["token"]})
-    assert client.get("/auth/me", headers={"x-session": good["token"]}).status_code == 401
+    client.post("/auth/logout", headers={"Authorization": f"Bearer {good['token']}"})
+    assert client.get("/auth/me", headers={"Authorization": f"Bearer {good['token']}"}).status_code == 401
 
     # No plaintext anywhere in the credentials file.
     raw = (auth._path()).read_text()

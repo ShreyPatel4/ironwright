@@ -152,7 +152,7 @@ export default function App() {
     setSession(s);
   }
   function signOut() {
-    if (session?.token) api.logout(session.token).catch(() => {});
+    if (session?.token) api.logout().catch(() => {});
     try { localStorage.removeItem("iw.session"); localStorage.removeItem("iw.last"); } catch { /* fine */ }
     setSession(null); setWsName(null); setView(null);
   }
@@ -161,7 +161,7 @@ export default function App() {
   // dead and the door must ask again instead of trusting localStorage.
   useEffect(() => {
     if (!session?.token) return;
-    api.me(session.token).catch(() => {
+    api.me().catch(() => {
       try { localStorage.removeItem("iw.session"); } catch { /* fine */ }
       setSession(null); setWsName(null); setView(null);
     });
@@ -176,7 +176,13 @@ export default function App() {
       return w;
     } catch (e) { setErr(e); return []; }
   }, []);
-  useEffect(() => { refresh(); }, [refresh]);
+  // Workspaces need a session, so the first load waits for one.
+  useEffect(() => { if (session?.token) refresh(); }, [refresh, session?.token]);
+  const [devOpen, setDevOpen] = useState(false);
+  useEffect(() => { api.authStatus().then((s) => setDevOpen(!!s.dev_open)).catch(() => {}); }, []);
+  const devBadge = devOpen && (
+    <span className="badge bad" style={{ position: "fixed", right: 12, top: 10, zIndex: 10 }}>dev open</span>
+  );
 
   useEffect(() => {
     if (!wsName) return;
@@ -210,7 +216,7 @@ export default function App() {
   }
 
   if (!session) {
-    return <main style={{ margin: "0 auto" }}><Login onEnter={signIn} /></main>;
+    return <main style={{ margin: "0 auto" }}>{devBadge}<Login onEnter={signIn} /></main>;
   }
 
   if (welcome && workspaces) {
@@ -224,6 +230,7 @@ export default function App() {
 
   return (
     <>
+      {devBadge}
       <nav className="rail">
         <div className="mark"><b>Ironwright</b>legacy systems to governed agents</div>
         <button aria-current={view === null}

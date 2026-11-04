@@ -8,6 +8,10 @@ import uuid
 
 import pytest
 
+# The suite predates real sessions and drives the API without logging in.
+# tests/test_authn.py clears this flag and proves the closed door.
+os.environ["IRONWRIGHT_DEV_OPEN"] = "1"
+
 
 @pytest.fixture()
 def postgres_uri() -> str:

@@ -1,16 +1,29 @@
 // Same-origin API client. Every answer on screen comes from these calls;
-// nothing is computed client-side except rendering. The chosen principal
-// rides every request as X-Principal: an identity claim the policy engine
-// evaluates, recorded in the audit log, and NOT authentication.
+// nothing is computed client-side except rendering. The session token rides
+// every request and the server decides who that is. The chosen principal
+// rides along as X-Principal, which only a dev open server listens to.
 let principal = "user:console";
 export const setPrincipal = (p) => { principal = p || "user:console"; };
 export const getPrincipal = () => principal;
 
+function sessionToken() {
+  try { return JSON.parse(localStorage.getItem("iw.session") ?? "null")?.token ?? null; }
+  catch { return null; }
+}
+
 async function req(path, opts = {}) {
+  const token = sessionToken();
   const r = await fetch(path, {
     ...opts,
-    headers: { "x-principal": principal, ...(opts.headers || {}) },
+    headers: { "x-principal": principal,
+               ...(token ? { authorization: `Bearer ${token}` } : {}),
+               ...(opts.headers || {}) },
   });
+  // A stored token the server refused has expired: back to the door.
+  if (r.status === 401 && token) {
+    try { localStorage.removeItem("iw.session"); } catch { /* fine */ }
+    location.reload();
+  }
   if (!r.ok) {
     let detail = r.statusText;
     try { detail = (await r.json()).detail ?? detail; } catch { /* keep statusText */ }
@@ -62,8 +75,8 @@ export const api = {
   discovery: (ws) => req(`/workspaces/${ws}/discovery`),
   authStatus: () => req("/auth/status"),
   login: (email, password) => post("/auth/login", { email, password }),
-  me: (token) => req("/auth/me", { headers: { "x-session": token } }),
-  logout: (token) => req("/auth/logout", { method: "POST", headers: { "x-session": token } }),
+  me: () => req("/auth/me"),
+  logout: () => req("/auth/logout", { method: "POST" }),
   sources: (ws) => req(`/workspaces/${ws}/sources`),
   loads: (ws) => req(`/workspaces/${ws}/loads`),
   governance: (ws) => req(`/workspaces/${ws}/governance`),
