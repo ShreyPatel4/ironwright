@@ -14,16 +14,16 @@ import time
 from pathlib import Path
 from typing import Any
 
+from . import sqlguard
 from .config import UnsafePath, private_dir, safe_child, write_private
 from .lake import Lakehouse
 from .packs import Pack
 
 _SLUG = re.compile(r"[a-z][a-z0-9-]{1,39}")
-_SELECT_ONLY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 VIZ = {"table", "number", "bar", "line"}
 
 
-class BoardError(ValueError):
+class BoardError(sqlguard.SqlRejected):
     pass
 
 
@@ -49,10 +49,10 @@ def _existing(pack: Pack, slug: str) -> Path:
 
 
 def guard_sql(sql: str) -> str:
-    body = sql.strip().rstrip(";").strip()
-    if ";" in body or not _SELECT_ONLY.match(body):
-        raise BoardError("every tile must be a single SELECT; rejected at save, not at run")
-    return body
+    try:
+        return sqlguard.guard_select(sql)
+    except sqlguard.SqlRejected as e:
+        raise BoardError(f"every tile must be a single SELECT: {e}") from e
 
 
 def validate(board: dict[str, Any]) -> dict[str, Any]:
@@ -109,7 +109,7 @@ def delete(pack: Pack, slug: str) -> None:
 
 def run(pack: Pack, slug: str, row_cap: int = 200) -> dict[str, Any]:
     board = read(pack, slug)
-    con = Lakehouse(pack).connect()
+    con = Lakehouse(pack).connect(capped=True)
     results = []
     try:
         for tile in board["tiles"]:
@@ -118,14 +118,12 @@ def run(pack: Pack, slug: str, row_cap: int = 200) -> dict[str, Any]:
                 # Re-guard at run time: the file on disk is writable by the
                 # local user, so saved SQL is not trusted just for being saved.
                 # The connection itself also has external access disabled.
-                cur = con.execute(guard_sql(tile["sql"]))
-                cols = [d[0] for d in cur.description]
                 cap = 1 if tile["viz"] == "number" else 50 if tile["viz"] in ("bar", "line") else row_cap
-                rows = [[None if v is None else str(v) for v in r] for r in cur.fetchmany(cap)]
+                cols, rows = sqlguard.run_capped(con, guard_sql(tile["sql"]), cap)
                 results.append({"id": tile["id"], "ok": True, "columns": cols, "rows": rows,
                                 "seconds": round(time.perf_counter() - t0, 3)})
             except Exception as e:  # a broken tile reports; the board still runs
-                results.append({"id": tile["id"], "ok": False, "error": str(e),
+                results.append({"id": tile["id"], "ok": False, "error": sqlguard.safe_error(e),
                                 "seconds": round(time.perf_counter() - t0, 3)})
     finally:
         con.close()
