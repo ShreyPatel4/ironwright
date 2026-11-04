@@ -169,6 +169,20 @@ type and carried on. Lesson: load the examples in a contract before you build on
 already existed with mode 0755 stayed open, so every org's folder name could be listed. `ensure_tenant`
 now tightens the whole tree on every create.
 
+## 11. A grant that outlived the run
+
+**Symptom.** `make demo-check` was green on a clean data dir and red on the second run. The step
+"a grant is policy the serving engine consults" reported BROKEN, because the first check, which should
+deny, already allowed.
+
+**Cause.** I moved the demo packs to `demo/<pack>/`, but `orgpolicy._target_dir` still built
+`data_root()/<pack>` by hand. Generated policy landed outside the folder `generate` wipes, so grant
+`esc-0001` from the last run stayed in `data/retail/policies.generated.yaml` and kept permitting. The
+suite stayed green because every test starts from an empty root. Only a reused data dir shows it.
+
+**Fix.** `_target_dir` asks `PackPaths`, and a test writes a grant, regenerates and expects no rules.
+Lesson: when a path moves, grep for everyone who spelled it by hand, and run the gate twice on one dir.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.

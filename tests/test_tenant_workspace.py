@@ -6,6 +6,7 @@ the strict spec, the bytes into bronze, the L1 badge and a real run.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
 import stat
@@ -14,11 +15,13 @@ from pathlib import Path
 import pytest
 import yaml
 
-from ironwright import config, legacy, verification, workspaces
+from ironwright import config, legacy, orgpolicy, verification, workspaces
 from ironwright import workspaces_tenant as wt
+from ironwright.cli import STAGES
 from ironwright.config import DEV_ORG, PackPaths, UnsafePath
 from ironwright.lake import Lakehouse
 from ironwright.packs import NoGenerator, load_pack
+from ironwright.tracing import Tracer
 from ironwright.workspaces_tenant import WorkspaceError
 
 FIXTURE = Path(__file__).parent / "fixtures" / "tenant_ws"
@@ -81,6 +84,20 @@ def create_minimal(spec: dict | None = None, **kw) -> dict:
 def test_demo_packs_resolve_under_demo(root):
     assert load_pack("retail").paths.root == root / "demo" / "retail"
     assert PackPaths("retail").ontology_db == root / "demo" / "retail" / "ontology.duckdb"
+
+
+def test_regenerating_a_demo_pack_drops_its_generated_grants(root):
+    """Generated policy lives with the run, so the rmtree in generate takes it.
+    Left outside demo/<pack>, an old grant would keep permitting on the next run."""
+    pack = load_pack("retail")
+    pack.paths.ensure()
+    orgpolicy.upsert_rules("retail", [{"id": "esc-0001", "effect": "permit", "principal": "user:x",
+                                       "action": "action:delist_item", "expires": "2099-01-01"}],
+                           "role:category_manager")
+    assert orgpolicy.applied_rules("retail")
+    assert (pack.paths.root / orgpolicy.GENERATED_FILE).exists()
+    STAGES["generate"](pack, Tracer(pack.paths.traces), argparse.Namespace(seed=7, limit=None))
+    assert orgpolicy.applied_rules("retail") == []
 
 
 def test_tenant_paths_follow_the_contract_layout(root):
