@@ -1,0 +1,104 @@
+name: insurance_policy
+title: Quillback Casualty
+industry: Insurance (policy and coverage)
+tagline: Was this loss covered on the loss date, by which coverage, with what limit and deductible?
+story: >
+  Quillback Casualty is a mid-size property and casualty carrier. Policy and coverage transactions live in a fixed
+  width policy admin system, premiums in a billing system that exports CSV, claims arrive on a feed, and each agency
+  keeps its book in a spreadsheet. Every coverage dispute comes down to one question, and nobody can answer it from one
+  system, because the answer depends on what was true on the loss date and on what the carrier knew at the time. The
+  program lands everything in a lakehouse, keeps policy and coverage bitemporal, and puts an agent on coverage triage:
+  covered claims pass, and anything else goes to coverage counsel with the evidence attached.
+decision: Was this loss covered on the loss date, or does a person need to review the coverage?
+aws_mapping:
+  legacy landing: S3 raw zone, Transfer Family for policy admin drops
+  lakehouse: S3 Tables (Iceberg) + Glue Data Catalog
+  transforms: Glue Spark or Athena (DuckDB locally)
+  quality: Glue Data Quality
+  ontology store: Aurora Postgres + S3 Object Lock audit
+  agents: Bedrock AgentCore Runtime, Gateway (MCP), Policy (Cedar)
+
+sources:
+  - name: policy_admin
+    system: pas
+    label: Policy admin transactions (fixed width)
+    kind: fixed_width
+    file: POLADMIN.dat
+    layout: [[txn_id, 10], [policy_nbr, 10], [seq, 3], [txn_type, 3], [state, 2], [eff_tz, 3], [valid_from, 12], [valid_to, 12], [booked_ts, 12], [status, 1], [insured_id, 8], [insured_name, 30], [insured_dob, 8], [insured_last4, 4]]
+  - name: coverage_admin
+    system: pas
+    label: Coverage transactions (fixed width)
+    kind: fixed_width
+    file: COVADMIN.dat
+    layout: [[cov_id, 10], [policy_nbr, 10], [seq, 3], [txn_type, 3], [coverage_code, 6], [limit_amt, 12], [deductible, 7], [eff_tz, 3], [valid_from, 12], [valid_to, 12], [booked_ts, 12]]
+  - {name: billing, system: billing, label: Billing events (CSV), kind: csv, glob: BILLING.csv}
+  - {name: claims_feed, system: claims, label: Claims feed (JSON lines per month), kind: jsonl, glob: claims/CLAIMS_*.jsonl}
+  - {name: agency_sheet, system: agency, label: Agency book spreadsheet (CSV export), kind: csv, glob: AGENCY_BOOK.csv}
+
+legacy_reports:
+  - name: exposure_report
+    system: pas
+    label: Policy admin limit exposure per coverage
+    kind: fixed_width
+    file: reports/EXPOSURE.dat
+    layout: [[coverage_code, 6], [total_limit, 16]]
+
+quality:
+  bronze.claims_feed:
+    - {check: not_null, column: policy_ref, owner: claims-intake}
+    - {check: type_castable, column: est_amount, type: double, owner: claims-intake}
+  silver.policy_versions:
+    - {check: unique, column: [policy_nbr, valid_from, tx_from], owner: policy-admin}
+    - {check: expression, condition: "valid_from < valid_to", kind: semantic, owner: policy-admin, name: valid_time_runs_forward}
+    - {check: expression, condition: "tx_to is null or tx_from < tx_to", kind: semantic, owner: policy-admin, name: transaction_time_runs_forward}
+  silver.coverage_versions:
+    - {check: expression, condition: "policy_known", kind: semantic, owner: policy-admin, name: orphan_coverage_row,
+       on_fail: quarantine, description: "coverage row names a policy the policy admin system does not have"}
+    - {check: unique, column: [cov_id, valid_from, tx_from], owner: policy-admin}
+    - {check: expression, condition: "valid_from < valid_to", kind: semantic, owner: policy-admin, name: valid_time_runs_forward}
+    - {check: expression, condition: "tx_to is null or tx_from < tx_to", kind: semantic, owner: policy-admin, name: transaction_time_runs_forward}
+  silver.policies_current:
+    - {check: unique, column: policy_nbr, owner: policy-admin}
+    - {check: expression, condition: "not retro_cancelled", kind: semantic, severity: warn, owner: underwriting, name: no_retro_dated_cancellation,
+       description: "cancellation booked more than a day after its effective date"}
+  silver.coverages_current:
+    - {check: unique, column: cov_id, owner: policy-admin}
+    - {check: expression, condition: "not overlaps_other", kind: semantic, severity: warn, owner: policy-admin, name: no_overlapping_coverage,
+       description: "two coverage contracts on one policy and peril cover the same time"}
+    - {check: expression, condition: "not endorsed_out_of_order", kind: semantic, severity: warn, owner: policy-admin, name: endorsements_in_order,
+       description: "an endorsement was booked after one with a higher sequence"}
+    - {check: expression, condition: "not limit_was_cents", kind: semantic, severity: warn, owner: policy-admin, name: limit_in_dollars,
+       description: "limit stored in cents, normalized to dollars"}
+    - {check: expression, condition: "not tz_mismatch", kind: semantic, severity: warn, owner: policy-admin, name: effective_tz_matches_state,
+       description: "effective time labeled with a zone other than the insured location"}
+  gold.coverage_verification:
+    - {check: unique, column: claim_id, owner: data-platform}
+    - {check: expression, condition: "not (lapsed_on_loss and paid_amount > 0)", kind: semantic, severity: warn, owner: claims-finance,
+       name: no_paid_claim_on_lapsed_policy, description: "claim paid on a policy billing had lapsed on the loss date"}
+
+reconcile:
+  - name: Policies vs policy admin
+    legacy_sql: "select 'all' k, count(distinct policy_nbr) n from legacy_policy_admin"
+    lake_sql: "select 'all' k, count(*) n from silver_policies_current"
+    key: [k]
+    measures: {n: 0}
+  - name: Every coverage contract is published or named as an orphan
+    legacy_sql: "select 'all' k, count(distinct cov_id) n from legacy_coverage_admin"
+    lake_sql: >
+      select 'all' k, (select count(*) from silver_coverages_current)
+        + (select count(*) from gold_defect_register where defect = 'orphan_coverage_rows') n
+    key: [k]
+    measures: {n: 0}
+  - name: Claims vs the claims feed
+    legacy_sql: "select 'all' k, count(*) n, sum(cast(est_amount as double)) est from legacy_claims_feed"
+    lake_sql: "select 'all' k, count(*) n, sum(est_amount) est from gold_coverage_verification"
+    key: [k]
+    measures: {n: 0, est: 0.01}
+  - name: Limit exposure per coverage vs the policy admin report
+    legacy_sql: "select coverage_code, cast(total_limit as bigint) total_limit from legacy_exposure_report"
+    lake_sql: "select coverage_code, sum(limit_dollars) total_limit from silver_coverages_current group by 1"
+    key: [coverage_code]
+    measures: {total_limit: 0}
+    known_differences:
+      - when: "legacy.total_limit > new.total_limit"
+        reason: "A converted book stores some limits in cents. The legacy report adds them up as dollars; the new platform normalizes them."
