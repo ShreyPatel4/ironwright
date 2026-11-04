@@ -7,13 +7,15 @@ B through the API surfaces a reader has: object reads, audit reads, and
 the root report. If this ever fails, that failure is the finding.
 """
 import argparse
-import json
+import stat
 
 import pytest
 from fastapi.testclient import TestClient
 
+from ironwright import boards
 from ironwright.api import create_app
 from ironwright.cli import STAGES
+from ironwright.config import UnsafePath
 from ironwright.packs import load_pack
 from ironwright.tracing import Tracer
 
@@ -84,3 +86,44 @@ def test_workspace_data_stays_under_its_own_root(two_workspaces):
     a_files = {p.name for p in (root / A).rglob("*") if p.is_file()}
     assert (root / B / "ontology.duckdb").exists()
     assert not any((root / B / n).exists() and n.endswith(".duckdb") and n != "ontology.duckdb" for n in a_files)
+
+
+def test_a_board_in_one_workspace_cannot_be_reached_from_the_other(two_workspaces):
+    from ironwright.platform_api import create_platform_app
+
+    board = {"title": "only in A", "tiles": [{"title": "t", "sql": "select 1", "viz": "number"}]}
+    client = TestClient(create_platform_app())
+    assert client.put(f"/workspaces/{A}/boards/private", json=board).status_code == 200
+
+    assert client.get(f"/workspaces/{A}/boards/private").status_code == 200
+    assert client.get(f"/workspaces/{B}/boards/private").status_code == 404
+    assert client.get(f"/workspaces/{B}/boards").json() == []
+    # Spelled as a climb from B into A. Over HTTP only the encoded spellings
+    # arrive intact; the client resolves a bare ../ before it sends.
+    for slug in (f"..%2f..%2f{A}%2fboards%2fprivate", f"%2e%2e%2f%2e%2e%2f{A}%2fboards%2fprivate"):
+        assert client.get(f"/workspaces/{B}/boards/{slug}").status_code in (404, 405)
+    for slug in (f"../../{A}/boards/private", f"%2e%2e%2f%2e%2e%2f{A}%2fboards%2fprivate"):
+        with pytest.raises(FileNotFoundError):
+            boards.read(load_pack(B), slug)
+        with pytest.raises(FileNotFoundError):
+            boards.delete(load_pack(B), slug)
+    assert client.get(f"/workspaces/{A}/boards/private").status_code == 200
+    assert client.delete(f"/workspaces/{A}/boards/private").status_code == 200
+
+
+def test_a_report_name_cannot_climb_into_the_other_workspace(two_workspaces):
+    assert (two_workspaces / A / "reports" / "reconcile.json").exists()
+    for name in (f"../../{A}/reports/reconcile", f"%2e%2e%2f%2e%2e%2f{A}%2freports%2freconcile"):
+        with pytest.raises(UnsafePath):
+            load_pack(B).paths.report(name)
+
+
+def test_a_workspace_on_disk_is_closed_to_other_users(two_workspaces):
+    root = two_workspaces
+    assert stat.S_IMODE(root.stat().st_mode) == 0o700
+    for name in (A, B):
+        load_pack(name).paths.ensure()
+        for d in (root / name, root / name / "legacy", root / name / "reports"):
+            assert stat.S_IMODE(d.stat().st_mode) == 0o700, d
+        # ontology.duckdb holds the hash-chained audit log.
+        assert stat.S_IMODE((root / name / "ontology.duckdb").stat().st_mode) == 0o600

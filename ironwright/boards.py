@@ -14,10 +14,11 @@ import time
 from pathlib import Path
 from typing import Any
 
+from .config import UnsafePath, private_dir, safe_child, write_private
 from .lake import Lakehouse
 from .packs import Pack
 
-_SLUG = re.compile(r"^[a-z][a-z0-9-]{1,39}$")
+_SLUG = re.compile(r"[a-z][a-z0-9-]{1,39}")
 _SELECT_ONLY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 VIZ = {"table", "number", "bar", "line"}
 
@@ -27,7 +28,24 @@ class BoardError(ValueError):
 
 
 def _dir(pack: Pack) -> Path:
-    return pack.paths.root / "boards"
+    return safe_child(pack.paths.root, "boards")
+
+
+def _file(pack: Pack, slug: str) -> Path:
+    if not isinstance(slug, str) or not _SLUG.fullmatch(slug):
+        raise UnsafePath(f"unsafe board slug: {slug!r}")
+    return safe_child(_dir(pack), f"{slug}.json")
+
+
+def _existing(pack: Pack, slug: str) -> Path:
+    """The board file for a read or delete; a refused slug looks like a missing board."""
+    try:
+        f = _file(pack, slug)
+    except UnsafePath as e:
+        raise FileNotFoundError(slug) from e
+    if not f.exists():
+        raise FileNotFoundError(slug)
+    return f
 
 
 def guard_sql(sql: str) -> str:
@@ -55,38 +73,38 @@ def validate(board: dict[str, Any]) -> dict[str, Any]:
 
 
 def list_boards(pack: Pack) -> list[dict[str, Any]]:
-    d = _dir(pack)
+    try:
+        d = _dir(pack)
+    except UnsafePath:
+        return []
     if not d.exists():
         return []
     out = []
     for f in sorted(d.glob("*.json")):
+        if f.is_symlink():
+            continue
         b = json.loads(f.read_text())
         out.append({"slug": f.stem, "title": b["title"], "tiles": len(b["tiles"])})
     return out
 
 
 def read(pack: Pack, slug: str) -> dict[str, Any]:
-    f = _dir(pack) / f"{slug}.json"
-    if not f.exists():
-        raise FileNotFoundError(slug)
-    return {"slug": slug, **json.loads(f.read_text())}
+    return {"slug": slug, **json.loads(_existing(pack, slug).read_text())}
 
 
 def write(pack: Pack, slug: str, board: dict[str, Any]) -> dict[str, Any]:
-    if not _SLUG.match(slug):
-        raise BoardError("slug: lowercase letter first, then letters, digits or dashes")
+    try:
+        f = _file(pack, slug)
+    except UnsafePath as e:
+        raise BoardError("slug: lowercase letter first, then letters, digits or dashes") from e
     clean = validate(board)
-    d = _dir(pack)
-    d.mkdir(parents=True, exist_ok=True)
-    (d / f"{slug}.json").write_text(json.dumps(clean, indent=1, sort_keys=True))
+    private_dir(f.parent)
+    write_private(f, json.dumps(clean, indent=1, sort_keys=True))
     return {"slug": slug, **clean}
 
 
 def delete(pack: Pack, slug: str) -> None:
-    f = _dir(pack) / f"{slug}.json"
-    if not f.exists():
-        raise FileNotFoundError(slug)
-    f.unlink()
+    _existing(pack, slug).unlink()
 
 
 def run(pack: Pack, slug: str, row_cap: int = 200) -> dict[str, Any]:

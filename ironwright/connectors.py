@@ -32,6 +32,11 @@ state of each rung, as of this file:
   honestly without one. The connection uri comes from the environment
   variable the spec names, never from the spec itself. Debezium, MySQL,
   Oracle, and streaming protocol consumption are NOT claimed.
+- ``local_folder`` (L1, a user's own files): PROVEN against real symlinks, a
+  real FIFO and a real device node in tests/test_paths.py. Files are opened
+  read only through ``read_source_bytes``, copied into a private temp dir and
+  read through the same local-file path as the s3 rung. The user's folder is
+  never written to.
 
 Credentials are read from the environment by the underlying drivers (boto3,
 ADBC); nothing here stores them. Runtime deps live in the ``connectors``
@@ -39,9 +44,13 @@ optional extra; moto is dev-only.
 """
 from __future__ import annotations
 
+import errno
 import fnmatch
+import glob as _glob
 import json
+import os
 import re
+import stat
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,12 +58,107 @@ from typing import Any
 
 import pyarrow as pa
 
+from .config import FILE_NAME, private_dir, safe_child, setting, write_private
+
+_MAX_FILE_BYTES = 1024 ** 3
+_MAX_FILES = 10_000
+
+
+class SourceRefused(ValueError):
+    """A source path a load must not touch. Loud on purpose: a dropped file
+    would look like a clean load with fewer rows."""
+
+
+# ------------------------------------------- the guard on a user's own files
+
+def _inside(root: Path, rel: str | Path) -> tuple[Path, Path]:
+    """(resolved root, resolved target). Unlike safe_child, a source path may
+    name a subfolder and may be a symlink, as long as it lands inside root."""
+    base = Path(root).resolve()
+    target = (base / rel).resolve()
+    if not target.is_relative_to(base):
+        raise SourceRefused(f"{rel} resolves outside the source root")
+    return base, target
+
+
+def read_source_bytes(root: str | Path, rel: str | Path, max_bytes: int | None = None) -> bytes:
+    """One source file, read only. O_NONBLOCK so a FIFO cannot hang the open;
+    fstat on the open descriptor, so what gets checked is what gets read."""
+    cap = int(setting("L1_MAX_FILE_BYTES", _MAX_FILE_BYTES)) if max_bytes is None else max_bytes
+    _, target = _inside(Path(root), rel)
+    try:
+        fd = os.open(target, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    except OSError as e:
+        if e.errno == errno.ELOOP:
+            raise SourceRefused(f"{rel} changed to a symlink during the load") from e
+        raise
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise SourceRefused(f"{rel} is not a regular file")
+        if info.st_size > cap:
+            raise SourceRefused(f"{rel} is {info.st_size} bytes, over the {cap} byte cap")
+        with os.fdopen(os.dup(fd), "rb") as fh:
+            data = fh.read(cap + 1)  # it may have grown since the fstat
+    finally:
+        os.close(fd)
+    if len(data) > cap:
+        raise SourceRefused(f"{rel} grew past the {cap} byte cap during the load")
+    return data
+
+
+def source_files(root: str | Path, pattern: str, max_files: int | None = None) -> list[str]:
+    """Sorted relative names a glob selects under root, every one of them
+    checked. Refuses the whole load on one bad match, and never opens a file."""
+    cap = int(setting("L1_MAX_FILES", _MAX_FILES)) if max_files is None else max_files
+    base = Path(root).resolve()
+    names = []
+    for rel in sorted(_glob.glob(pattern, root_dir=base)):
+        _, target = _inside(base, rel)
+        if not stat.S_ISREG(target.stat().st_mode):
+            raise SourceRefused(f"{rel} is not a regular file")
+        names.append(rel)
+        if len(names) > cap:
+            raise SourceRefused(f"more than {cap} files match {pattern}")
+    return names
+
+
+def copy_source_files(root: str | Path, dest: Path, pattern: str) -> list[str]:
+    """Copy the selected files flat into dest: dest 0700, copies 0600 whatever
+    the source mode was. Returns the copied basenames."""
+    private_dir(dest)
+    names: list[str] = []
+    for rel in source_files(root, pattern):
+        name = Path(rel).name
+        if name in names:
+            raise SourceRefused(f"{pattern}: basenames collide on {name}")
+        write_private(safe_child(dest, name, pattern=FILE_NAME), read_source_bytes(root, rel))
+        names.append(name)
+    return names
+
+
+def _inner_spec(src: dict[str, Any], names: list[str]) -> dict[str, Any]:
+    """The local-file spec for files already sitting flat in a temp dir."""
+    inner = dict(src["inner"])
+    ikind = inner["kind"]
+    if ikind == "fixed_width":
+        if len(names) != 1:
+            raise ValueError(f"{src['kind']} fixed_width inner kind takes exactly one file")
+        inner["file"] = names[0]
+    elif ikind in ("csv", "jsonl"):
+        inner["glob"] = "*"
+    else:
+        raise ValueError(f"{src['kind']} inner kind {ikind} not supported")
+    return inner
+
 
 def read_connector(src: dict[str, Any], legacy_dir: Path) -> pa.Table:
     """Dispatch for source kinds beyond the four local legacy kinds."""
     from .legacy import rows_to_table
 
     kind = src["kind"]
+    if kind == "local_folder":
+        return _read_local_folder(src, legacy_dir)
     if kind == "s3":
         return _read_s3(src, legacy_dir)
     if kind == "adbc":
@@ -66,6 +170,25 @@ def read_connector(src: dict[str, Any], legacy_dir: Path) -> pa.Table:
     if kind == "cdc":
         return rows_to_table(_read_cdc(src))
     raise ValueError(f"unknown source kind {kind}")
+
+
+# ---------------------------------------------------------- L1: local folder
+
+def _read_local_folder(src: dict[str, Any], legacy_dir: Path) -> pa.Table:
+    """A user's own folder. Spec: {kind: local_folder, root?, inner: {kind:
+    fixed_width|csv|jsonl, file|glob, ...its params}}. ``root`` defaults to the
+    legacy dir. sqlite is not an inner kind: its reader opens read-write.
+    """
+    from .legacy import read_source
+
+    inner = src["inner"]
+    if inner["kind"] not in ("fixed_width", "csv", "jsonl"):
+        raise ValueError(f"local_folder inner kind {inner['kind']} not supported")
+    pattern = inner["file"] if inner["kind"] == "fixed_width" else inner["glob"]
+    with tempfile.TemporaryDirectory(prefix="ironwright-l1-") as td:  # mkdtemp: 0700
+        tdir = Path(td)
+        names = copy_source_files(src.get("root", legacy_dir), tdir, pattern)
+        return read_source(_inner_spec(src, names), tdir)
 
 
 # ---------------------------------------------------------------- rung 1: s3
@@ -117,18 +240,9 @@ def _read_s3(src: dict[str, Any], legacy_dir: Path) -> pa.Table:
             if name in names:
                 raise ValueError(f"s3 source {bucket}: key basenames collide on {name}")
             names.append(name)
-            s3.download_file(bucket, key, str(tdir / name))
-        inner = dict(src["inner"])
-        ikind = inner["kind"]
-        if ikind == "fixed_width":
-            if len(names) != 1:
-                raise ValueError("s3 fixed_width inner kind takes exactly one key")
-            inner["file"] = names[0]
-        elif ikind in ("csv", "jsonl"):
-            inner["glob"] = "*"
-        else:
-            raise ValueError(f"s3 inner kind {ikind} not supported")
-        return read_source(inner, tdir)
+            # A key is remote input: "drop/.." has the basename "..".
+            s3.download_file(bucket, key, str(safe_child(tdir, name, pattern=FILE_NAME)))
+        return read_source(_inner_spec(src, names), tdir)
 
 
 # -------------------------------------------------------------- rung 2: adbc
@@ -136,15 +250,16 @@ def _read_s3(src: dict[str, Any], legacy_dir: Path) -> pa.Table:
 def _read_adbc(src: dict[str, Any], legacy_dir: Path) -> list[dict[str, Any]]:
     """Warehouse read over ADBC. Spec: {kind: adbc, driver: sqlite|postgresql,
     uri, query}. A relative sqlite uri resolves against the legacy dir, same
-    as the native sqlite kind's ``db``.
+    as the native sqlite kind's ``db``, stays inside it, and opens read only.
     """
     driver, uri = src["driver"], src["uri"]
     if driver == "sqlite":
-        import adbc_driver_sqlite.dbapi as dbapi
-        if "://" not in uri and not Path(uri).is_absolute():
-            uri = str(legacy_dir / uri)
+        from adbc_driver_sqlite import dbapi
+        if "://" not in uri and not uri.startswith("file:") and not Path(uri).is_absolute():
+            _, target = _inside(legacy_dir, uri)
+            uri = f"{target.as_uri()}?mode=ro"
     elif driver == "postgresql":
-        import adbc_driver_postgresql.dbapi as dbapi
+        from adbc_driver_postgresql import dbapi
     else:
         raise ValueError(f"unknown adbc driver {driver}")
     with dbapi.connect(uri) as con, con.cursor() as cur:
@@ -167,7 +282,7 @@ def _read_idoc(src: dict[str, Any], legacy_dir: Path) -> list[dict[str, Any]]:
     name_width = int(src.get("control_width", 30))
     segments: dict[str, list[list[Any]]] = src["segments"]
     rows: list[dict[str, Any]] = []
-    for line in (legacy_dir / src["file"]).read_text(encoding="latin-1").splitlines():
+    for line in read_source_bytes(legacy_dir, src["file"]).decode("latin-1").splitlines():
         if not line.strip():
             continue
         seg = line[:name_width].strip()
@@ -234,15 +349,13 @@ def _read_stream_window(src: dict[str, Any], legacy_dir: Path) -> list[dict[str,
     window. Deterministic, so a re-run on the same segments is identical.
     An event missing the timestamp field is an error, never dropped.
     """
-    import glob as _glob
-
     seconds = _window_seconds(src["window"])
     if seconds <= 0:
         raise ValueError(f"stream_window needs a positive window, got {src['window']!r}")
     field = src.get("window_id_from", "ts")
     rows: list[dict[str, Any]] = []
-    for f in sorted(_glob.glob(str(legacy_dir / src["glob"]))):
-        for line in Path(f).read_text().splitlines():
+    for f in source_files(legacy_dir, src["glob"]):
+        for line in read_source_bytes(legacy_dir, f).decode().splitlines():
             if not line.strip():
                 continue
             event = json.loads(line)
