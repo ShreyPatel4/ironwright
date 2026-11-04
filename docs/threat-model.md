@@ -156,6 +156,9 @@ These are real and I would rather say so.
   roles and a workspace's business roles are not mapped to each other yet.
 - **The tile cap is at save, in middleware.** A board saved before the cap can still run with more
   tiles. The SQL slot and each tile's timeout still hold it.
+- **Tenant SQL still runs inside the API process.** The memory limit and the slots bound it, but a
+  DuckDB crash takes every tenant's requests on that process with it. Wave 3 named subprocess caps
+  for this. I did not build them.
 - **The SQL slots and the door limit are per process and in memory.** Two API processes give an org
   twice the slots. A restart clears the door limit. Behind a reverse proxy every client shares one
   door bucket, which fails closed and can lock people out for a minute.
