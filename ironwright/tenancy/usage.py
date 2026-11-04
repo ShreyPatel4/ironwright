@@ -134,7 +134,7 @@ class MeteredLLM:
     """An LLM that records what each call really spent, under one metric."""
 
     def __init__(self, inner: LLM, org_id: str, metric: str, now: float) -> None:
-        self._inner, self._org_id, self._metric, self._now = inner, org_id, metric, now
+        self._inner, self._org_id, self.metric, self._now = inner, org_id, metric, now
 
     @property
     def offline(self) -> bool:
@@ -148,5 +148,5 @@ class MeteredLLM:
         res = self._inner.complete(system, prompt, max_tokens)
         spent = res.tokens_in + res.tokens_out
         if spent:
-            add(self._org_id, self._metric, self._now, spent)
+            add(self._org_id, self.metric, self._now, spent)
         return res

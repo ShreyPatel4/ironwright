@@ -17,10 +17,11 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from .. import auth
 from .. import workspaces_tenant as wt
 from ..auth import ctx
 from ..jobs.store import JobStore
-from ..tenancy import Ctx
+from ..tenancy import Ctx, quotas
 from . import propose as proposer
 
 router = APIRouter()
@@ -50,6 +51,7 @@ def get_proposal(name: str, c: CtxDep) -> dict[str, Any]:
 
 @router.post("/workspaces/{name}/ontology/accept")
 def accept(name: str, body: AcceptBody, c: CtxDep) -> dict[str, Any]:
+    quotas.check(c.org_id, "runs", auth._now())
     try:
         done = proposer.accept(c.org_id, name, body.proposal_id, body.edits, c.principal)
     except FileNotFoundError as e:
@@ -60,4 +62,5 @@ def accept(name: str, body: AcceptBody, c: CtxDep) -> dict[str, Any]:
         raise HTTPException(409, "a run is using this workspace; try again when it is done") from e
     except (proposer.BadEdit, wt.WorkspaceError) as e:
         raise HTTPException(422, str(e)) from e
+    quotas.spend(c.org_id, "runs", auth._now())
     return {**done, "job_id": JobStore().enqueue(c.org_id, name, "run", c.principal, {})}

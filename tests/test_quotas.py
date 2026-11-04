@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from ironwright import auth, platform_api
 from ironwright.config import uploads_root
+from ironwright.jobs import handlers
 from ironwright.llm import DEFAULT_MODELS, resolve_llm
 from ironwright.ontology.runtime import Ontology
 from ironwright.packs import Pack
@@ -740,3 +741,110 @@ def test_usage_counts_seats_the_way_the_invite_door_does(api):
     seats = c.get(f"/orgs/{a['org_slug']}/usage", headers=bearer(a)).json()["metrics"]["members"]
     assert seats == {"used": 3, "limit": 3}
     assert _invite(c, a, "four@a.example").status_code == 429
+
+
+# ----- W2's doors: accepting a proposal queues a run, and a proposal can be narrated
+
+def _accept(c, session, ws):
+    return c.post(f"/workspaces/{ws}/ontology/accept", headers=bearer(session), json={"proposal_id": "p1"})
+
+
+@pytest.fixture()
+def accepted(monkeypatch):
+    """Only the proposer's own work is stood in for. The route and the queue are real."""
+    calls = []
+    monkeypatch.setattr("ironwright.ontology.routes.proposer.accept",
+                        lambda *a: calls.append(a) or {"accepted": True})
+    return calls
+
+
+def test_accepting_a_proposal_spends_a_run(api, accepted):
+    c, a, _, ws = api
+    r = _accept(c, a, ws)
+    assert r.status_code == 200 and r.json()["job_id"]
+    assert usage.used(a["org_id"], "runs", NOON) == 1
+
+
+def test_an_org_out_of_runs_cannot_accept_and_nothing_changes(api, accepted):
+    """Accept writes the ontology, then queues. A refusal has to come before the write,
+    or the org is left with an accepted model and no run behind it."""
+    c, a, _, ws = api
+    for _ in range(2):
+        assert _accept(c, a, ws).status_code == 200
+    over = _accept(c, a, ws)
+    assert over.status_code == 429 and "2 runs" in over.json()["detail"]
+    assert len(accepted) == 2
+    assert usage.used(a["org_id"], "runs", NOON) == 2
+
+
+def test_an_accept_that_fails_costs_no_run(api, monkeypatch):
+    from ironwright.ontology import propose as proposer
+
+    def stale(*_a):
+        raise proposer.StaleProposal("old")
+
+    monkeypatch.setattr("ironwright.ontology.routes.proposer.accept", stale)
+    c, a, _, ws = api
+    assert _accept(c, a, ws).status_code == 409
+    assert usage.used(a["org_id"], "runs", NOON) == 0
+
+
+def _narrate_job(org_id, monkeypatch, params=None) -> list:
+    """The real handler. The pack and the proposer's work are stood in for, and the
+    model it was handed is then called, so the wire shows which key travelled."""
+    seen = []
+
+    def store(_pack, llm=None):
+        seen.append(llm)
+        if llm is not None:
+            llm.complete("s", "p")
+        return {"objects": [], "links": [], "functions": []}
+
+    monkeypatch.setattr(handlers, "_load", lambda org, ws: SimpleNamespace(is_tenant=True))
+    monkeypatch.setattr("ironwright.ontology.propose.store_proposal", store)
+    job = handlers.JobCtx(org_id=org_id, principal="user:x", job_id="j1", cancelled=lambda: False)
+    handlers.HANDLERS["ontology_propose"](job, "ws", {"narrate": True} if params is None else params, lambda _: None)
+    return seen
+
+
+def test_narrating_a_proposal_counts_platform_tokens(api, wire, monkeypatch):
+    monkeypatch.setenv("IRONWRIGHT_LLM", "anthropic")
+    _, a, _, _ = api
+    _narrate_job(a["org_id"], monkeypatch)
+    assert wire.calls[0]["headers"]["x-api-key"] == PLATFORM_KEY
+    assert usage.used(a["org_id"], "llm_tokens", auth._now()) == 40
+
+
+def test_narrating_a_proposal_uses_the_org_key_first(api, wire, secret, monkeypatch):
+    monkeypatch.setenv("IRONWRIGHT_LLM", "anthropic")
+    c, a, _, _ = api
+    _put(c, a)
+    _narrate_job(a["org_id"], monkeypatch)
+    assert wire.calls[0]["headers"]["x-api-key"] == CANARY
+    assert usage.used(a["org_id"], "llm_tokens", auth._now()) == 0
+    assert usage.used(a["org_id"], "llm_tokens_byo", auth._now()) == 40
+
+
+def test_a_proposal_out_of_platform_tokens_is_still_made_without_the_paragraph(api, wire, monkeypatch):
+    """Rules make the proposal. Narration is the only part that costs tokens, and a
+    worker has no request to answer 429 to."""
+    monkeypatch.setenv("IRONWRIGHT_LLM", "anthropic")
+    _, a, _, _ = api
+    usage.add(a["org_id"], "llm_tokens", auth._now(), 100)
+    seen = _narrate_job(a["org_id"], monkeypatch)
+    assert seen[0].offline and not wire.calls
+
+
+def test_a_key_that_cannot_be_read_never_narrates_on_the_platform(api, wire, secret, monkeypatch):
+    monkeypatch.setenv("IRONWRIGHT_LLM", "anthropic")
+    c, a, _, _ = api
+    _put(c, a)
+    monkeypatch.setenv("IRONWRIGHT_SECRET_KEY", Fernet.generate_key().decode())
+    assert _narrate_job(a["org_id"], monkeypatch)[0].offline
+    assert not wire.calls
+
+
+def test_a_proposal_nobody_asked_to_narrate_gets_no_model(api, wire, monkeypatch):
+    monkeypatch.setenv("IRONWRIGHT_LLM", "anthropic")
+    _, a, _, _ = api
+    assert _narrate_job(a["org_id"], monkeypatch, params={}) == [None]

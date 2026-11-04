@@ -220,6 +220,14 @@ not a surprise. Lesson: a fixture I built only proves what I already thought of.
 **Cause.** Until then the check was `validate_contract3`, my own strict copy of contract 3. I wrote it from the same reading of the contract as the code it checked, so it agreed with me. The contract never spells out a flag type, and T2 chose `boolean`.
 
 **Fix.** The proposal now says `boolean`, leaves `header` off fixed width layouts, and leaves out a file the run cannot read, with a decision saying why. A fixed width header is on the record as a contract gap. The test now calls T2's validator, and each fixture goes from upload to a green `run_workspace`. Lesson: a stand-in for someone else's check only proves I agree with myself, so replace it the day the real one lands.
+## 18. A key edit could pick what the proposer never would
+
+**Symptom.** Reading the first golden proposal, I saw `premium` marked unique. A new test confirmed that a `set_key` edit took it, and took `loss_date` too.
+
+**Cause.** The proposer refuses measures and dates as keys, but the edit path only asked if the column was unique. Three policies with three premiums are unique today and collide on the next load. The same rule lived in one of the two places that needed it.
+
+**Fix.** `set_key` applies the same type rule, with a test for each. Lesson: a human edit goes through the rules a proposal goes through. Approving something does not make it valid.
+
 ## 19. A typo that read as a full org
 
 **Symptom.** With every member seat taken, inviting `not an email` answered 429 instead of 422.
@@ -233,13 +241,19 @@ the invite refuses it in its own words. While I was there I took out `pydantic` 
 it back to see what it does: its 422 echoes the body, which here is a live key. That route reads its own
 body, and the leak test sends the three shapes that echo.
 
-## 18. A key edit could pick what the proposer never would
+## 20. Two doors that opened after I checked
 
-**Symptom.** Reading the first golden proposal, I saw `premium` marked unique. A new test confirmed that a `set_key` edit took it, and took `loss_date` too.
+**Symptom.** My PR said Ask was the only model call a tenant could reach, and that runs had two doors.
+Both were true when I wrote them. Rebasing onto the ontology proposer made both false, and every test
+stayed green.
 
-**Cause.** The proposer refuses measures and dates as keys, but the edit path only asked if the column was unique. Three policies with three premiums are unique today and collide on the next load. The same rule lived in one of the two places that needed it.
+**Cause.** The proposer's job builds its own `LLM()` when asked to narrate, so a member could queue it
+over and over on the platform key with no limit, and past an org's own key. Accepting a proposal queues a
+run straight on the store, so it never met the runs limit. Nothing in my suite could notice a new call site.
 
-**Fix.** `set_key` applies the same type rule, with a test for each. Lesson: a human edit goes through the rules a proposal goes through. Approving something does not make it valid.
+**Fix.** Both now go through `quotas`. Out of tokens, the proposal is still made and the paragraph is left
+out. Out of runs, accept refuses before it writes. The lesson: grep for `LLM(` and `.enqueue(` on every
+rebase, because a limit only holds at the doors it knows about.
 
 ## Smaller ones
 

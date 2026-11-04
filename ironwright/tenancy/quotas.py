@@ -82,6 +82,14 @@ def spend(org_id: str, metric: str, now: float) -> None:
         raise _over_today(org_id, metric, cap, now)
 
 
+def check(org_id: str, metric: str, now: float) -> None:
+    """Refuse if a daily limit is used up, and take nothing. For a door that has a
+    write to make before it can spend, so a refusal lands before the write."""
+    cap = limit(org_id, metric)
+    if cap is not None and usage.used(org_id, metric, now) >= cap:
+        raise _over_today(org_id, metric, cap, now)
+
+
 def storage_used(org_id: str) -> int:
     """Bytes under the org's uploads, measured, so the number cannot drift from the disk.
     A lake on object storage is not in here: it is derived from these files."""
@@ -152,34 +160,51 @@ def report(org_id: str, now: float) -> dict[str, Any]:
             "metrics": {m: {"used": n, "limit": limit(org_id, m)} for m, n in used.items()}}
 
 
-def start_ask(org_id: str, now: float) -> Any:
-    """The Ask door: the model this question may use, or a 429.
+def _model(org_id: str, now: float) -> Any:
+    """The model this org may use: its own key, then the platform's, then the template.
 
-    Org key first, and its tokens are the org's own. Then the platform's, metered
-    against the plan. Tokens are known only after a call, so a call can pass the
-    limit and the next question is the one refused. A key that cannot be opened
-    gets the template. It never falls through to the platform: the org chose its
-    own provider, and its cells stay away from ours.
+    A key that cannot be opened gets the template. It never falls through to the
+    platform: the org chose its own provider, and its cells stay away from ours.
+    None means the dev org with no key, where the caller keeps the choice it had.
     """
     try:
         org_key = byokey.load(org_id)
     except byokey.Unreadable:
         log.warning("org %s has an llm key this server cannot open", org_id)
-        spend(org_id, "ask", now)
         return LLM("offline")
     if org_key:
-        spend(org_id, "ask", now)
         return usage.MeteredLLM(resolve_llm(org_key), org_id, "llm_tokens_byo", now)
     if org_id == DEV_ORG_ID:
-        return None  # the demo path: Ask stays deterministic unless an operator hands it a key
+        return None
     llm = resolve_llm(None)
-    if llm.offline:
-        spend(org_id, "ask", now)
-        return llm
-    cap = limit(org_id, "llm_tokens")
-    if usage.used(org_id, "llm_tokens", now) >= cap:
+    return llm if llm.offline else usage.MeteredLLM(llm, org_id, "llm_tokens", now)
+
+
+def _out_of_tokens(org_id: str, llm: Any, now: float) -> bool:
+    """Only the platform's tokens have a limit. An org's own key is its own bill."""
+    return (isinstance(llm, usage.MeteredLLM) and llm.metric == "llm_tokens"
+            and usage.used(org_id, "llm_tokens", now) >= limit(org_id, "llm_tokens"))
+
+
+def start_ask(org_id: str, now: float) -> Any:
+    """The Ask door: the model this question may use, or a 429.
+
+    Tokens are known only after a call, so a call can pass the limit and the next
+    question is the one refused.
+    """
+    llm = _model(org_id, now)
+    if _out_of_tokens(org_id, llm, now):
+        cap = limit(org_id, "llm_tokens")
         raise QuotaExceeded(f"Your org has used its {cap} model tokens for today on the {plan_of(org_id)} plan. "
                             "The count starts again at 00:00 UTC, or an admin can add your own key.",
                             retry_after=seconds_to_midnight(now))
     spend(org_id, "ask", now)
-    return usage.MeteredLLM(llm, org_id, "llm_tokens", now)
+    return llm
+
+
+def narration_llm(org_id: str, now: float) -> Any:
+    """For a job that narrates what rules already decided. A worker has no request to
+    answer 429 to, and the rules' work is not what costs tokens, so over the limit
+    the job still runs and the paragraph is left out."""
+    llm = _model(org_id, now)
+    return LLM("offline") if _out_of_tokens(org_id, llm, now) else llm
