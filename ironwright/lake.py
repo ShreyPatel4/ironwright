@@ -23,6 +23,7 @@ import pyarrow as pa
 from pyiceberg.catalog.sql import SqlCatalog
 from pyiceberg.exceptions import NoSuchTableError
 
+from . import sqlguard
 from .legacy import read_source
 from .packs import Pack
 from .quality import CheckResult, blocking_failures, run_checks
@@ -75,13 +76,15 @@ class Lakehouse:
                  "run_id": (s.summary.additional_properties or {}).get("run_id") if s.summary else None}
                 for s in t.snapshots()]
 
-    def connect(self) -> duckdb.DuckDBPyConnection:
+    def connect(self, *, capped: bool = False) -> duckdb.DuckDBPyConnection:
         """DuckDB with every published table registered as a view named layer_table.
         bronze_x shows only the latest legacy run; bronze_x_all shows every run.
         This connection fronts user-written SQL (the explorer, board tiles), so
         after setup it disables external access and locks its configuration:
         read_text, read_csv, glob, httpfs and ATTACH are off at the engine, not
-        just filtered by the SELECT-only shape check."""
+        just filtered by the SELECT-only shape check. capped=True adds the memory,
+        thread and spill limits; only callers running user SQL ask for it, the
+        pipeline's own queries stay uncapped."""
         con = duckdb.connect()
         for ident in self.tables():
             ns, name = ident.split(".")
@@ -93,6 +96,8 @@ class Lakehouse:
                             f"where _run_id = (select max(_run_id) from _{ns}_{name})")
             else:
                 con.execute(f"create view {ns}_{name} as select * from _{ns}_{name}")
+        if capped:
+            sqlguard.apply_limits(con)
         con.execute("set enable_external_access = false")
         con.execute("set lock_configuration = true")
         return con

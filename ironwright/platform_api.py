@@ -30,6 +30,7 @@ from . import auth as auth_mod
 from . import boards as boards_mod
 from . import escalation as escalation_mod
 from . import orgpolicy as orgpolicy_mod
+from . import sqlguard
 from .asof import router as asof_router
 from .otel_export import router as otel_router
 from . import discovery as discovery_mod
@@ -45,7 +46,6 @@ from .ontology.runtime import Ontology
 from .packs import list_packs, load_pack
 from .tracing import Tracer
 
-_SELECT_ONLY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 
 STAGE_ORDER = ["generate", "migrate", "reconcile", "ontology", "agents", "evals", "export"]
 DEFAULT_SEEDS = {"retail": 7, "supply_chain": 11, "banking_aml": 23, "insurance_claims": 31}
@@ -110,17 +110,11 @@ def _utcnow() -> str:
 
 
 def _guard_select_only(sql: str) -> str:
-    """The explorer is read-only by contract. One statement, SELECT or WITH,
-    nothing after a terminating semicolon. This shape check is discipline;
-    the defense is the connection itself, which disables external access
-    (read_text, glob, httpfs, ATTACH) and locks its configuration before any
-    user SQL runs."""
-    body = sql.strip().rstrip(";").strip()
-    if ";" in body:
-        raise HTTPException(422, "one statement at a time")
-    if not _SELECT_ONLY.match(body):
-        raise HTTPException(422, "read-only explorer: the statement must start with SELECT or WITH")
-    return body
+    """The explorer is read-only by contract; see sqlguard for the rules."""
+    try:
+        return sqlguard.guard_select(sql)
+    except sqlguard.SqlRejected as e:
+        raise HTTPException(422, str(e)) from e
 
 
 def _pack(name: str):
@@ -467,17 +461,14 @@ def create_platform_app() -> FastAPI:
     @app.post("/workspaces/{name}/lake/query")
     def lake_query(name: str, body: QueryBody) -> dict[str, Any]:
         sql = _guard_select_only(body.sql)
-        limit = max(1, min(body.limit, 500))
-        con = Lakehouse(_pack(name)).connect()
+        limit = max(1, min(body.limit, sqlguard.MAX_ROWS))
+        con = Lakehouse(_pack(name)).connect(capped=True)
         try:
             try:
-                cur = con.execute(sql)
-            except Exception as e:  # surface duckdb's message, not a 500
-                raise HTTPException(400, str(e))
-            cols = [d[0] for d in cur.description]
-            rows = cur.fetchmany(limit)
-            return {"columns": cols,
-                    "rows": [[None if v is None else str(v) for v in r] for r in rows],
+                cols, rows = sqlguard.run_capped(con, sql, limit)
+            except Exception as e:  # a safe message and an id, not a 500
+                raise HTTPException(400, sqlguard.safe_error(e)) from e
+            return {"columns": cols, "rows": rows,
                     "truncated_at": limit if len(rows) == limit else None}
         finally:
             con.close()

@@ -97,6 +97,21 @@ The same tests found two quieter ones. An organization named `auth` moved into t
 so deleting it deleted the credentials. And the slug regexes used `$` with `.match`, which lets a trailing
 newline through. Those are now a reserved name and `fullmatch`.
 
+## 8. A write that starts like a read
+
+**Symptom.** The new SQL attack table failed on its first run. `with x as (select 1) insert into ...`
+got past the guard, at the Explorer and at board save. So did update, delete, unicode semicolons
+and a NUL byte. Every engine error also sent DuckDB's raw text back to the client, paths included.
+
+**Cause.** The guard was a regex on the first word, copied into two files. `WITH` looks like a read,
+but DuckDB's parser calls that statement an INSERT. The parser also stops at a NUL, so it can see
+less of the string than I do.
+
+**Fix.** One guard in `sqlguard.py`. It keeps the text checks and adds the real parser. I need both,
+because `pragma version` parses as a SELECT. Clients now get a short category and an error id, and
+the full text goes to the server log. The engine lockdown held throughout: no attack in the table
+read or wrote a file, before or after the fix. The guard was the part that was wrong.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.
