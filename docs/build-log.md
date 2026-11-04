@@ -182,6 +182,18 @@ suite stayed green because every test starts from an empty root. Only a reused d
 
 **Fix.** `_target_dir` asks `PackPaths`, and a test writes a grant, regenerates and expects no rules.
 Lesson: when a path moves, grep for everyone who spelled it by hand, and run the gate twice on one dir.
+## 15. A race test that a dead thread could pass
+
+**Symptom.** I removed the claim lock on purpose to see the race tests fail. SQLite failed. The
+Postgres half of the one-running-per-org test stayed green.
+
+**Cause.** Without the lock, a worker hit the unique index and died with an `IntegrityError` on its
+thread. The test only counted what the surviving threads held, and that count was still right. A
+thread that dies leaves fewer claimers, which hides the very race the test exists to find.
+
+**Fix.** The race helper now fails on any thread error, and the global cap has its own test with one
+job per org, so only the cap can stop a claim. Lesson: a concurrency test has to prove every thread
+finished, not just check the final tally. And delete the safeguard once to see the test go red.
 
 ## Smaller ones
 

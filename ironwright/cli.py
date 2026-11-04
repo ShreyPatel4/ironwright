@@ -7,6 +7,7 @@
   ironwright trace --pack retail [--id TRACE_ID]   print a trace as a span tree
   ironwright serve --pack retail          REST API over the ontology
   ironwright mcp --pack retail            MCP server exposing functions and actions as tools
+  ironwright worker [--once]              run background jobs from the jobs table
 
 serve and platform bind 127.0.0.1. Anything else needs --host plus --i-know-this-is-exposed.
 """
@@ -135,7 +136,7 @@ STAGES = {"generate": stage_generate, "migrate": stage_migrate, "reconcile": sta
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="ironwright", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                  allow_abbrev=False)   # the exposure flag is spelled out in full
-    ap.add_argument("command", choices=["list", "run", "trace", "serve", "platform", "auth-set", "mcp", *STAGES])
+    ap.add_argument("command", choices=["list", "run", "trace", "serve", "platform", "auth-set", "mcp", "worker", *STAGES])
     ap.add_argument("--id", dest="trace_id", default=None, help="trace id for the trace command")
     ap.add_argument("--pack", default="retail")
     ap.add_argument("--seed", type=int, default=None, help="generator seed (default: the pack's own)")
@@ -145,6 +146,7 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--i-know-this-is-exposed", action="store_true",
                     help="required for any --host that is not loopback")
     ap.add_argument("--web-dir", default="web", help="where export writes data for the web demo")
+    ap.add_argument("--once", action="store_true", help="worker: run at most one job, then exit")
     args = ap.parse_args(argv)
 
     if args.command in ("serve", "platform") and not _is_loopback(args.host):
@@ -156,6 +158,11 @@ def main(argv: list[str] | None = None) -> None:
         for name in list_packs():
             p = load_pack(name)
             print(f"{name:<14} {p.title:<28} {p.spec.get('industry', '')}")
+        return
+
+    if args.command == "worker":
+        from .jobs.worker import main as worker_main
+        worker_main(once=args.once)
         return
 
     packs = list_packs() if args.pack == "all" else [args.pack]
