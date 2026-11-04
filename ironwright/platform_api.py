@@ -38,6 +38,7 @@ from .auth import ctx
 from .bi import router as bi_router
 from .config import data_root, safe_child, write_private
 from .engines import router as engines_router
+from .ingest.routes import router as ingest_router
 from .jobs import routes as jobs_routes
 from .lake import Lakehouse
 from .ontology.runtime import Ontology
@@ -736,6 +737,7 @@ def create_platform_app() -> FastAPI:
     app.include_router(bi_router)
     app.include_router(engines_router)
     app.include_router(jobs_routes.router)
+    app.include_router(ingest_router)
 
     # The console is a committed build (console/dist), so a git clone needs
     # uv and nothing else at runtime. Absent (e.g. a bare pip install of the

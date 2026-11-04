@@ -194,6 +194,23 @@ thread that dies leaves fewer claimers, which hides the very race the test exist
 **Fix.** The race helper now fails on any thread error, and the global cap has its own test with one
 job per org, so only the cap can stop a claim. Lesson: a concurrency test has to prove every thread
 finished, not just check the final tally. And delete the safeguard once to see the test go red.
+## 16. The profiler looked right until I ran it on a real file
+
+**Symptom.** My hand built fixtures passed. Then I pointed the profiler at what the retail generator
+really writes. `STORMAST.dat` got a boundary in the middle of `Brightline #101`, and a join came back
+between `field_3` and `field_1`. The join was real, by luck.
+
+**Cause.** One blank column after text that never changes is not a field gutter, it is a word break
+in a constant. And `difflib` scores `field_3` and `field_1` as similar, but I made those names up, so
+they are no evidence of anything. My own review found a third one the same day: capping a column's
+values at the first N seen meant two big files in different row orders compared different slices of
+the ids and reported no overlap.
+
+**Fix.** A lone gutter after constant text is not a boundary. Generated names and siblings like
+`addr_1` and `addr_2` score zero. The value cap is now a fixed hash sample, so both sides keep the same
+slice. The real generator files are in the test suite now. It pins the two boundaries alignment can
+never see too (abutting unpadded digits, abutting single letters), so that limit is written down and
+not a surprise. Lesson: a fixture I built only proves what I already thought of.
 
 ## Smaller ones
 

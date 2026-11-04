@@ -1,0 +1,211 @@
+{
+ "candidate_joins": [],
+ "files": [
+  {
+   "bad_rows": {
+    "count": 0,
+    "lines": []
+   },
+   "candidate_keys": [
+    {
+     "column": "claim_id",
+     "confidence": 0.9,
+     "reason": "Unique and never null in every row read. The name also reads like a key."
+    },
+    {
+     "column": "policy_no",
+     "confidence": 0.9,
+     "reason": "Unique and never null in every row read. The name also reads like a key."
+    }
+   ],
+   "columns": [
+    {
+     "confidence": 0.8,
+     "distinct": 8,
+     "distinct_ratio": 1.0,
+     "name": "claim_id",
+     "null_rate": 0.0,
+     "null_tokens": {},
+     "nulls": 0,
+     "reason": "Some values fit no narrower type, so string keeps every byte.",
+     "samples": [
+      "CL-1001",
+      "CL-1002",
+      "CL-1003",
+      "CL-1004",
+      "CL-1005"
+     ],
+     "source_name": "Claim ID",
+     "type": "string"
+    },
+    {
+     "confidence": 0.9,
+     "distinct": 8,
+     "distinct_ratio": 1.0,
+     "name": "policy_no",
+     "null_rate": 0.0,
+     "null_tokens": {},
+     "nulls": 0,
+     "reason": "Numbers with leading zeros stay strings. The zeros may mean something, as in an id or a UPC. Cast it later if it is a quantity.",
+     "samples": [
+      "00123",
+      "00124",
+      "00125",
+      "00126",
+      "00127"
+     ],
+     "source_name": "Policy No",
+     "type": "string"
+    },
+    {
+     "confidence": 0.5,
+     "distinct": 8,
+     "distinct_ratio": 1.0,
+     "format": "%Y-%m-%d",
+     "formats": {
+      "%Y-%m-%d": 4,
+      "%m/%d/%Y": 4
+     },
+     "name": "claim_date",
+     "null_rate": 0.0,
+     "null_tokens": {},
+     "nulls": 0,
+     "reason": "Every value parses, but under 2 formats. The dominant one holds this share of the rows.",
+     "samples": [
+      "2024-01-15",
+      "01/22/2024",
+      "2024-02-03",
+      "02/14/2024",
+      "03/15/2024"
+     ],
+     "source_name": "Claim Date",
+     "type": "date"
+    },
+    {
+     "confidence": 0.95,
+     "distinct": 6,
+     "distinct_ratio": 1.0,
+     "name": "amount",
+     "null_rate": 0.25,
+     "null_tokens": {
+      "": 1,
+      "N/A": 1
+     },
+     "nulls": 2,
+     "reason": "Every value is a plain number with a decimal point in some rows. Precision and scale are the widest seen.",
+     "samples": [
+      "1250.50",
+      "880.00",
+      "42",
+      "19.99",
+      "7300.25"
+     ],
+     "source_name": "Amount",
+     "type": "decimal(6,2)"
+    },
+    {
+     "confidence": 0.9,
+     "distinct": 2,
+     "distinct_ratio": 0.25,
+     "name": "approved",
+     "null_rate": 0.0,
+     "null_tokens": {},
+     "nulls": 0,
+     "reason": "Exactly one true and false spelling, both seen. 0 and 1 stay int, I do not guess a flag.",
+     "samples": [
+      "Y",
+      "N"
+     ],
+     "source_name": "Approved",
+     "type": "bool"
+    },
+    {
+     "confidence": 0.8,
+     "distinct": 3,
+     "distinct_ratio": 0.5,
+     "name": "adjuster",
+     "null_rate": 0.25,
+     "null_tokens": {
+      "": 1,
+      "NULL": 1
+     },
+     "nulls": 2,
+     "reason": "Some values fit no narrower type, so string keeps every byte.",
+     "samples": [
+      "Ann Lee",
+      "Bob Ray",
+      "Cy Diaz"
+     ],
+     "source_name": "Adjuster",
+     "type": "string"
+    },
+    {
+     "confidence": 0.8,
+     "distinct": 4,
+     "distinct_ratio": 1.0,
+     "name": "notes",
+     "null_rate": 0.5,
+     "null_tokens": {
+      "": 3,
+      "N/A": 1
+     },
+     "nulls": 4,
+     "reason": "Some values fit no narrower type, so string keeps every byte.",
+     "samples": [
+      "first notice",
+      "late, but fine",
+      "He said \"no\"",
+      "reopened"
+     ],
+     "source_name": "Notes",
+     "type": "string"
+    },
+    {
+     "confidence": 0.95,
+     "distinct": 6,
+     "distinct_ratio": 1.0,
+     "format": "%Y-%m-%d %H:%M:%S",
+     "formats": {
+      "%Y-%m-%d %H:%M:%S": 6
+     },
+     "name": "closed_at",
+     "null_rate": 0.25,
+     "null_tokens": {
+      "": 1,
+      "0000-00-00": 1
+     },
+     "nulls": 2,
+     "reason": "Every value parses as a timestamp in one format.",
+     "samples": [
+      "2024-02-01 09:30:00",
+      "2024-02-03 14:05:10",
+      "2024-03-20 08:00:00",
+      "2024-04-02 17:45:00",
+      "2024-04-09 11:11:11"
+     ],
+     "source_name": "Closed At",
+     "type": "timestamp"
+    }
+   ],
+   "encoding_confidence": 0.9,
+   "encoding_reason": "Every byte is ASCII, which UTF-8 reads the same way.",
+   "format": "csv",
+   "format_confidence": 0.9,
+   "format_reason": "One delimiter gives the same field count on most rows.",
+   "header_confidence": 0.95,
+   "header_reason": "The first row is text above a column of typed values.",
+   "layout": {
+    "delimiter": ",",
+    "encoding": "utf-8",
+    "header": true
+   },
+   "leader_rows": 0,
+   "name": "claims_export.csv",
+   "rows": 8,
+   "source": "claims_export",
+   "trailer_rows": 1,
+   "truncated": false
+  }
+ ],
+ "skipped": []
+}
