@@ -261,9 +261,19 @@ def s3_lake(monkeypatch):
     client = boto3.client("s3", endpoint_url=endpoint, region_name="us-east-1")
     client.create_bucket(Bucket=bucket)
     monkeypatch.setenv("IRONWRIGHT_LAKE_URI", f"s3://{bucket}/t")
-    if os.environ.get("POSTGRES_URI"):
-        monkeypatch.setenv("IRONWRIGHT_DB_URL", os.environ["POSTGRES_URI"])
     return SimpleNamespace(client=client, bucket=bucket)
+
+
+@pytest.fixture()
+def catalog_db(request, monkeypatch):
+    """A throwaway schema when there is a Postgres to prove on. Catalog names are
+    fixed, so rows left in a shared database would point at a bucket from an old run."""
+    if not os.environ.get("POSTGRES_URI"):
+        return
+    schema = request.getfixturevalue("pg_schema")
+    uri = os.environ["POSTGRES_URI"]
+    sep = "&" if "?" in uri else "?"
+    monkeypatch.setenv("IRONWRIGHT_DB_URL", f"{uri}{sep}options=-csearch_path%3D{schema}")
 
 
 def _keys(s3_lake, prefix: str) -> list[str]:
@@ -272,7 +282,7 @@ def _keys(s3_lake, prefix: str) -> list[str]:
 
 
 @pytest.mark.parametrize("name", list_packs())
-def test_pack_passes_all_eval_layers_on_object_storage(s3_lake, tmp_path, name):
+def test_pack_passes_all_eval_layers_on_object_storage(s3_lake, catalog_db, tmp_path, name):
     pack = load_pack(name)
     tracer = Tracer(pack.paths.ensure().traces)
     args = argparse.Namespace(limit=None, seed={"retail": 7, "supply_chain": 11, "banking_aml": 23,
@@ -287,7 +297,7 @@ def test_pack_passes_all_eval_layers_on_object_storage(s3_lake, tmp_path, name):
     assert not list(pack.paths.lake.rglob("*.parquet"))
 
 
-def test_two_orgs_with_one_slug_stay_apart_in_one_catalog_database(s3_lake, tmp_path, monkeypatch):
+def test_two_orgs_with_one_slug_stay_apart_in_one_catalog_database(s3_lake, catalog_db, tmp_path, monkeypatch):
     import pyarrow as pa
 
     if not os.environ.get("POSTGRES_URI"):
