@@ -330,6 +330,8 @@ def create_platform_app() -> FastAPI:
     def decide(name: str, seq: int, body: DecideBody) -> dict[str, Any]:
         if body.decision not in ("approve", "deny"):
             raise HTTPException(422, "decision must be approve or deny")
+        if auth_mod.is_agent(body.approved_by) and not auth_mod.dev_open():
+            raise HTTPException(422, "an agent cannot sign a decision")
         with _ontology(_pack(name)) as ont:
             row = next((p for p in _pending_approvals(ont) if p["seq"] == seq), None)
             if row is None:

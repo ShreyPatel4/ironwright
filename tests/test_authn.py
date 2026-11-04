@@ -15,6 +15,8 @@ from fastapi.testclient import TestClient
 from starlette.routing import Mount
 
 from ironwright import auth, platform_api
+from ironwright.ontology.store import OntologyStore
+from ironwright.packs import load_pack
 from ironwright.platform_api import create_platform_app
 
 EMAIL = "tester@example.com"
@@ -226,6 +228,45 @@ def test_action_body_cannot_name_an_agent_as_the_actor(real):
                                                params={"limit": 500}).json()}
     assert "agent:spoofed" not in actors
     assert "user:tester" in actors
+
+
+def _real_item_and_open_store(offset):
+    store = OntologyStore(load_pack("retail").paths.ontology_db)
+    try:
+        item = store.con.execute("select id from objects where type = 'Item' order by id limit 1").fetchone()[0]
+        rows = store.con.execute("select id, props from objects where type = 'Store' order by id").fetchall()
+    finally:
+        store.con.close()
+    return item, [sid for sid, props in rows if json.loads(props).get("status") == "OPEN"][offset]
+
+
+def _park_an_approval(c, offset):
+    """A real parked action, from an account the retail policy lets propose it."""
+    item, store = _real_item_and_open_store(offset)
+    auth.set_account("cm@example.com", PASSWORD, principal="user:category.manager.1")
+    tok = c.post("/auth/login", json={"email": "cm@example.com", "password": PASSWORD}).json()["token"]
+    parked = c.post("/workspaces/retail/actions/propose_facing_change", headers=bearer(tok),
+                    json={"params": {"item_id": item, "store_id": store, "new_facings": 4}})
+    assert parked.json()["status"] == "needs_approval", parked.text
+    return next(p for p in c.get("/workspaces/retail/approvals").json()
+                if p["params"].get("item_id") == item and p["params"].get("store_id") == store)
+
+
+@pytest.mark.parametrize("decision,offset", [("deny", 0), ("approve", 1)])
+def test_a_decision_cannot_be_signed_by_an_agent(real, decision, offset):
+    row = _park_an_approval(real, offset)
+    r = real.post(f"/workspaces/retail/approvals/{row['seq']}/decide",
+                  json={"approved_by": "agent:spoofed", "decision": decision})
+    assert r.status_code == 422, r.text
+    rows = real.get("/workspaces/retail/audit", params={"limit": 500}).json()
+    assert not [x for x in rows if "agent:spoofed" in (x["actor"], x["approved_by"])]
+
+
+def test_a_role_can_still_sign_an_approval_with_the_door_closed(real):
+    row = _park_an_approval(real, 2)
+    r = real.post(f"/workspaces/retail/approvals/{row['seq']}/decide",
+                  json={"approved_by": "role:space_planning_lead", "decision": "approve"})
+    assert r.status_code == 200 and r.json()["status"] in ("applied", "applied_pending_sync"), r.text
 
 
 # ----- agent principals

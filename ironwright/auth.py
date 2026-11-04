@@ -43,7 +43,7 @@ def dev_open() -> bool:
     return os.environ.get("IRONWRIGHT_DEV_OPEN") == "1"
 
 
-def _is_agent(principal: str) -> bool:
+def is_agent(principal: str) -> bool:
     return principal.strip().lower().startswith("agent:")
 
 
@@ -71,7 +71,7 @@ def set_account(email: str, password: str, principal: str | None = None) -> None
     email = email.strip().lower()
     if "@" not in email or len(password) < 8:
         raise ValueError("an email and a password of at least 8 characters")
-    if principal and _is_agent(principal):
+    if principal and is_agent(principal):
         raise ValueError("agent principals cannot have accounts")
     accounts = _load()
     salt = secrets.token_bytes(16)
@@ -94,7 +94,7 @@ def _expired(session: dict[str, Any]) -> bool:
 def login(email: str, password: str) -> str | None:
     email = email.strip().lower()
     acct = _load().get(email)
-    if not acct or _is_agent(acct["principal"]):
+    if not acct or is_agent(acct["principal"]):
         return None
     if not secrets.compare_digest(_hash(password, bytes.fromhex(acct["salt"])), acct["hash"]):
         return None
@@ -118,7 +118,7 @@ def me(token: str) -> dict[str, str] | None:
         session["last_seen"] = _now()
     email = session["email"]
     acct = _load().get(email)
-    if not acct or _is_agent(acct["principal"]):
+    if not acct or is_agent(acct["principal"]):
         return None
     return {"email": email, "principal": acct["principal"]}
 

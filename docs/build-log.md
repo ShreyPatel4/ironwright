@@ -77,6 +77,9 @@ route dependencies, so I turned them off. And a test with a real token caught `P
 taking its actor from the request body, which let any session act as an agent. The actor now comes
 from the session.
 
+A real parked approval caught one more. `approved_by: "agent:spoofed"` on `/decide` applied the action.
+It now gets a 422. A role can still sign, because tying a person to a role needs a model I don't have yet.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.
