@@ -16,6 +16,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -41,6 +42,19 @@ class LakeLocation:
     warehouse: str
 
 
+def _tenant_org(pack: Pack) -> str:
+    """A tenant Pack lives at tenants/<org>/workspaces/<ws>, and that folder is the
+    one thing that says whose it is. Any other shape refuses, because falling through
+    to the demo prefix would put two tenants in one warehouse."""
+    try:
+        parts = Path(pack.dir).relative_to(config.data_root()).parts
+    except ValueError:
+        parts = ()
+    if len(parts) != 4 or parts[0] != "tenants" or parts[2] != "workspaces" or parts[3] != pack.name:
+        raise ValueError(f"tenant workspace {pack.name!r} has no org, refusing to pick a warehouse for it")
+    return parts[1]
+
+
 def lake_location(pack: Pack) -> LakeLocation | None:
     """None means local disk. Otherwise the storage layout from contract 2.
 
@@ -51,9 +65,7 @@ def lake_location(pack: Pack) -> LakeLocation | None:
     uri = config.lake_uri()
     if uri is None:
         return None
-    org = getattr(pack, "org_id", None)
-    if org is None and pack.spec.get("kind") == "workspace":
-        raise ValueError(f"tenant workspace {pack.name!r} has no org, refusing to pick a warehouse for it")
+    org = _tenant_org(pack) if pack.spec.get("kind") == "workspace" else None
     for name in (pack.name, *(() if org is None else (org,))):
         if not isinstance(name, str) or not config.SAFE_NAME.fullmatch(name):
             raise ValueError(f"unsafe name in a lake path: {name!r}")

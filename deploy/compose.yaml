@@ -37,6 +37,8 @@ services:
       # S5's rule is two keys. What keeps this private is the loopback publish below.
       IRONWRIGHT_HOST: "0.0.0.0"
       IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED: "1"
+      # Runs belong to the worker, never to a request in this process.
+      IRONWRIGHT_RUNS_WAIT: "0"
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:
@@ -45,11 +47,10 @@ services:
       timeout: 5s
       retries: 20
 
-  # Behind a profile until T4 ships `ironwright worker`: without that command
-  # this container would only exit with an error. The profile goes at the rebase.
+  # Runs every job the API queues. It needs the same data volume, because uploads
+  # and workspaces are on the disk.
   worker:
     <<: *app
-    profiles: ["worker"]
     command: ["ironwright", "worker"]
     environment:
       <<: *hosted-env

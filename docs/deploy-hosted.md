@@ -45,6 +45,7 @@ curl -s http://127.0.0.1:8000/auth/signup -H 'content-type: application/json' \
 
 The four demo packs are read only to every org, so an operator builds them from inside the container.
 Then the smoke script walks the stack as two signed-up orgs. It refuses a server with the door open.
+Run it from the repo root, because it reads its upload from `tests/fixtures/ingest/join/`.
 
 ```bash
 docker compose -f deploy/compose.yaml exec api ironwright run --pack all
@@ -55,6 +56,28 @@ python deploy/hosted_smoke.py --base http://127.0.0.1:8000
 
 The compose file publishes the API on loopback only. Postgres and the object store are not published at all.
 Their default passwords are fine on that private network and nowhere else.
+
+## The walk the smoke script takes
+
+```mermaid
+flowchart LR
+  S["Sign up"] --> W["Make a scenario workspace<br/>so POST /jobs accepts the org"]
+  W --> U["Upload two CSVs"]
+  U --> P["Profile job<br/>on the worker"]
+  P --> C["Operator creates the workspace<br/>from the proposal"]
+  C --> R["Run job<br/>on the worker"]
+  R --> I["Org b gets 404<br/>on all of it"]
+```
+
+Two of those steps are not what a tenant will finally do:
+
+- **Creating the workspace.** No route creates a tenant workspace yet. The script runs T2's
+  `create_workspace` inside the API container, and accepts the proposal as it stands.
+- **The scenario workspace.** `POST /jobs` only takes a workspace the org can already see, and an org
+  has none before its first profile. So the script makes one first.
+
+Ask is not in the walk yet. It comes after wave 2, because the read and Ask routes only know the demo
+packs today. That is also why the script reads the run's evals from the job, not from `/reports`.
 
 ## Health routes
 
@@ -116,7 +139,10 @@ The warehouse layout on object storage is fixed by contract 2:
 
 | Variable | Default | What it does |
 |---|---|---|
-| `IRONWRIGHT_WORKERS` | set by T4 | Global cap on running jobs (arrives with T4). |
+| `IRONWRIGHT_WORKERS` | `2` | Global cap on running jobs, across every worker process. |
+| `IRONWRIGHT_RUNS_WAIT` | `1` | `0` leaves every run to the worker. With `1`, `POST /workspaces/{name}/runs` drives the job inside the API, which only suits a local install. Compose sets `0`. |
+| `IRONWRIGHT_JOB_HEARTBEAT_SECONDS` | `10` | How often a worker says it is alive. |
+| `IRONWRIGHT_JOB_HEARTBEAT_TIMEOUT` | `60` | How long a silent job waits before it is queued again. |
 | `IRONWRIGHT_LLM` | `offline` | `offline`, `ollama`, `cloudflare`, `anthropic` or `openai`. |
 | `IRONWRIGHT_LLM_MODEL` | per provider | Model name. |
 | `IRONWRIGHT_OLLAMA_URL` | `http://localhost:11434` | Ollama address. |
@@ -158,6 +184,7 @@ I expect to work. Confirm each one on the first deploy.
    | `IRONWRIGHT_ENV` | `staging` |
    | `IRONWRIGHT_HOST` | `0.0.0.0` |
    | `IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED` | `1` |
+   | `IRONWRIGHT_RUNS_WAIT` | `0` |
    | `IRONWRIGHT_DB_URL` | `${{Postgres.DATABASE_URL}}` |
    | `IRONWRIGHT_LAKE_URI` | `s3://<bucket>/staging` |
    | `IRONWRIGHT_S3_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` |
@@ -174,8 +201,8 @@ railway up --service ironwright --detach
 Four things to know before you rely on it:
 
 - **One service, not two.** A Railway volume mounts on a single service, and the API and the worker
-  both need the same data root. So staging runs both in one service until that state moves off the
-  disk. Once `ironwright worker` exists, the start command has to launch both.
+  both need the same data root. So the start command launches both until that state moves off the
+  disk. If either one dies, the service exits and Railway restarts both. No test has run that command.
 - **It runs as root.** Railway volumes need `RAILWAY_RUN_UID=0` for an image with a non-root user.
   Compose keeps the non-root user. Railway gives it up.
 - **The login limit sees one address.** S5 keys it on the socket and does not trust forwarded headers.
@@ -186,9 +213,11 @@ Four things to know before you rely on it:
 ## What CI proves
 
 The `hosted-smoke` job builds the image, boots the stack with the door closed, builds the demo packs
-and runs `deploy/hosted_smoke.py`. That walks signup, a demo pack read, a refused demo pack write, and
-one org failing to see another's workspace. Then the job checks that the catalog rows are in Postgres, the parquet files are in the bucket, none are on the
-disk, and the API is not root. It also runs `tests/test_hosted.py` against that same gateway and a real Postgres
+and runs `deploy/hosted_smoke.py`. That reads a demo pack, has a demo pack write refused, walks a tenant
+from upload to a green run on the worker, and has a second org fail to see any of it. Then the job
+checks, for a demo pack and for that tenant, that the catalog rows are in Postgres and the parquet files
+are in the bucket. It checks that no parquet is on the disk, and that the API and the worker are not
+root. It also runs `tests/test_hosted.py` against that same gateway and a real Postgres
 and fails if any test skips.
 
 Those object store tests skip without `IRONWRIGHT_TEST_S3_ENDPOINT`. To run them locally, start any

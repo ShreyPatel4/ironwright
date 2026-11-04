@@ -4,13 +4,25 @@ non-zero at the first break.
 
     python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 180
 
-The demo packs must be built first (`ironwright run --pack all` in the container),
-because a tenant can only read them.
+The walk is signup, upload, profile job, create workspace, run job. Two steps are
+not what a tenant will finally do, and each says so as it runs:
+
+  - No route creates a tenant workspace yet, so an operator creates it inside the
+    API container (--operator), from the proposal the profile job wrote.
+  - POST /jobs only takes a workspace the org can already see, and an org has none
+    before its first profile. So the walk makes a scenario workspace first.
+
+Ask comes after wave 2 lands. The demo packs must be built first (`ironwright run
+--pack all` in the container), because a tenant can only read them. The last line
+is `tenant <org_id> <slug>`, for CI to find the tenant's tables.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import pathlib
+import shlex
+import subprocess
 import sys
 import time
 import urllib.error
@@ -19,11 +31,20 @@ import uuid
 from typing import Any
 
 PACKS = ("retail", "supply_chain", "banking_aml", "insurance_claims")
+FIXTURE = pathlib.Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "ingest" / "join"
+OPERATOR = "docker compose -f deploy/compose.yaml exec -T api"
+TENANT_SLUG = "smoke-sales"
+CREATE_WORKSPACE = """
+import json, sys
+from ironwright.workspaces_tenant import create_workspace
+create_workspace(sys.argv[1], sys.argv[2], json.load(sys.stdin))
+"""
 
 
-def call(base: str, path: str, body: Any = None, token: str | None = None, timeout: float = 60) -> tuple[int, bytes]:
-    data = None if body is None else json.dumps(body).encode()
-    headers = {"Content-Type": "application/json"}
+def call(base: str, path: str, body: Any = None, token: str | None = None, timeout: float = 60,
+         raw: bytes | None = None, content_type: str = "application/json") -> tuple[int, bytes]:
+    data = raw if raw is not None else None if body is None else json.dumps(body).encode()
+    headers = {"Content-Type": content_type}
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = urllib.request.Request(base + path, data=data, headers=headers)
@@ -64,11 +85,69 @@ def signup(base: str, label: str) -> dict[str, Any]:
     return json.loads(raw)
 
 
+def upload(base: str, token: str, folder: pathlib.Path) -> tuple[int, bytes]:
+    boundary = uuid.uuid4().hex
+    parts = []
+    for f in sorted(folder.iterdir()):
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="{f.name}"\r\n'
+                     "Content-Type: text/csv\r\n\r\n".encode() + f.read_bytes() + b"\r\n")
+    return call(base, "/uploads", token=token, raw=b"".join(parts) + f"--{boundary}--\r\n".encode(),
+                content_type=f"multipart/form-data; boundary={boundary}")
+
+
+def run_job(base: str, token: str, kind: str, workspace: str, params: dict[str, Any], seconds: float) -> dict[str, Any]:
+    """Queue it, and poll until the worker is done. Nothing in the API runs it."""
+    status, raw = call(base, "/jobs", {"kind": kind, "workspace": workspace, "params": params}, token=token)
+    step(f"{kind} job queued", status == 200, raw[:200] if status != 200 else "")
+    job_id = json.loads(raw)["id"]
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        job = json.loads(call(base, f"/jobs/{job_id}", token=token)[1])
+        if job["state"] in ("succeeded", "failed", "cancelled"):
+            step(f"{kind} job succeeded", job["state"] == "succeeded", job["error"] or "")
+            return job
+        time.sleep(1)
+    step(f"{kind} job finished", False, f"still {job['state']} after {seconds}s. Is the worker up?")
+    raise AssertionError("unreachable")
+
+
+def walk_a_tenant(base: str, a: dict[str, Any], b: dict[str, Any], scenario: str, operator: str, job_seconds: float) -> None:
+    status, raw = upload(base, a["token"], FIXTURE)
+    step("org a uploads two files", status == 201, raw[:200] if status != 201 else "")
+    upload_id = json.loads(raw)["id"]
+
+    job = run_job(base, a["token"], "profile", scenario, {"upload_id": upload_id}, job_seconds)
+    status, raw = call(base, f"/uploads/{upload_id}/proposal", token=a["token"])
+    spec = json.loads(raw)["workspace"] if status == 200 else {}
+    step("the profile proposes both files", len(spec.get("sources", [])) == 2 == job["result"]["sources"], raw[:200] if not spec else "")
+
+    # No route does this yet. An operator approves the proposal as it stands.
+    made = subprocess.run([*shlex.split(operator), "python", "-c", CREATE_WORKSPACE, a["org_id"], TENANT_SLUG],
+                          input=json.dumps(spec), capture_output=True, text=True, timeout=120, check=False)
+    step("an operator creates the workspace (no tenant route yet)", made.returncode == 0, made.stderr[-400:])
+
+    job = run_job(base, a["token"], "run", TENANT_SLUG, {}, job_seconds)
+    passed = job["result"]["evals"]["passed"] is True
+    step("the run passed its evals", passed, "" if passed else job["result"]["layers"])
+
+    nobody = uuid.uuid4().hex
+    for path in (f"/uploads/{upload_id}", f"/uploads/{upload_id}/proposal", f"/jobs/{job['id']}", f"/jobs/{job['id']}/log"):
+        status, raw = call(base, path, token=b["token"])
+        same = call(base, path.replace(upload_id, nobody).replace(job["id"], nobody), token=b["token"])[1]
+        step(f"org b gets the same 404 as an unknown id on {path.replace(upload_id, '<id>').replace(job['id'], '<id>')}",
+             status == 404 and raw == same, status)
+    status = call(base, "/jobs", {"kind": "run", "workspace": TENANT_SLUG, "params": {}}, token=b["token"])[0]
+    step("org b cannot run it", status == 404, status)
+    print(f"tenant {a['org_id']} {TENANT_SLUG}", flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--base", default="http://127.0.0.1:8000")
     ap.add_argument("--wait", type=float, default=180, help="seconds to wait for /readyz")
     ap.add_argument("--packs", nargs="+", default=list(PACKS))
+    ap.add_argument("--operator", default=OPERATOR, help="command prefix that runs python inside the API's environment")
+    ap.add_argument("--job-seconds", type=float, default=300, help="seconds to wait for each job")
     args = ap.parse_args()
     base = args.base.rstrip("/")
 
@@ -97,11 +176,14 @@ def main() -> None:
     step("the lake answers a query", status == 200 and int(json.loads(raw)["rows"][0][0]) > 0, raw[:120])
     step("a tenant cannot run a demo pack", call(base, f"/workspaces/{pack}/runs", {}, token=a["token"])[0] == 403)
 
+    # POST /jobs needs a workspace this org can see. A first profile has no other one.
     status, raw = call(base, "/workspaces", {"name": "smoke", "size": 4, "seed": 3}, token=a["token"], timeout=120)
     step("org a makes a workspace", status == 201, raw[:200] if status != 201 else "")
     ws = json.loads(raw)["name"]
     step("org a sees it", call(base, f"/workspaces/{ws}/organization", token=a["token"])[0] == 200)
     step("org b gets a 404", call(base, f"/workspaces/{ws}/organization", token=b["token"])[0] == 404)
+
+    walk_a_tenant(base, a, b, ws, args.operator, args.job_seconds)
     print("smoke passed", flush=True)
 
 

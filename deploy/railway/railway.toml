@@ -5,7 +5,9 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "ironwright serve-platform"
+# One service runs both, because they share one volume. If either dies, the service
+# exits and the restart policy brings both back. A dead worker never sits unnoticed.
+startCommand = """bash -c 'trap "kill 0" TERM; ironwright worker & ironwright serve-platform & wait -n; exit 1'"""
 healthcheckPath = "/readyz"
 healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"

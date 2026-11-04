@@ -60,23 +60,31 @@ jobs:
         run: |
           timeout 180 bash -c 'until curl -sf http://127.0.0.1:8000/readyz; do sleep 2; done'
           docker compose exec -T api ironwright run --pack all
-      - run: python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 30
-      - name: The catalog is in postgres
+      - run: python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 30 | tee smoke.txt
+      - name: The catalog is in postgres, for the demo pack and the tenant
         run: |
-          n=$(docker compose exec -T postgres psql -U ironwright -d ironwright -Atc \
-            "select count(*) from iceberg_tables where catalog_name = 'demo/retail'")
-          echo "catalog rows: $n"; test "$n" -gt 0
+          read -r _ org ws < <(grep '^tenant ' smoke.txt)
+          for cat in demo/retail "tenant/$org/$ws"; do
+            n=$(docker compose exec -T postgres psql -U ironwright -d ironwright -Atc \
+              "select count(*) from iceberg_tables where catalog_name = '$cat'")
+            echo "catalog rows for $cat: $n"; test "$n" -gt 0
+          done
       - name: The tables are in the bucket and not on the disk
         run: |
-          docker compose exec -T api python -c "
+          read -r _ org ws < <(grep '^tenant ' smoke.txt)
+          for at in demo/retail "tenants/$org/workspaces/$ws"; do
+            docker compose exec -T api python -c "
           from pyarrow import fs
           from ironwright.hosted import object_store
-          sel = fs.FileSelector('ironwright-lake/hosted/demo/retail/lake', recursive=True)
+          sel = fs.FileSelector('ironwright-lake/hosted/$at/lake', recursive=True)
           print('\n'.join(f.path for f in object_store().get_file_info(sel)))" | tee objects.txt | tail -3
-          grep -q '\.parquet$' objects.txt
+            grep -q '\.parquet$' objects.txt
+          done
           test -z "$(docker compose exec -T api find /data -name '*.parquet' | head -1)"
       - name: Runs as non-root
-        run: test "$(docker compose exec -T api id -u)" = "10001"
+        run: |
+          test "$(docker compose exec -T api id -u)" = "10001"
+          test "$(docker compose exec -T worker id -u)" = "10001"
       - if: failure()
         run: docker compose logs --no-color --tail 200
       - if: always()

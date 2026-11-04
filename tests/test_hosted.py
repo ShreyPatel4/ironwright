@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import uuid
 from types import SimpleNamespace
 
@@ -94,6 +95,11 @@ def _pack(name: str = "claims", **extra):
     return SimpleNamespace(name=name, spec=extra.pop("spec", {}), **extra)
 
 
+def _tenant_pack(name: str, org: str, **extra):
+    d = config.data_root() / "tenants" / org / "workspaces" / name
+    return _pack(name, spec={"kind": "workspace"}, dir=d, **extra)
+
+
 def test_without_a_lake_uri_the_lake_stays_on_local_disk():
     assert lake_location(load_pack("retail")) is None
 
@@ -107,7 +113,7 @@ def test_a_demo_pack_lives_under_the_demo_prefix(monkeypatch):
 
 def test_a_tenant_workspace_lives_where_contract_2_says(monkeypatch):
     monkeypatch.setenv("IRONWRIGHT_LAKE_URI", "s3://iw-lake/stage/")
-    loc = lake_location(_pack("claims", org_id="abc123", spec={"kind": "workspace"}))
+    loc = lake_location(_tenant_pack("claims", "abc123"))
     assert loc.warehouse == "s3://iw-lake/stage/tenants/abc123/workspaces/claims/lake"
 
 
@@ -119,23 +125,50 @@ def test_a_bucket_with_no_prefix_makes_a_clean_path(monkeypatch):
 def test_two_orgs_with_one_workspace_slug_never_share_a_catalog(monkeypatch):
     # SqlCatalog partitions a shared database by catalog name, and only by that.
     monkeypatch.setenv("IRONWRIGHT_LAKE_URI", "s3://iw-lake")
-    a = lake_location(_pack("claims", org_id="orga", spec={"kind": "workspace"}))
-    b = lake_location(_pack("claims", org_id="orgb", spec={"kind": "workspace"}))
+    a = lake_location(_tenant_pack("claims", "orga"))
+    b = lake_location(_tenant_pack("claims", "orgb"))
     assert a.catalog != b.catalog and a.warehouse != b.warehouse
 
 
-def test_a_tenant_workspace_with_no_org_fails_closed(monkeypatch):
+@pytest.mark.parametrize("where", ["elsewhere/claims", "tenants/claims", "tenants/o/other/claims"])
+def test_a_tenant_workspace_outside_the_tenant_tree_fails_closed(monkeypatch, where):
     # Falling through to demo/<name> would put two tenants in one warehouse.
     monkeypatch.setenv("IRONWRIGHT_LAKE_URI", "s3://iw-lake")
     with pytest.raises(ValueError, match="org"):
-        lake_location(_pack("claims", spec={"kind": "workspace"}))
+        lake_location(_pack("claims", spec={"kind": "workspace"}, dir=config.data_root() / where))
+
+
+def _real_workspace(org: str, slug: str) -> None:
+    """Through T2's own create, with an upload T3's fixture provides."""
+    from ironwright import workspaces_tenant as wt
+
+    dest = config.uploads_root(org) / "up"
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(REPO / "tests/fixtures/ingest/join", dest)
+    wt.create_workspace(org, slug, {"kind": "workspace", "version": 1, "title": "Smoke", "sources": [
+        {"name": "customers", "upload": "up/customers.csv", "format": "csv",
+         "layout": {"delimiter": ",", "header": True, "encoding": "utf-8"},
+         "columns": [{"name": "customer_id", "type": "string", "key": True}, {"name": "name", "type": "string"}]},
+    ]})
+
+
+def test_a_workspace_loaded_from_disk_finds_its_own_org(monkeypatch):
+    # The fakes above pass with any attribute. T2's real Pack is the one that runs.
+    from ironwright import workspaces_tenant as wt
+
+    org = uuid.uuid4().hex
+    _real_workspace(org, "claims")
+    monkeypatch.setenv("IRONWRIGHT_LAKE_URI", "s3://iw-lake/hosted")
+    loc = lake_location(wt.load_workspace(org, "claims"))
+    assert loc.catalog == f"tenant/{org}/claims"
+    assert loc.warehouse == f"s3://iw-lake/hosted/tenants/{org}/workspaces/claims/lake"
 
 
 @pytest.mark.parametrize("org", ["../other", "a/b", "..", ""])
 def test_an_org_id_cannot_climb_out_of_its_prefix(monkeypatch, org):
     monkeypatch.setenv("IRONWRIGHT_LAKE_URI", "s3://iw-lake")
     with pytest.raises(ValueError):
-        lake_location(_pack("claims", org_id=org, spec={"kind": "workspace"}))
+        lake_location(_tenant_pack("claims", org))
 
 
 def test_the_catalog_uses_the_metadata_database_when_hosted(monkeypatch, tmp_path):
@@ -197,6 +230,25 @@ def test_only_get_reads_the_health_routes(closed_door):
 # ---------------------------------------------------------------- image and compose posture
 def _compose() -> dict:
     return yaml.safe_load((REPO / "deploy" / "compose.yaml").read_text())
+
+
+def test_the_worker_starts_with_the_stack():
+    worker = _compose()["services"]["worker"]
+    assert "profiles" not in worker
+    assert worker["command"] == ["ironwright", "worker"]
+    assert worker["volumes"] == _compose()["services"]["api"]["volumes"], "jobs read the same uploads the API wrote"
+
+
+def test_the_api_leaves_runs_to_the_worker():
+    # Otherwise POST /workspaces/{ws}/runs drives the pipeline inside the API process.
+    assert _compose()["services"]["api"]["environment"]["IRONWRIGHT_RUNS_WAIT"] == "0"
+
+
+def test_railway_runs_both_processes_and_stops_when_either_dies():
+    start = next(line for line in (REPO / "deploy/railway/railway.toml").read_text().splitlines()
+                 if line.startswith("startCommand"))
+    assert "ironwright worker" in start and "ironwright serve-platform" in start
+    assert "wait -n" in start, "a dead worker must restart the service, not leave jobs queued forever"
 
 
 def test_compose_has_the_four_services_and_an_init_for_the_bucket():
@@ -305,8 +357,7 @@ def test_two_orgs_with_one_slug_stay_apart_in_one_catalog_database(s3_lake, cata
     slug = f"claims{uuid.uuid4().hex[:6]}"
 
     def tenant(org: str):
-        pack = load_pack("retail")
-        return SimpleNamespace(name=slug, org_id=org, spec={"kind": "workspace"}, paths=pack.paths)
+        return _tenant_pack(slug, org, paths=load_pack("retail").paths)
 
     orga, orgb = f"a{uuid.uuid4().hex[:8]}", f"b{uuid.uuid4().hex[:8]}"
     lake_a, lake_b = Lakehouse(tenant(orga)), Lakehouse(tenant(orgb))
@@ -318,6 +369,19 @@ def test_two_orgs_with_one_slug_stay_apart_in_one_catalog_database(s3_lake, cata
     assert lake_b.tables() == []
     assert _keys(s3_lake, f"t/tenants/{orga}/workspaces/{slug}/lake/")
     assert not _keys(s3_lake, f"t/tenants/{orgb}/")
+
+
+def test_a_tenant_workspace_runs_green_on_object_storage(s3_lake, catalog_db, monkeypatch, tmp_path):
+    from ironwright import workspaces_tenant as wt
+
+    if not os.environ.get("POSTGRES_URI"):
+        monkeypatch.setenv("IRONWRIGHT_DB_URL", f"sqlite:///{tmp_path}/shared.sqlite")
+    org = uuid.uuid4().hex
+    _real_workspace(org, "claims")
+    report = wt.run_workspace(org, "claims")
+    assert report["passed"], [la for la in report["layers"] if not la["passed"]]
+    assert any(k.endswith(".parquet") for k in _keys(s3_lake, f"t/tenants/{org}/workspaces/claims/lake/"))
+    assert not list((config.data_root() / "tenants").rglob("*.parquet"))
 
 
 def test_init_bucket_creates_the_bucket_and_can_run_twice(s3_lake, monkeypatch):
