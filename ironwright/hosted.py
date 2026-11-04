@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 from typing import Any
 
 from starlette.concurrency import run_in_threadpool
@@ -59,14 +60,45 @@ def _check_object_store() -> None:
         return
     from pyarrow import fs
 
-    props = config.s3_properties()
-    store = fs.S3FileSystem(access_key=props.get("s3.access-key-id"), secret_key=props.get("s3.secret-access-key"),
-                            region=props["s3.region"], endpoint_override=props.get("s3.endpoint"),
-                            connect_timeout=CHECK_TIMEOUT_SECONDS, request_timeout=CHECK_TIMEOUT_SECONDS,
-                            retry_strategy=fs.AwsStandardS3RetryStrategy(max_attempts=1))
-    bucket = uri.removeprefix("s3://").split("/")[0]
-    if store.get_file_info(bucket).type != fs.FileType.Directory:
+    if object_store().get_file_info(_bucket(uri)).type != fs.FileType.Directory:
         raise OSError("bucket not found")
+
+
+def _bucket(uri: str) -> str:
+    return uri.removeprefix("s3://").split("/")[0]
+
+
+def object_store(*, allow_bucket_creation: bool = False) -> Any:
+    from pyarrow import fs
+
+    props = config.s3_properties()
+    return fs.S3FileSystem(access_key=props.get("s3.access-key-id"), secret_key=props.get("s3.secret-access-key"),
+                           region=props["s3.region"], endpoint_override=props.get("s3.endpoint"),
+                           connect_timeout=CHECK_TIMEOUT_SECONDS, request_timeout=CHECK_TIMEOUT_SECONDS,
+                           retry_strategy=fs.AwsStandardS3RetryStrategy(max_attempts=1),
+                           allow_bucket_creation=allow_bucket_creation)
+
+
+def init_bucket(wait_seconds: float = 60) -> None:
+    """Create the lake's bucket if it is missing, waiting for the store to come up.
+    The compose init service runs this, so the stack needs no extra client image."""
+    uri = config.lake_uri()
+    if uri is None:
+        return
+    from pyarrow import fs
+
+    bucket = _bucket(uri)
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        try:
+            store = object_store(allow_bucket_creation=True)
+            if store.get_file_info(bucket).type != fs.FileType.Directory:
+                store.create_dir(bucket)
+            return
+        except OSError as e:
+            if time.monotonic() >= deadline:
+                raise SystemExit(f"object store did not answer in {wait_seconds}s: {type(e).__name__}") from e
+        time.sleep(1)
 
 
 def readiness() -> dict[str, str]:

@@ -3,7 +3,7 @@ outside the session gate, and the posture of the image and compose file.
 
 The object store tests need a real S3 endpoint, because PyIceberg writes through
 pyarrow's native client and moto's in-process mock only patches botocore. CI points
-IRONWRIGHT_TEST_S3_ENDPOINT at MinIO. Without it they skip and claim nothing.
+IRONWRIGHT_TEST_S3_ENDPOINT at the compose object store. Without it they skip and claim nothing.
 """
 from __future__ import annotations
 
@@ -200,7 +200,19 @@ def _compose() -> dict:
 
 
 def test_compose_has_the_four_services_and_an_init_for_the_bucket():
-    assert {"api", "worker", "postgres", "minio", "minio-init"} <= set(_compose()["services"])
+    assert {"api", "worker", "postgres", "objectstore", "bucket-init"} <= set(_compose()["services"])
+
+
+def test_compose_pulls_nothing_from_the_withdrawn_minio_distribution():
+    # Docker Hub and dl.min.io stopped serving MinIO. A pin on them cannot even pull.
+    images = [v.get("image", "") for v in _compose()["services"].values()]
+    assert not [i for i in images if "minio" in i]
+
+
+def test_the_bucket_init_uses_our_own_image_and_needs_no_extra_client():
+    init = _compose()["services"]["bucket-init"]
+    assert init["image"] == "ironwright:local"
+    assert "init_bucket" in " ".join(init["command"])
 
 
 def test_compose_publishes_only_the_api_and_only_on_loopback():
@@ -296,6 +308,26 @@ def test_two_orgs_with_one_slug_stay_apart_in_one_catalog_database(s3_lake, tmp_
     assert lake_b.tables() == []
     assert _keys(s3_lake, f"t/tenants/{orga}/workspaces/{slug}/lake/")
     assert not _keys(s3_lake, f"t/tenants/{orgb}/")
+
+
+def test_init_bucket_creates_the_bucket_and_can_run_twice(s3_lake, monkeypatch):
+    monkeypatch.setenv("IRONWRIGHT_LAKE_URI", f"s3://{s3_lake.bucket}-new/t")
+    hosted.init_bucket(wait_seconds=10)
+    hosted.init_bucket(wait_seconds=10)
+    s3_lake.client.head_bucket(Bucket=f"{s3_lake.bucket}-new")
+
+
+def test_init_bucket_gives_up_loudly_when_the_store_never_answers(monkeypatch):
+    monkeypatch.setenv("IRONWRIGHT_LAKE_URI", "s3://iw-lake/t")
+    monkeypatch.setenv("IRONWRIGHT_S3_ENDPOINT", "http://127.0.0.1:1")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "k")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "s")
+    with pytest.raises(SystemExit, match="object store"):
+        hosted.init_bucket(wait_seconds=0.1)
+
+
+def test_init_bucket_with_no_lake_uri_has_nothing_to_do():
+    hosted.init_bucket(wait_seconds=0.1)
 
 
 # ---------------------------------------------------------------- the S5 serving posture

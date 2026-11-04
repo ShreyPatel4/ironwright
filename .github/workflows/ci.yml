@@ -39,8 +39,8 @@ jobs:
       - run: make demo-check
 
   # The hosted stack from the outside: build the image, boot api + postgres +
-  # minio, walk it, then prove where the data landed. A real MinIO also runs the
-  # object store tests, which skip everywhere else.
+  # object store, walk it, then prove where the data landed. The same store also
+  # runs the object store tests, which skip everywhere else.
   hosted-smoke:
     needs: test
     runs-on: ubuntu-latest
@@ -48,6 +48,9 @@ jobs:
     env:
       COMPOSE_FILE: deploy/compose.yaml
       IRONWRIGHT_DEV_OPEN: "1"
+    defaults:
+      run:
+        shell: bash   # stated, so GitHub adds pipefail: a pipe into tee must not hide a failure
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -62,7 +65,11 @@ jobs:
           echo "catalog rows: $n"; test "$n" -gt 0
       - name: The tables are in the bucket and not on the disk
         run: |
-          docker compose run --rm -T minio-init 'mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null && mc ls --recursive local/ironwright-lake/hosted/demo/retail/lake' | tee objects.txt | tail -3
+          docker compose exec -T api python -c "
+          from pyarrow import fs
+          from ironwright.hosted import object_store
+          sel = fs.FileSelector('ironwright-lake/hosted/demo/retail/lake', recursive=True)
+          print('\n'.join(f.path for f in object_store().get_file_info(sel)))" | tee objects.txt | tail -3
           grep -q '\.parquet$' objects.txt
           test -z "$(docker compose exec -T api find /data -name '*.parquet' | head -1)"
       - name: Runs as non-root
@@ -71,21 +78,19 @@ jobs:
         run: docker compose logs --no-color --tail 200
       - if: always()
         run: docker compose down -v
-      - name: Object store tests against MinIO and postgres, with no skips
+      - name: Object store tests on the same store and postgres, with no skips
         env:
           IRONWRIGHT_DEV_OPEN: ""
-          COMPOSE_FILE: deploy/compose.yaml
           POSTGRES_URI: postgresql://postgres:iw@127.0.0.1:5433/postgres
           IRONWRIGHT_TEST_S3_ENDPOINT: http://127.0.0.1:9100
           IRONWRIGHT_TEST_S3_KEY: iwtest
           IRONWRIGHT_TEST_S3_SECRET: iwtest-secret
         run: |
-          docker run -d -p 9100:9000 -e MINIO_ROOT_USER=iwtest -e MINIO_ROOT_PASSWORD=iwtest-secret \
-            "$(docker compose config --images | grep '^minio/minio')" server /data
+          docker run -d -p 9100:7070 -e ROOT_ACCESS_KEY_ID=iwtest -e ROOT_SECRET_ACCESS_KEY=iwtest-secret \
+            "$(docker compose config --images | grep '^versity/')" --port :7070 posix /tmp
           docker run -d -p 5433:5432 -e POSTGRES_PASSWORD=iw postgres:16
           for i in $(seq 1 30); do
-            curl -sf http://127.0.0.1:9100/minio/health/ready \
-              && python -c "import socket; socket.create_connection(('127.0.0.1', 5433), 1)" && break
+            python -c "import socket as s; [s.create_connection(('127.0.0.1', p), 1) for p in (9100, 5433)]" && break
             sleep 1
           done
           sleep 3

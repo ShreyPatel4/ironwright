@@ -9,11 +9,11 @@ flowchart LR
   W["worker<br/>ironwright worker"]
   A --> P[("postgres<br/>metadata and Iceberg catalog")]
   W --> P
-  A --> M[("minio or R2<br/>Iceberg warehouse")]
+  A --> M[("S3 store: versitygw or R2<br/>Iceberg warehouse")]
   W --> M
   A --- V[("data volume<br/>uploads, workspaces, ontology, traces")]
   W --- V
-  I["minio-init<br/>creates the bucket, exits"] --> M
+  I["bucket-init<br/>creates the bucket, exits"] --> M
 ```
 
 One image runs every process. The image holds no settings and no secrets.
@@ -52,7 +52,7 @@ python deploy/hosted_smoke.py --base http://127.0.0.1:8000
 
 `docker compose -f deploy/compose.yaml down -v` stops it and deletes its volumes.
 
-The compose file publishes the API on loopback only. Postgres and MinIO are not published at all.
+The compose file publishes the API on loopback only. Postgres and the object store are not published at all.
 Their default passwords are fine on that private network and nowhere else.
 
 ## Health routes
@@ -97,7 +97,7 @@ that is not in this table.
 | `IRONWRIGHT_DATA` | `./data`, `/data` in the image | Root for uploads, workspaces, ontology stores and traces. This must be a persistent volume. |
 | `IRONWRIGHT_DB_URL` | `sqlite:///<data>/meta.sqlite` | Metadata store. It also holds the Iceberg catalog when the lake is on object storage. `postgres://` URLs are accepted as they are. |
 | `IRONWRIGHT_LAKE_URI` | none | `s3://bucket/prefix` puts the Iceberg warehouse on object storage. Unset means local disk. |
-| `IRONWRIGHT_S3_ENDPOINT` | none | Endpoint for MinIO or R2. Unset means AWS. |
+| `IRONWRIGHT_S3_ENDPOINT` | none | Endpoint for an S3 store like R2 or the compose gateway. Unset means AWS. |
 | `AWS_ACCESS_KEY_ID` | none | Secret. Object store key. |
 | `AWS_SECRET_ACCESS_KEY` | none | Secret. Object store secret. |
 | `AWS_REGION` | `us-east-1` | Object store region. |
@@ -131,8 +131,15 @@ The warehouse layout on object storage is fixed by contract 2:
 | Variable | Default | What it does |
 |---|---|---|
 | `POSTGRES_PASSWORD` | `ironwright-local` | Password for the compose Postgres. |
-| `MINIO_ROOT_USER` | `ironwright` | Key for the compose MinIO. |
-| `MINIO_ROOT_PASSWORD` | `ironwright-local` | Secret for the compose MinIO. |
+| `OBJECTSTORE_ACCESS_KEY` | `ironwright` | Key for the compose object store. |
+| `OBJECTSTORE_SECRET_KEY` | `ironwright-local` | Secret for the compose object store. |
+
+## Why the compose store is not MinIO
+
+The contract names MinIO, but `dl.min.io` now answers 410 and says the open-source server and client
+are archived and get no security updates. The official images no longer pull anonymously from Docker
+Hub, Quay or GHCR. So compose runs Versity's S3 gateway (`versity/versitygw`) on a plain directory.
+The engine only knows `IRONWRIGHT_S3_ENDPOINT`, so any S3 store fits.
 
 ## Staging on Railway
 
@@ -173,13 +180,13 @@ Four things to know before you rely on it:
 - **The login limit sees one address.** S5 keys it on the socket and does not trust forwarded headers.
   Behind Railway's proxy every client shares that address, so one person guessing passwords can lock
   everyone out of login for the window. The fix needs a trusted proxy setting, which I have not added.
-- **R2 is untested.** CI proves the lake on MinIO. R2 speaks the same API, but no test has run on it.
+- **R2 is untested.** CI proves the lake on the compose gateway. R2 speaks the same API, but no test has run on it.
 
 ## What CI proves
 
 The `hosted-smoke` job builds the image, boots the stack and runs `deploy/hosted_smoke.py`. Then it
 checks that the catalog rows are in Postgres, the parquet files are in the bucket, none are on the
-disk, and the API is not root. It also runs `tests/test_hosted.py` against a real MinIO and Postgres
+disk, and the API is not root. It also runs `tests/test_hosted.py` against that same gateway and a real Postgres
 and fails if any test skips.
 
 Those object store tests skip without `IRONWRIGHT_TEST_S3_ENDPOINT`. To run them locally, start any
