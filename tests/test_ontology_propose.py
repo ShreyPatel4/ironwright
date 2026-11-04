@@ -969,7 +969,7 @@ def test_the_whole_journey_on_t3s_real_upload_profile_and_draft(meta_db):
         made = c.post("/uploads", headers=bearer(a), files=files)
         assert made.status_code == 201, made.text
         upload_id = made.json()["id"]
-        wt.create_workspace(org, SLUG, _draft_after_profile(c, a, run_job, upload_id))
+        wt.create_workspace(org, SLUG, _draft_after_profile(c, a, upload_id))
         run_job("run", SLUG)
         run_job("ontology_propose", SLUG)
 
@@ -996,10 +996,11 @@ def test_the_whole_journey_on_t3s_real_upload_profile_and_draft(meta_db):
         assert built["links"]["order_to_customer"]["links"] > 0
 
 
-def _draft_after_profile(c, a, run_job, upload_id: str) -> dict:
-    """The profile job needs a workspace name to queue under, and the workspace
-    comes from its draft. The name is free text until it runs, so a holding name works."""
-    run_job("profile", "holding-name", {"upload_id": upload_id})
+def _draft_after_profile(c, a, upload_id: str) -> dict:
+    """POST /jobs needs a workspace, and the workspace comes from this draft. T3 pins
+    that gap with a strict xfail in tests/test_uploads.py, so this calls its handler."""
+    c_job = handlers.JobCtx(org_id=a["org_id"], principal=a["principal"], job_id="j", cancelled=lambda: False)
+    handlers.HANDLERS["profile"](c_job, "not-used", {"upload_id": upload_id}, lambda _: None)
     got = c.get(f"/uploads/{upload_id}/proposal", headers=bearer(a))
     assert got.status_code == 200, got.text
     return got.json()["workspace"]
