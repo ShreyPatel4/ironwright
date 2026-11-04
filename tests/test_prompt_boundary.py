@@ -347,6 +347,7 @@ def test_ask_stays_offline_unless_handed_a_model(pack, ont, monkeypatch):
     """Configuring a provider for agents must not start sending a user's
     cells to it from Ask. That wiring is an explicit decision, not a default."""
     monkeypatch.setenv("IRONWRIGHT_LLM", "anthropic")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "not-a-real-key")  # or the provider fails before the network
     monkeypatch.setattr("httpx.post", lambda *a, **k: pytest.fail("Ask reached the network"))
     assert ask(pack, ont, QUESTION)["narrator"] == "offline-template"
 
