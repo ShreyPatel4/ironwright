@@ -105,7 +105,7 @@ that is not in this table.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `IRONWRIGHT_ENV` | `local` | `local`, `staging` or `prod`. On `staging` and `prod` the server refuses to start with `IRONWRIGHT_DEV_OPEN=1`. |
+| `IRONWRIGHT_ENV` | `local` | `local`, `staging` or `prod`. On `staging` and `prod` the server refuses to start with `IRONWRIGHT_DEV_OPEN=1`, or without `IRONWRIGHT_SECRET_KEY`. |
 | `IRONWRIGHT_HOST` | `127.0.0.1` | Bind address for `serve-platform`. A container must set `0.0.0.0` to be reachable. The image does not set it. |
 | `IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED` | off | `1` is required for any host that is not loopback. Same two keys as the `--host` and `--i-know-this-is-exposed` flags on `platform`. |
 | `IRONWRIGHT_PORT` | `PORT`, then `8000` | Bind port. |
@@ -147,6 +147,7 @@ The warehouse layout on object storage is fixed by contract 2:
 | `IRONWRIGHT_LLM_MODEL` | per provider | Model name. |
 | `IRONWRIGHT_OLLAMA_URL` | `http://localhost:11434` | Ollama address. |
 | `IRONWRIGHT_PRINCIPAL` | `agent:mcp-client` | The identity the MCP server acts as. |
+| `IRONWRIGHT_SECRET_KEY` | none | Secret. The Fernet key that seals each org's own model key. Required on `staging` and `prod`. A malformed one stops the server anywhere. Make one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Changing it makes stored keys unreadable, and those orgs get the template until an admin stores theirs again. |
 | `ANTHROPIC_API_KEY` | none | Secret. Needed for `anthropic`. |
 | `OPENAI_API_KEY` | none | Secret. Needed for `openai`. |
 | `CF_ACCOUNT_ID` | none | Needed for `cloudflare`. |
@@ -185,6 +186,7 @@ I expect to work. Confirm each one on the first deploy.
    | `IRONWRIGHT_HOST` | `0.0.0.0` |
    | `IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED` | `1` |
    | `IRONWRIGHT_RUNS_WAIT` | `0` |
+   | `IRONWRIGHT_SECRET_KEY` | a Fernet key you generate once and keep |
    | `IRONWRIGHT_DB_URL` | `${{Postgres.DATABASE_URL}}` |
    | `IRONWRIGHT_LAKE_URI` | `s3://<bucket>/staging` |
    | `IRONWRIGHT_S3_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` |
