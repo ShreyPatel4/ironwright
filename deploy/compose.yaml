@@ -1,0 +1,98 @@
+# The whole hosted stack on one machine. From the repo root:
+#   docker compose -f deploy/compose.yaml up --build
+# The passwords below are defaults for this private network. Only the API is
+# published, and only on loopback. docs/deploy-hosted.md has every setting.
+name: ironwright
+
+x-hosted-env: &hosted-env
+  IRONWRIGHT_ENV: ${IRONWRIGHT_ENV:-local}
+  IRONWRIGHT_DATA: /data
+  IRONWRIGHT_DEV_OPEN: ${IRONWRIGHT_DEV_OPEN:-0}
+  IRONWRIGHT_DB_URL: postgres://ironwright:${POSTGRES_PASSWORD:-ironwright-local}@postgres:5432/ironwright
+  IRONWRIGHT_LAKE_URI: s3://ironwright-lake/hosted
+  IRONWRIGHT_S3_ENDPOINT: http://objectstore:7070
+  AWS_ACCESS_KEY_ID: ${OBJECTSTORE_ACCESS_KEY:-ironwright}
+  AWS_SECRET_ACCESS_KEY: ${OBJECTSTORE_SECRET_KEY:-ironwright-local}
+  AWS_REGION: us-east-1
+
+x-app: &app
+  build:
+    context: ..
+    dockerfile: Dockerfile
+  image: ironwright:local
+  volumes:
+    - app-data:/data
+  depends_on:
+    postgres:
+      condition: service_healthy
+    bucket-init:
+      condition: service_completed_successfully
+
+services:
+  api:
+    <<: *app
+    environment:
+      <<: *hosted-env
+      # A container has to listen on every interface to be reachable at all.
+      # S5's rule is two keys. What keeps this private is the loopback publish below.
+      IRONWRIGHT_HOST: "0.0.0.0"
+      IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED: "1"
+      # Runs belong to the worker, never to a request in this process.
+      IRONWRIGHT_RUNS_WAIT: "0"
+    ports:
+      - "127.0.0.1:8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/readyz', timeout=4)"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Runs every job the API queues. It needs the same data volume, because uploads
+  # and workspaces are on the disk.
+  worker:
+    <<: *app
+    command: ["ironwright", "worker"]
+    environment:
+      <<: *hosted-env
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ironwright
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ironwright-local}
+      POSTGRES_DB: ironwright
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "ironwright", "-d", "ironwright"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # MinIO withdrew its community images and binaries, so the local S3 store is
+  # Versity's gateway on a plain directory. docs/deploy-hosted.md has the detail.
+  objectstore:
+    image: versity/versitygw:v1.10.0
+    command: ["--port", ":7070", "posix", "/data"]
+    environment:
+      ROOT_ACCESS_KEY_ID: ${OBJECTSTORE_ACCESS_KEY:-ironwright}
+      ROOT_SECRET_ACCESS_KEY: ${OBJECTSTORE_SECRET_KEY:-ironwright-local}
+    volumes:
+      - objectstore-data:/data
+
+  # Creates the bucket once, then exits 0. The app waits for that exit.
+  bucket-init:
+    image: ironwright:local
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["python", "-c", "from ironwright.hosted import init_bucket; init_bucket()"]
+    environment:
+      <<: *hosted-env
+    depends_on:
+      - objectstore
+
+volumes:
+  app-data:
+  pg-data:
+  objectstore-data:

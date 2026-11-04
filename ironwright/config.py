@@ -209,3 +209,41 @@ class PackPaths:
 
 def setting(name: str, default: str | None = None) -> str | None:
     return os.environ.get(f"IRONWRIGHT_{name}", default)
+
+
+# Every hosted setting is an environment variable, documented in docs/deploy-hosted.md.
+def db_url() -> str:
+    """The metadata store. Tenancy owns the rule, so the catalog can never land elsewhere."""
+    from .tenancy.db import _current_url
+    return _current_url()
+
+
+def lake_uri() -> str | None:
+    """s3://bucket[/prefix] with no trailing slash, or None for a lake on local disk."""
+    uri = setting("LAKE_URI")
+    if not uri:
+        return None
+    if not re.fullmatch(r"s3://[a-z0-9][a-z0-9.-]+(/[\w./-]*)?", uri):
+        raise ValueError("IRONWRIGHT_LAKE_URI must look like s3://bucket/prefix")
+    return uri.rstrip("/")
+
+
+def s3_properties() -> dict[str, str]:
+    """PyIceberg file IO settings. Keys come from the standard AWS variables, and
+    what is unset is left out so the driver's own credential chain still applies."""
+    props = {"s3.region": os.environ.get("AWS_REGION", "us-east-1")}
+    for key, value in (("s3.endpoint", setting("S3_ENDPOINT")),
+                       ("s3.access-key-id", os.environ.get("AWS_ACCESS_KEY_ID")),
+                       ("s3.secret-access-key", os.environ.get("AWS_SECRET_ACCESS_KEY"))):
+        if value:
+            props[key] = value
+    return props
+
+
+def bind_host() -> str:
+    """Loopback unless the environment says otherwise. A container states 0.0.0.0."""
+    return setting("HOST", "127.0.0.1") or "127.0.0.1"
+
+
+def bind_port() -> int:
+    return int(setting("PORT") or os.environ.get("PORT") or 8000)
