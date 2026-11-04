@@ -16,6 +16,17 @@ PACKS_DIR = PACKAGE_DIR / "packs"
 # a traversal. FILE_NAME is the wider spelling real files on disk arrive in.
 SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 FILE_NAME = re.compile(r"\w[\w. ()+,=@-]{0,254}")
+# Tenancy contract: org ids are uuid4().hex, workspace slugs read like org slugs.
+ORG_ID = re.compile(r"[0-9a-f]{32}")
+WS_SLUG = re.compile(r"[a-z][a-z0-9-]{2,39}")
+
+# The fixed dev org until T1 wires ctx(). Shaped like a real org id on purpose.
+DEV_ORG = "0" * 32
+
+# workspaces.py writes this into a scenario organization it may later rmtree.
+# A platform folder holding one belongs to that organization, so nothing of
+# ours may land in it.
+_SCENARIO_MARKER = ".ironwright-workspace"
 
 
 class UnsafePath(ValueError):
@@ -41,6 +52,60 @@ def safe_child(root: Path, name: str, pattern: re.Pattern[str] = SAFE_NAME) -> P
     except (OSError, RuntimeError) as e:  # a symlink loop
         raise UnsafePath(f"{name!r} does not resolve: {e}") from e
     return child
+
+
+def _platform_dir(name: str) -> Path:
+    d = safe_child(data_root(), name)
+    marker = d / _SCENARIO_MARKER
+    if marker.exists() or marker.is_symlink():
+        raise UnsafePath(f"{name} is held by a scenario organization")
+    return d
+
+
+def demo_root() -> Path:
+    return _platform_dir("demo")
+
+
+def tenants_root() -> Path:
+    return _platform_dir("tenants")
+
+
+def tenant_dir(org_id: str) -> Path:
+    return safe_child(tenants_root(), org_id, ORG_ID)
+
+
+def uploads_root(org_id: str) -> Path:
+    return safe_child(tenant_dir(org_id), "uploads")
+
+
+def workspaces_root(org_id: str) -> Path:
+    return safe_child(tenant_dir(org_id), "workspaces")
+
+
+def workspace_dir(org_id: str, slug: str) -> Path:
+    return safe_child(workspaces_root(org_id), slug, WS_SLUG)
+
+
+def ensure_tenant(org_id: str) -> Path:
+    """Close one org's tree to other users, even where a folder already exists
+    with wider modes. Run this before writing anything under a tenant."""
+    secure_data_root()
+    root = private_dir(tenants_root())
+    root.chmod(0o700)
+    org = private_dir(tenant_dir(org_id))
+    org.chmod(0o700)
+    for d in (uploads_root(org_id), workspaces_root(org_id)):
+        private_dir(d).chmod(0o700)
+    return org
+
+
+def upload_file(org_id: str, ref: str) -> Path:
+    """<upload_id>/<file> under this org's uploads, or UnsafePath. Exactly two
+    parts, each a plain child, so a ref cannot climb or name another org."""
+    parts = ref.split("/") if isinstance(ref, str) else []
+    if len(parts) != 2:
+        raise UnsafePath(f"unsafe upload ref: {ref!r}")
+    return safe_child(safe_child(uploads_root(org_id), parts[0]), parts[1], FILE_NAME)
 
 
 def private_dir(path: Path) -> Path:
@@ -91,10 +156,15 @@ class PackPaths:
     """Where each layer of one pack's run is stored. Mirrors the four-layer stack."""
 
     pack: str
+    run_root: Path | None = None   # a tenant workspace's run/; demo packs live under demo/
 
     @property
     def root(self) -> Path:
-        return safe_child(data_root(), self.pack)
+        if self.run_root is None:
+            return safe_child(demo_root(), self.pack)
+        if self.run_root.resolve() != self.run_root:
+            raise UnsafePath(f"{self.pack} run folder is a symlink, refused")
+        return self.run_root
 
     @property
     def legacy(self) -> Path:          # RAW SOURCES: what the old systems emit

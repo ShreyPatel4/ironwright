@@ -153,6 +153,22 @@ Lesson: a surface with no test is a claim, not a feature.
 
 **Fix.** I rebased, deleted my limiter, and pointed S5's at signup and accept-invite too, so there is one limiter on one clock. Lesson: fetch and rebase before the last test run, because the tree I test has to be the tree that merges.
 
+## 10. The contract's own example did not parse
+
+**Symptom.** The first run of the tenant fixture failed with `sources.claims.columns: unknown key 2)`.
+The fixture used the column spelling from contract 3 word for word.
+
+**Cause.** `{name: amount, type: decimal(12,2)}` is a YAML flow mapping, so the comma ends the value.
+YAML reads `type: decimal(12` and a bare key `2)`. I wrote the example without ever loading it.
+
+**Fix.** The loader puts the two halves back together, so the contract's spelling works, and a test
+loads the example as written. Strict validation found this. A loose loader would have stored a broken
+type and carried on. Lesson: load the examples in a contract before you build on them.
+
+**Same run, second catch.** `private_dir` only closes folders it creates. A `tenants/` folder that
+already existed with mode 0755 stayed open, so every org's folder name could be listed. `ensure_tenant`
+now tightens the whole tree on every create.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.

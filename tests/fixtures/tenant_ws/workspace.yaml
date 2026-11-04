@@ -1,0 +1,38 @@
+kind: workspace
+version: 1
+title: Acme claims
+sources:
+  - name: claims
+    upload: fixture/claims.csv
+    format: csv
+    layout: {delimiter: ",", header: true, encoding: utf-8}
+    columns:
+      - {name: claim_id, type: string, key: true}
+      - {name: policy_ref, type: string}
+      - {name: amount, type: decimal(12,2)}
+      - {name: loss_date, type: string}
+      - {name: status, type: string}
+  - name: policies
+    upload: fixture/policies.csv
+    format: csv
+    layout: {delimiter: "|", header: true, encoding: latin-1}
+    columns:
+      - {name: policy_no, type: string, key: true}
+      - {name: holder, type: string}
+      - {name: premium, type: double}
+quality:
+  - {table: silver.claims, check: unique, column: claim_id}
+  - {table: silver.claims, check: not_null, column: policy_ref}
+  - {table: silver.policies, check: unique, column: policy_no}
+  - {table: gold.claims_by_policy, check: row_count_min, min: 1}
+reconcile:
+  - name: Distinct claims in the export vs silver
+    legacy_sql: "select 'all' k, count(distinct claim_id) n from legacy_claims"
+    lake_sql: "select 'all' k, count(*) n from silver_claims"
+    key: [k]
+    measures: {n: 0}
+  - name: Distinct policies in the export vs silver
+    legacy_sql: "select 'all' k, count(distinct policy_no) n from legacy_policies"
+    lake_sql: "select 'all' k, count(*) n from silver_policies"
+    key: [k]
+    measures: {n: 0}

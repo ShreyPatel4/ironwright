@@ -1,0 +1,19 @@
+object_types:
+  Policy:
+    prefix: POL
+    owner: acme-ops
+    title: holder
+    sources:
+      - {system: policies, table: silver.policies, key: policy_no, fields: {holder: holder, premium: premium}}
+  Claim:
+    prefix: CLM
+    owner: acme-ops
+    title: claim_id
+    sources:
+      - {system: claims, table: silver.claims, key: claim_id, fields: {claim_id: claim_id, amount: amount, status: status}}
+link_types:
+  claim_on_policy:
+    from: Claim
+    to: Policy
+    description: The policy a claim was filed against
+    sql: "select 'claims' from_system, claim_id from_key, 'policies' to_system, policy_ref to_key from silver_claims"
