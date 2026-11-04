@@ -194,6 +194,7 @@ thread that dies leaves fewer claimers, which hides the very race the test exist
 **Fix.** The race helper now fails on any thread error, and the global cap has its own test with one
 job per org, so only the cap can stop a claim. Lesson: a concurrency test has to prove every thread
 finished, not just check the final tally. And delete the safeguard once to see the test go red.
+
 ## 16. The profiler looked right until I ran it on a real file
 
 **Symptom.** My hand built fixtures passed. Then I pointed the profiler at what the retail generator
@@ -211,6 +212,14 @@ the ids and reported no overlap.
 slice. The real generator files are in the test suite now. It pins the two boundaries alignment can
 never see too (abutting unpadded digits, abutting single letters), so that limit is written down and
 not a surprise. Lesson: a fixture I built only proves what I already thought of.
+
+## 17. My proposal passed my copy of the schema and failed the real one
+
+**Symptom.** T2 merged, so I ran a proposal through it end to end. `create_workspace` refused two of my three fixtures. One had `type: bool`, the other had `header` in a fixed width layout. A UTF-32 file would have failed too.
+
+**Cause.** Until then the check was `validate_contract3`, my own strict copy of contract 3. I wrote it from the same reading of the contract as the code it checked, so it agreed with me. The contract never spells out a flag type, and T2 chose `boolean`.
+
+**Fix.** The proposal now says `boolean`, leaves `header` off fixed width layouts, and leaves out a file the run cannot read, with a decision saying why. A fixed width header is on the record as a contract gap. The test now calls T2's validator, and each fixture goes from upload to a green `run_workspace`. Lesson: a stand-in for someone else's check only proves I agree with myself, so replace it the day the real one lands.
 
 ## Smaller ones
 

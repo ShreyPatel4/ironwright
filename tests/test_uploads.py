@@ -15,9 +15,12 @@ from fastapi.testclient import TestClient
 from ironwright import platform_api
 from ironwright.config import UnsafePath, data_root
 from ironwright.ingest import profiler, uploads
+from ironwright.jobs.handlers import HANDLERS, JobCancelled, JobCtx
+from ironwright.jobs.worker import Worker
 from ironwright.tenancy import DEV_ORG_ID
 
 CSV = b"id,name\n1,ann\n2,bob\n"
+ORG_A, ORG_B = "a" * 32, "b" * 32
 
 
 @pytest.fixture()
@@ -244,21 +247,21 @@ def test_a_half_written_upload_is_not_reachable_by_id(root):
 
 
 def test_one_org_cannot_read_the_upload_of_another(root):
-    session = uploads.UploadSession("org-a")
+    session = uploads.UploadSession(ORG_A)
     session.begin_file("a.csv")
     session.write(CSV)
     session.end_file()
     made = session.commit()
-    assert uploads.manifest("org-a", made["id"]) == made
+    assert uploads.manifest(ORG_A, made["id"]) == made
     with pytest.raises(FileNotFoundError):
-        uploads.manifest("org-b", made["id"])
+        uploads.manifest(ORG_B, made["id"])
 
 
-@pytest.mark.parametrize("upload_id", ["../org-a", "..", "ABC", "a" * 31, "a" * 33,
+@pytest.mark.parametrize("upload_id", ["../" + ORG_A, "..", "ABC", "a" * 31, "a" * 33,
                                        "a" * 32 + ".partial"])
 def test_an_upload_id_that_is_not_uuid_hex_is_refused(root, upload_id):
     with pytest.raises(UnsafePath):
-        uploads.upload_dir("org-a", upload_id)
+        uploads.upload_dir(ORG_A, upload_id)
 
 
 @pytest.mark.parametrize("org", ["../other", "..", "a/b", ""])
@@ -422,6 +425,80 @@ def test_a_session_for_one_org_cannot_be_steered_to_another(two_orgs):
                   headers={**bearer(a), "X-Principal": f"user:{b['user_id']}", "X-Org": b["org_id"]})
     assert (tenant_uploads(a) / made.json()["id"]).exists()
     assert not tenant_uploads(b).exists()
+
+
+# ------------------------------------------------- the profile job
+
+
+def workspace_for(session, name="claims"):
+    (data_root() / "tenants" / session["org_id"] / "workspaces" / name).mkdir(parents=True, exist_ok=True)
+    return name
+
+
+def queue_profile(c, session, upload_id):
+    r = c.post("/jobs", headers=bearer(session),
+               json={"kind": "profile", "workspace": workspace_for(session), "params": {"upload_id": upload_id}})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def run_job(c, session, job_id):
+    Worker().run_once(job_id)
+    return c.get(f"/jobs/{job_id}", headers=bearer(session)).json()
+
+
+def test_the_profile_job_writes_what_the_routes_serve(two_orgs):
+    c, a, _ = two_orgs
+    upload_id = send(c, a).json()["id"]
+    assert c.get(f"/uploads/{upload_id}/profile", headers=bearer(a)).status_code == 404
+    job = run_job(c, a, queue_profile(c, a, upload_id))
+    assert job["state"] == "succeeded", job
+    assert job["result"] == {"files": 1, "sources": 1}
+    assert c.get(f"/uploads/{upload_id}/profile", headers=bearer(a)).json()["upload_id"] == upload_id
+    assert c.get(f"/uploads/{upload_id}/proposal", headers=bearer(a)).json()["workspace"]["sources"]
+    log = c.get(f"/jobs/{job['id']}/log", headers=bearer(a)).json()
+    assert "profiling 1 files" in str(log)
+
+
+def test_a_profile_job_cannot_reach_another_orgs_upload(two_orgs):
+    """The id is in the body, so the gate never sees it. The org comes from the job."""
+    c, a, b = two_orgs
+    upload_id = send(c, a).json()["id"]
+    theirs = run_job(c, b, queue_profile(c, b, upload_id))
+    nothing = run_job(c, b, queue_profile(c, b, "a" * 32))
+    assert theirs["state"] == nothing["state"] == "failed"
+    assert theirs["error"] == nothing["error"]
+    assert not (tenant_uploads(a) / upload_id / "profile.json").exists()
+    assert c.get(f"/uploads/{upload_id}/profile", headers=bearer(a)).status_code == 404
+
+
+@pytest.mark.parametrize("params", [{}, {"upload_id": 7}, {"upload_id": "../../etc"}])
+def test_a_profile_job_with_no_good_upload_id_fails_out_loud(two_orgs, params):
+    c, a, _ = two_orgs
+    r = c.post("/jobs", headers=bearer(a),
+               json={"kind": "profile", "workspace": workspace_for(a), "params": params})
+    job = run_job(c, a, r.json()["id"])
+    assert job["state"] == "failed"
+    assert "upload" in job["error"]
+
+
+def test_a_cancelled_profile_job_writes_nothing(two_orgs):
+    c, a, _ = two_orgs
+    upload_id = send(c, a).json()["id"]
+    ctx = JobCtx(org_id=a["org_id"], principal="user:x", job_id="j", cancelled=lambda: True)
+    with pytest.raises(JobCancelled):
+        HANDLERS["profile"](ctx, "claims", {"upload_id": upload_id}, lambda _: None)
+    assert not (tenant_uploads(a) / upload_id / "profile.json").exists()
+
+
+@pytest.mark.xfail(strict=True, reason="POST /jobs needs a workspace the org can see, and profiling comes "
+                                       "before any workspace exists. jobs/routes.py, ask on PR 8.")
+def test_a_new_org_can_profile_before_it_has_a_workspace(two_orgs):
+    c, a, _ = two_orgs
+    upload_id = send(c, a).json()["id"]
+    r = c.post("/jobs", headers=bearer(a),
+               json={"kind": "profile", "workspace": "claims", "params": {"upload_id": upload_id}})
+    assert r.status_code == 200, r.text
 
 
 # ------------------------------------------------- behind the serving posture

@@ -9,19 +9,21 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import subprocess
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import yaml
 
+from ironwright import workspaces_tenant as wt
 from ironwright.ingest import propose as propose_mod
 from ironwright.ingest import uploads
 from ironwright.ingest.profiler import profile, profile_files
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ingest"
+ORG_A, ORG_B = "a" * 32, "b" * 32
 SETS = {"messy": ["messy/claims_export.csv"], "mainframe": ["mainframe/ITEMMAST.DAT"],
         "join": ["join/customers.csv", "join/orders.csv"]}
 
@@ -544,39 +546,11 @@ def test_goldens_hold_across_processes_and_hash_seeds():
 
 
 def validate_contract3(w: dict) -> None:
-    """A stand-in for T2's schema test, which has not landed. Strict on purpose:
-    an unknown key fails, because T2's schema may refuse one. Replace with T2's
-    import when it merges."""
-    assert set(w) == {"kind", "version", "title", "sources", "quality", "reconcile"}
-    assert w["kind"] == "workspace" and w["version"] == 1
-    assert isinstance(w["title"], str) and w["title"]
-    assert isinstance(w["quality"], list) and isinstance(w["reconcile"], list)
-    assert w["sources"]
-    names = [s["name"] for s in w["sources"]]
-    assert len(set(names)) == len(names)
-    for s in w["sources"]:
-        assert set(s) == {"name", "upload", "format", "layout", "columns"}
-        assert re.fullmatch(r"[a-z][a-z0-9_]*", s["name"])
-        assert re.fullmatch(r"[0-9a-f]{32}/[^/]+", s["upload"])
-        if s["format"] == "csv":
-            assert set(s["layout"]) == {"delimiter", "header", "encoding"}
-            assert isinstance(s["layout"]["header"], bool)
-        else:
-            assert s["format"] == "fixed_width"
-            assert set(s["layout"]) == {"fields", "header", "encoding"}
-            pos = 0
-            for fld in s["layout"]["fields"]:
-                assert set(fld) == {"name", "start", "width"}
-                assert fld["start"] == pos and fld["width"] > 0
-                pos += fld["width"]
-        cols = [c["name"] for c in s["columns"]]
-        assert len(set(cols)) == len(cols)
-        for c in s["columns"]:
-            assert set(c) <= {"name", "type", "key"}
-            assert re.fullmatch(r"string|int|bool|date|timestamp|decimal\(\d+,\d+\)", c["type"])
-            if "key" in c:
-                assert c["key"] is True
-        assert sum(1 for c in s["columns"] if c.get("key")) <= 1
+    """T2's own schema, the one create_workspace runs. Only the file lookup is
+    stubbed, because these drafts name uploads that were never stored. The tests
+    under `the whole road` use real uploads and the public create_workspace."""
+    with mock.patch.object(wt, "_upload_path", lambda *_: Path("stub")):
+        wt._normalize(ORG_A, w, None)
 
 
 UPLOAD = "a" * 32
@@ -669,7 +643,7 @@ def test_hostile_cells_and_headers_never_reach_the_proposal():
 @pytest.fixture()
 def stored(monkeypatch, tmp_path):
     monkeypatch.setenv("IRONWRIGHT_DATA", str(tmp_path))
-    session = uploads.UploadSession("org-a")
+    session = uploads.UploadSession(ORG_A)
     for name, raw in load("join"):
         session.begin_file(name)
         session.write(raw)
@@ -680,8 +654,8 @@ def stored(monkeypatch, tmp_path):
 def test_the_handler_writes_profile_and_proposal_beside_the_upload(stored):
     upload_id, root = stored
     lines: list[str] = []
-    profile("org-a", upload_id, lines.append)
-    d = root / "tenants" / "org-a" / "uploads" / upload_id
+    profile(ORG_A, upload_id, lines.append)
+    d = root / "tenants" / ORG_A / "uploads" / upload_id
     prof = json.loads((d / "profile.json").read_text())
     assert prof["upload_id"] == upload_id
     assert [f["name"] for f in prof["files"]] == ["customers.csv", "orders.csv"]
@@ -692,8 +666,8 @@ def test_the_handler_writes_profile_and_proposal_beside_the_upload(stored):
 
 def test_the_handler_output_matches_the_pure_core(stored):
     upload_id, root = stored
-    profile("org-a", upload_id, lambda _: None)
-    d = root / "tenants" / "org-a" / "uploads" / upload_id
+    profile(ORG_A, upload_id, lambda _: None)
+    d = root / "tenants" / ORG_A / "uploads" / upload_id
     prof = json.loads((d / "profile.json").read_text())
     prof.pop("upload_id")
     assert prof == profile_files(load("join"))
@@ -701,11 +675,11 @@ def test_the_handler_output_matches_the_pure_core(stored):
 
 def test_the_handler_leaves_the_raw_bytes_alone_and_can_run_twice(stored):
     upload_id, root = stored
-    d = root / "tenants" / "org-a" / "uploads" / upload_id
+    d = root / "tenants" / ORG_A / "uploads" / upload_id
     before = (d / "orders.csv").read_bytes()
-    profile("org-a", upload_id, lambda _: None)
+    profile(ORG_A, upload_id, lambda _: None)
     first = (d / "profile.json").read_bytes()
-    profile("org-a", upload_id, lambda _: None)
+    profile(ORG_A, upload_id, lambda _: None)
     assert (d / "profile.json").read_bytes() == first
     assert (d / "orders.csv").read_bytes() == before
 
@@ -713,14 +687,14 @@ def test_the_handler_leaves_the_raw_bytes_alone_and_can_run_twice(stored):
 def test_another_org_cannot_profile_the_upload(stored):
     upload_id, root = stored
     with pytest.raises(FileNotFoundError):
-        profile("org-b", upload_id, lambda _: None)
-    assert not (root / "tenants" / "org-a" / "uploads" / upload_id / "profile.json").exists()
+        profile(ORG_B, upload_id, lambda _: None)
+    assert not (root / "tenants" / ORG_A / "uploads" / upload_id / "profile.json").exists()
 
 
 def test_a_malformed_upload_id_is_refused_by_the_handler(stored):
     from ironwright.config import UnsafePath
     with pytest.raises(UnsafePath):
-        profile("org-a", "../../other", lambda _: None)
+        profile(ORG_A, "../../other", lambda _: None)
 
 
 def test_the_profile_is_served_once_it_exists(stored):
@@ -734,12 +708,60 @@ def test_the_profile_is_served_once_it_exists(stored):
 
     upload_id, _ = stored
     client = TestClient(platform_api.create_platform_app())
-    client.app.dependency_overrides[auth.ctx] = as_org("org-a")
+    client.app.dependency_overrides[auth.ctx] = as_org(ORG_A)
     assert client.get(f"/uploads/{upload_id}/profile").status_code == 404
     assert client.get(f"/uploads/{upload_id}/proposal").status_code == 404
-    profile("org-a", upload_id, lambda _: None)
+    profile(ORG_A, upload_id, lambda _: None)
     assert client.get(f"/uploads/{upload_id}/profile").json()["upload_id"] == upload_id
     body = client.get(f"/uploads/{upload_id}/proposal").json()
     validate_contract3(body["workspace"])
-    client.app.dependency_overrides[auth.ctx] = as_org("org-b")
+    client.app.dependency_overrides[auth.ctx] = as_org(ORG_B)
     assert client.get(f"/uploads/{upload_id}/profile").status_code == 404
+
+
+# ---------------------------------------------------------------- the whole road
+
+
+@pytest.mark.parametrize("name", list(SETS))
+def test_a_proposal_runs_green_through_t2(name, monkeypatch, tmp_path):
+    """Upload, profile, approve as is, run. A proposal T2 refuses is no proposal."""
+    monkeypatch.setenv("IRONWRIGHT_DATA", str(tmp_path))
+    session = uploads.UploadSession(ORG_A)
+    for fname, raw in load(name):
+        session.begin_file(fname)
+        session.write(raw)
+        session.end_file()
+    upload_id = session.commit()["id"]
+    profile(ORG_A, upload_id, lambda _: None)
+    spec = yaml.safe_load((uploads.upload_dir(ORG_A, upload_id) / "workspace.yaml").read_text())
+    wt.create_workspace(ORG_A, f"ws-{name}", spec)
+    assert wt.run_workspace(ORG_A, f"ws-{name}")["passed"] is True
+
+
+def test_the_proposal_spells_a_flag_the_way_t2_does():
+    raw = b"id,active\n1,true\n2,false\n3,true\n"
+    columns = propose_mod.propose(profile_files([("a.csv", raw)]), "a" * 32)["workspace"]["sources"][0]["columns"]
+    assert {c["name"]: c["type"] for c in columns}["active"] == "boolean"
+
+
+def test_a_fixed_width_header_is_a_gap_on_the_record():
+    raw = ("ITEM_NBR  ITEM_NAME \n" + "".join(f"{i:<10}NAME{i:<6}\n" for i in range(1000, 1012))).encode()
+    out = propose_mod.propose(profile_files([("a.dat", raw)]), "a" * 32)
+    source = out["workspace"]["sources"][0]
+    assert source["format"] == "fixed_width" and "header" not in source["layout"]
+    gap = next(d for d in out["decisions"] if d["path"].endswith(".layout.header"))
+    assert gap["value"] is True and gap["contract_gap"] is True
+    validate_contract3(out["workspace"])
+
+
+def test_a_file_the_run_cannot_read_is_left_out_on_the_record():
+    raw = "id,name\n1,ann\n2,bob\n".encode("utf-32")
+    out = propose_mod.propose(profile_files([("a.csv", raw)]), "a" * 32)
+    assert out["workspace"]["sources"] == []
+    assert any(d["path"] == "files.a.csv" and d["value"] == "left out" for d in out["decisions"])
+
+
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16", "cp1252", "latin-1"])
+def test_every_encoding_the_proposal_names_is_one_t2_reads(encoding):
+    raw = "id,name\n1,ann\n2,bob\n".encode(encoding)
+    validate_contract3(propose_mod.propose(profile_files([("a.csv", raw)]), "a" * 32)["workspace"])

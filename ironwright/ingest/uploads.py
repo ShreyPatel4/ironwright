@@ -27,11 +27,11 @@ from python_multipart.multipart import MultipartParser, parse_options_header
 from ..config import (
     FILE_NAME,
     UnsafePath,
-    data_root,
+    ensure_tenant,
     private_dir,
     safe_child,
-    secure_data_root,
     setting,
+    uploads_root,
     write_private,
 )
 from ..connectors import _MAX_FILE_BYTES, _MAX_FILES
@@ -67,13 +67,9 @@ def max_files() -> int:
     return int(setting("L1_MAX_FILES", _MAX_FILES))
 
 
-def _uploads_root(org_id: str) -> Path:
-    return safe_child(safe_child(safe_child(data_root(), "tenants"), org_id), "uploads")
-
-
 def upload_dir(org_id: str, upload_id: str) -> Path:
     """The folder of one committed upload. Refuses anything but 32 hex characters."""
-    return safe_child(_uploads_root(org_id), upload_id, pattern=UPLOAD_ID)
+    return safe_child(uploads_root(org_id), upload_id, pattern=UPLOAD_ID)
 
 
 def manifest(org_id: str, upload_id: str) -> dict[str, Any]:
@@ -135,8 +131,8 @@ class UploadSession:
     hashed as it streams, then made read only."""
 
     def __init__(self, org_id: str) -> None:
-        secure_data_root()
-        root = _uploads_root(org_id)
+        ensure_tenant(org_id)
+        root = uploads_root(org_id)
         self.upload_id = uuid.uuid4().hex
         self._final = safe_child(root, self.upload_id, pattern=UPLOAD_ID)
         self._staging = safe_child(root, f"{self.upload_id}.partial")
