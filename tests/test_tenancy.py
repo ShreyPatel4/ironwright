@@ -135,7 +135,7 @@ def test_a_second_signup_with_the_same_email_makes_nothing(client):
     signup(client, email="Same@A.example")
     r = client.post("/auth/signup", json={"email": "same@a.example ", "password": PASSWORD,
                                           "org_name": "Other"})
-    assert r.status_code == 409
+    assert r.status_code == 201  # same as a new email; tests/test_security_mt.py holds the rest
     assert len(rows(db.users)) == 1 and len(rows(db.orgs)) == 1
 
 
