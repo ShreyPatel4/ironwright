@@ -111,7 +111,7 @@ These are real and I would rather say so.
   client shares one bucket, which fails closed and can lock me out for a minute.
 - **The posture comes from the CLI.** `harden()` wraps the app in `cli.py`. Anything that imports
   `create_platform_app()` directly, like `scripts/demo_console_check.py`, runs without it.
-- **CSP allows inline styles,** because the console uses React style attributes, and FastAPI's
-  `/docs` page renders blank, because it loads script from a CDN. `/openapi.json` still works.
+- **FastAPI's `/docs` page renders blank under the CSP,** because it loads script from a CDN.
+  `/openapi.json` still works.
 - **`frame-src` is open to any http(s) URL,** because the BI URL is my choice. The frame is sandboxed
   with `allow-same-origin`, so pointing it at the console's own origin would drop the sandbox.

@@ -45,7 +45,7 @@ LOGIN_WINDOW_S = 60.0
 # The console's own needs and nothing more. frame-src is open to http(s) because
 # the BI embed is a URL the user chose, rendered in a sandboxed iframe.
 CSP = ("default-src 'self'; script-src 'self'; "
-       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+       "style-src 'self' https://fonts.googleapis.com; "
        "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
        "frame-src http: https:; frame-ancestors 'self'; object-src 'none'; "
        "base-uri 'self'; form-action 'self'")

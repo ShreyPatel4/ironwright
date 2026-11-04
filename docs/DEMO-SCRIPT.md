@@ -67,7 +67,8 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         --i-know-this-is-exposed. IRONWRIGHT_KILL_SWITCH=1 and every
         write answers 503 while reads stay up. docs/threat-model.md maps
         each control to the test that proves it, and a test fails if a
-        link goes stale.
+        link goes stale. demo-check does not walk this beat, because it
+        runs the app without harden(); tests/test_posture.py proves it.
 - 1:42  Any object opens to its governed page: props with per-field
         provenance, the three-source identity, the audit trail that
         touched it, and action chips that render permit or deny from a

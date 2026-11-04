@@ -145,6 +145,13 @@ def test_foreign_origin_cannot_write_even_without_preflight(platform, origin):
     assert r.status_code == 403
 
 
+def test_configured_console_origin_can_write(launch, monkeypatch):
+    monkeypatch.setenv("IRONWRIGHT_CONSOLE_ORIGIN", "https://console.example")
+    c = TestClient(launch("platform")["app"])
+    r = c.post("/auth/login", headers={"origin": "https://console.example"}, json=LOGIN)
+    assert r.status_code == 401
+
+
 def test_same_origin_write_passes_the_origin_check(platform):
     r = TestClient(platform).post("/auth/login", headers={"origin": "http://testserver"}, json=LOGIN)
     assert r.status_code == 401
@@ -176,6 +183,7 @@ def test_csp_lets_the_console_and_bi_frame_work_and_nothing_else(platform):
     assert csp["frame-ancestors"] == "'self'"             # only we may frame us
     assert csp["frame-src"] == "http: https:"             # the user's BI URL, sandboxed by the console
     assert "https://fonts.googleapis.com" in csp["style-src"]
+    assert "unsafe-inline" not in csp["style-src"]
     assert "https://fonts.gstatic.com" in csp["font-src"]
     assert csp["object-src"] == "'none'"
 
