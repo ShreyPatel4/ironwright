@@ -278,6 +278,23 @@ front of a module is not a test of the module.
 
 **Fix.** Upload now names the step it wants, and every other step still asks the server. Lesson: "the furthest step you could be on" and "the step you should look at now" are different questions. They only look the same when the worker is slow.
 
+## 23. Every slice was green and the journey did not connect
+
+**Symptom.** The first walk of the whole journey stopped at step three. T1, T3 and T4 had each passed
+their own tests, and a customer still could not get from an upload to an answer.
+
+**Cause.** Each break sits between two slices, where no test of either one looks. `POST /jobs` answers
+404 for a workspace that does not exist yet, and a profile job runs before one can. Nothing over HTTP
+calls `create_workspace`. `GET /workspaces` never lists a tenant workspace. `_pack()` answers 404 for
+one, so Ask cannot reach it. A stub profile handler and a fixed width `header` key were on that list too,
+until T3 fixed both.
+
+**Fix.** Not mine to make, since these files belong to other slices. Each break is now a strict xfail
+in `tests/e2e/test_journey.py` that names who it waits on, and goes red the day it is fixed. One already
+did: T3's fix for the `header` key turned its test red at my rebase. Lesson: a contract between two
+slices needs a test that crosses it, so walk the whole path early.
+
+
 ## Smaller ones
 
 - A session-scoped Playwright broke four MCP and upload tests in other files. It keeps an event loop running on the main thread, so their `asyncio.run()` refused to start. Each file passed alone. The browser now lives only as long as its own module.

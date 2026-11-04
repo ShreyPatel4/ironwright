@@ -171,34 +171,59 @@ The engine only knows `IRONWRIGHT_S3_ENDPOINT`, so any S3 store fits.
 
 ## Staging on Railway
 
-I have not deployed this yet. The config is in `deploy/railway/railway.toml`, and these are the steps
-I expect to work. Confirm each one on the first deploy.
+I have not deployed this. No Railway project, database, bucket or token exists yet, and nothing in CI
+talks to Railway. The PMO asks Shrey before any of it gets created. These are the steps I expect to
+work, so confirm each one on the first deploy.
+
+```mermaid
+flowchart LR
+  B["Browser or API client"] --> S
+  subgraph R["Railway project"]
+    subgraph S["service: ironwright<br/>deploy/railway/railway.toml"]
+      A["serve-platform"]
+      W["worker"]
+    end
+    V[("volume at /data")]
+    P[("Postgres")]
+    S --- V
+    S --> P
+  end
+  S --> O[("R2 bucket<br/>Iceberg warehouse")]
+```
 
 1. Create a project with a Postgres database and one service from this repo.
 2. In the service settings, set the config file path to `deploy/railway/railway.toml`.
 3. Attach a volume to the service, mounted at `/data`.
-4. Create an R2 bucket and an API token for it.
-5. Set these on the service:
+4. Create an R2 bucket and an API token scoped to that bucket.
+5. Set the variables in the table below on the service. `deploy/railway/staging.env.example` holds the same list.
+6. Deploy the service, and wait for `/readyz` to answer.
+7. From a shell in the service, build the demo packs and seed the demo org:
 
-   | Variable | Value |
-   |---|---|
-   | `IRONWRIGHT_ENV` | `staging` |
-   | `IRONWRIGHT_HOST` | `0.0.0.0` |
-   | `IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED` | `1` |
-   | `IRONWRIGHT_RUNS_WAIT` | `0` |
-   | `IRONWRIGHT_SECRET_KEY` | a Fernet key you generate once and keep |
-   | `IRONWRIGHT_DB_URL` | `${{Postgres.DATABASE_URL}}` |
-   | `IRONWRIGHT_LAKE_URI` | `s3://<bucket>/staging` |
-   | `IRONWRIGHT_S3_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` |
-   | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | the R2 token |
-   | `AWS_REGION` | `auto` |
-   | `RAILWAY_RUN_UID` | `0` |
+   ```bash
+   ironwright run --pack all
+   python - < scripts/seed_demo_org.py
+   ```
 
-Then deploy with one command from the repo root:
+| Variable | Value | Why |
+|---|---|---|
+| `IRONWRIGHT_ENV` | `staging` | The server refuses to start with the door open. |
+| `IRONWRIGHT_HOST` | `0.0.0.0` | The container has to be reachable. |
+| `IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED` | `1` | The second key for a host that is not loopback. |
+| `IRONWRIGHT_DATA` | `/data` | The volume. |
+| `IRONWRIGHT_RUNS_WAIT` | `0` | A run goes to the worker and never into the API process. |
+| `IRONWRIGHT_DB_URL` | `${{Postgres.DATABASE_URL}}` | Metadata and the Iceberg catalog. |
+| `IRONWRIGHT_LAKE_URI` | `s3://<bucket>/staging` | The warehouse. |
+| `IRONWRIGHT_S3_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` | R2. |
+| `AWS_REGION` | `auto` | R2 wants this. |
+| `AWS_ACCESS_KEY_ID` | secret | The R2 token. |
+| `AWS_SECRET_ACCESS_KEY` | secret | The R2 token. |
+| `IRONWRIGHT_SECRET_KEY` | secret | A Fernet key that encrypts each org's model key. Generate it once, and keep it. |
+| `IRONWRIGHT_SEED_PASSWORD` | secret | The demo owner's password. Only the seed script reads it. |
+| `RAILWAY_RUN_UID` | `0` | Railway volumes need it for an image with a non-root user. |
 
-```bash
-railway up --service ironwright --detach
-```
+The seed script makes `demo-owner@example.com` in an org called Ironwright Demo, with one workspace
+called `demo`, from the supply chain pack's two ERP exports. It refuses `IRONWRIGHT_ENV=prod`, and running it
+again changes nothing.
 
 Four things to know before you rely on it:
 
@@ -213,6 +238,25 @@ Four things to know before you rely on it:
 - **R2 is untested.** CI proves the lake on the compose gateway. R2 speaks the same API, but no test has run on it.
 
 ## What CI proves
+
+The `e2e` job boots the compose stack with the worker and walks a customer's whole journey from
+`tests/e2e/journey.py`: sign up, upload two CSVs, profile, accept the proposal, run, accept the
+ontology, Ask. Then a second org signs up and gets a 404 with the same body on every scoped route, with
+org A's real ids. Then org A reads its things again, in case a refused write landed anyway.
+
+```mermaid
+flowchart LR
+  W["walk the journey<br/>as far as it goes"] --> I["org B on every<br/>scoped route"]
+  I --> L{"journey.log has<br/>ISOLATION ok?"}
+  L -- no --> R["job fails"]
+  L -- yes --> S["seed the demo org, twice"]
+```
+
+The isolation half has no flag, no setting, and cannot go on the blocked list. It runs however far the
+walk got. The job has no `needs` and no `if`. A test fails if any of that changes, and another fails
+if the app gains a scoped route the sweep does not cover. `journey.BLOCKED` lists the steps that wait on
+other tickets, and a listed step that passes fails the run. While that list has anything in it the job
+says `JOURNEY incomplete`, and the journey is not proved. A green job on its own does not mean done.
 
 The `hosted-smoke` job builds the image, boots the stack with the door closed, builds the demo packs
 and runs `deploy/hosted_smoke.py`. That reads a demo pack, has a demo pack write refused, walks a tenant

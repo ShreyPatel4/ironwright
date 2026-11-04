@@ -108,6 +108,52 @@ jobs:
           pytest -q -rs tests/test_hosted.py | tee out.txt
           ! grep -q SKIPPED out.txt
 
+  # The customer's whole journey on the compose stack, then a second org trying to reach all
+  # of it. No `needs` and no `if`, on purpose: a job skipped behind a failed job reports no red.
+  # tests/e2e/test_isolation_cannot_be_skipped.py holds this block to that.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_FILE: deploy/compose.yaml
+    defaults:
+      run:
+        shell: bash   # stated, so GitHub adds pipefail: a pipe into tee must not hide a failure
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: docker compose build
+      - run: docker compose up -d
+      - name: The journey, then isolation
+        run: |
+          python tests/e2e/journey.py --base http://127.0.0.1:8000 --wait 180 --budget 600 | tee journey.log
+          grep -q '^ISOLATION ok' journey.log
+          grep '^JOURNEY' journey.log >> "$GITHUB_STEP_SUMMARY"
+      - name: The demo org seeds on this stack, twice
+        env:
+          IRONWRIGHT_SEED_PASSWORD: e2e-only-not-a-secret
+        run: |
+          for attempt in first second; do
+            docker compose exec -T -e IRONWRIGHT_SEED_PASSWORD api python - < scripts/seed_demo_org.py | tee "seed-$attempt.log"
+          done
+          grep -q '"created": true' seed-first.log
+          grep -q '"created": false' seed-second.log
+      - name: Collect logs
+        if: failure()
+        run: |
+          mkdir -p e2e-artifacts
+          cp journey.log seed-*.log e2e-artifacts/ || true
+          docker compose ps -a > e2e-artifacts/ps.txt
+          for service in api worker postgres objectstore bucket-init; do
+            docker compose logs --no-color "$service" > "e2e-artifacts/$service.log" 2>&1 || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: { name: e2e-artifacts, path: e2e-artifacts }
+      - if: always()
+        run: docker compose down -v
+
   site:
     needs: test
     runs-on: ubuntu-latest
