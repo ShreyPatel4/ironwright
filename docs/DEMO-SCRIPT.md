@@ -36,9 +36,13 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         and refusing outside the ontology, Governance running a policy
         dry-run, and the audit chain verifying server-side.
 - 1:40  The door: invite-only sign-in (local salted hashes, seeded by
-        ironwright auth-set; the page says the API stays locally open
-        until hosted auth is live). Wrong password bounces; the account
-        decides the identity on every audit row.
+        ironwright auth-set). Every API route now needs a bearer session,
+        so seed an account before opening the console. No token is a 401,
+        a spoofed X-Principal is ignored, and an agent principal can never
+        sign in. Sessions die after 8 idle hours and rotate on login.
+        Wrong password bounces; the account decides the identity on every
+        audit row. IRONWRIGHT_DEV_OPEN=1 keeps the old open door for tests
+        and demo-check, and the console wears a red badge while it is on.
 - 1:41  The connector kinds: object-store drops, ADBC warehouses (the
         postgres driver proven against a real server in CI), SAP IDoc
         flat files, stream windows from recorded segments, and CDC from
@@ -69,6 +73,15 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         each control to the test that proves it, and a test fails if a
         link goes stale. demo-check does not walk this beat, because it
         runs the app without harden(); tests/test_posture.py proves it.
+- 1:41e Real bytes meet three more walls. SQL: read_text('/etc/passwd'),
+        COPY and ATTACH fail closed in the explorer and in board tiles, a
+        cartesian bomb hits the timeout, and an error is a short message
+        with an id. Paths: /workspaces/%2e%2e stays a refusal, and an L1
+        folder is read only, refusing symlinks that escape, FIFOs and
+        oversize files. Prompts: a cell that says "ignore previous
+        instructions" reaches the model inside an untrusted fence, the
+        guardrail drops what it did not earn, and rules still pick every
+        action.
 - 1:42  Any object opens to its governed page: props with per-field
         provenance, the three-source identity, the audit trail that
         touched it, and action chips that render permit or deny from a

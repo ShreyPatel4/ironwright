@@ -102,6 +102,15 @@ def test_forwarded_headers_are_not_trusted(launch):
     assert launch("platform")["proxy_headers"] is False
 
 
+def test_the_served_platform_app_is_closed_without_a_token(launch, monkeypatch):
+    monkeypatch.delenv("IRONWRIGHT_DEV_OPEN", raising=False)
+    c = TestClient(launch("platform")["app"])
+    assert c.get("/workspaces").status_code == 401
+    assert c.get("/workspaces", headers={"x-principal": "user:ceo"}).status_code == 401
+    assert c.post("/auth/login", json=LOGIN).status_code == 401
+    assert "content-security-policy" in c.get("/workspaces").headers
+
+
 # ------------------------------------------------------------------ CORS and origin
 
 def test_no_cross_origin_is_allowed_by_default(platform):
@@ -265,10 +274,14 @@ READ_ONLY_WRITES = {"/auth/login", "/auth/logout", "/workspaces/retail/lake/quer
                     "/workspaces/retail/boards/x/run", "/workspaces/retail/governance/check"}
 
 
-def _routes(app):
-    for route in app.routes:
-        if isinstance(route, APIRoute):
-            path = route.path.replace("{name}", PACK)
+def _routes(routes, prefix=""):
+    """Newer FastAPI keeps an include as one lazy entry, so a flat loop misses every router."""
+    for route in routes:
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            yield from _routes(included.routes, prefix + route.include_context.prefix)
+        elif isinstance(route, APIRoute):
+            path = (prefix + route.path).replace("{name}", PACK)
             yield re.sub(r"\{[^}]+\}", "x", path), route.methods - {"HEAD", "OPTIONS"}
 
 
@@ -300,7 +313,12 @@ def test_kill_switch_covers_every_write_route_and_no_read_route(platform, monkey
     monkeypatch.setenv("IRONWRIGHT_KILL_SWITCH", "1")
     c = TestClient(platform, raise_server_exceptions=False)
     seen_read_writes = set()
-    for path, methods in _routes(platform):
+    swept = list(_routes(platform.routes))
+    # One route from each included router, or the sweep is quietly smaller than it looks.
+    assert {f"/workspaces/{PACK}/{tail}" for tail in
+            ("orgpolicy/apply", "escalations", "bi/mirror", "otel/export", "training/evaluate", "engines/check")
+            } <= {path for path, _ in swept}
+    for path, methods in swept:
         for method in methods:
             status = _hit(c, method, path)
             if method == "GET":
@@ -427,6 +445,5 @@ def test_every_control_links_a_test_or_says_it_is_pending():
         assert TEST_LINK.search(row) or "PENDING" in row, row
 
 
-@pytest.mark.xfail(strict=True, reason="A1 to A4 not merged yet; integration fills these rows and drops this mark")
 def test_no_control_is_still_pending():
     assert not [r for r in _control_rows() if "PENDING" in r]
