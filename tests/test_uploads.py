@@ -13,8 +13,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from ironwright import platform_api
-from ironwright.config import UnsafePath
-from ironwright.ingest import routes, uploads
+from ironwright.config import UnsafePath, data_root
+from ironwright.ingest import profiler, uploads
+from ironwright.tenancy import DEV_ORG_ID
 
 CSV = b"id,name\n1,ann\n2,bob\n"
 
@@ -31,7 +32,7 @@ def client(root):
 
 
 def uploads_root(root):
-    return root / "tenants" / uploads.DEV_ORG / "uploads"
+    return root / "tenants" / DEV_ORG_ID / "uploads"
 
 
 def post(client, *files):
@@ -97,7 +98,7 @@ def test_each_upload_gets_its_own_id(client):
 
 
 def test_a_stored_file_cannot_be_opened_for_write_again(root):
-    session = uploads.UploadSession(uploads.DEV_ORG)
+    session = uploads.UploadSession(DEV_ORG_ID)
     session.begin_file("a.csv")
     with pytest.raises(uploads.UploadRefused):
         session.begin_file("a.csv")
@@ -128,7 +129,7 @@ def test_a_name_that_is_not_one_plain_component_is_refused(client, root, name):
     r = post(client, (name, CSV))
     assert r.status_code == 400, r.text
     assert nothing_stored(root)
-    assert not (root / "tenants" / uploads.DEV_ORG / "evil.csv").exists()
+    assert not (root / "tenants" / DEV_ORG_ID / "evil.csv").exists()
 
 
 @pytest.mark.parametrize("raw", [
@@ -205,7 +206,7 @@ def test_the_count_cap_is_read_from_the_s3_setting_and_refuses(client, root, mon
 
 def test_the_size_cap_trips_mid_stream_not_after_the_body_is_read(root, monkeypatch):
     monkeypatch.setenv("IRONWRIGHT_L1_MAX_FILE_BYTES", "10")
-    session = uploads.UploadSession(uploads.DEV_ORG)
+    session = uploads.UploadSession(DEV_ORG_ID)
     session.begin_file("a.csv")
     session.write(b"x" * 10)
     with pytest.raises(uploads.UploadRefused) as e:
@@ -230,12 +231,12 @@ def test_oversized_part_headers_are_refused(client, root):
 
 
 def test_a_half_written_upload_is_not_reachable_by_id(root):
-    session = uploads.UploadSession(uploads.DEV_ORG)
+    session = uploads.UploadSession(DEV_ORG_ID)
     session.begin_file("a.csv")
     session.write(CSV)
     session.end_file()
     with pytest.raises(FileNotFoundError):
-        uploads.manifest(uploads.DEV_ORG, session.upload_id)
+        uploads.manifest(DEV_ORG_ID, session.upload_id)
     session.abort()
 
 
@@ -281,13 +282,6 @@ def test_the_routes_sit_behind_the_session_gate(client, root, monkeypatch):
     assert client.get("/uploads/" + "a" * 32).status_code == 401
 
 
-def test_the_org_comes_from_one_dependency_t1_can_swap(client, root):
-    client.app.dependency_overrides[routes.current_org] = lambda: "org-z"
-    made = post(client, ("a.csv", CSV)).json()
-    assert (root / "tenants" / "org-z" / "uploads" / made["id"] / "a.csv").exists()
-    client.app.dependency_overrides.clear()
-
-
 def test_the_route_stops_reading_the_body_once_the_cap_trips(root, monkeypatch):
     """The proof UploadFile would fail: it reads every byte before a handler runs."""
     import asyncio
@@ -320,19 +314,114 @@ def test_uploads_do_not_touch_the_stored_bytes_of_an_earlier_upload(client, root
     assert (uploads_root(root) / first["id"] / "a.csv").read_bytes() == CSV
 
 
-def test_a_real_session_gets_no_org_until_t1_wires_one(monkeypatch):
-    """Every session sharing dev-org would break tenant isolation, so outside dev
-    mode this refuses. A merge that forgets the swap fails closed, not shared."""
-    from fastapi import HTTPException
-
-    monkeypatch.delenv("IRONWRIGHT_DEV_OPEN", raising=False)
-    with pytest.raises(HTTPException) as e:
-        routes.current_org()
-    assert e.value.status_code == 503
+def test_dev_mode_stores_under_the_dev_org(client, root):
+    made = post(client, ("a.csv", CSV)).json()
+    assert (root / "tenants" / DEV_ORG_ID / "uploads" / made["id"] / "a.csv").exists()
 
 
-def test_dev_mode_maps_to_the_dev_org():
-    assert routes.current_org() == uploads.DEV_ORG
+# ------------------------------------------------- real sessions, two orgs
+
+
+def bearer(session):
+    return {"Authorization": f"Bearer {session['token']}"}
+
+
+def signup(c, slug):
+    r = c.post("/auth/signup", json={"email": f"owner@{slug}.example", "password": "correct-horse-9",
+                                     "org_name": f"Org {slug}"})
+    assert r.status_code < 300, r.text
+    return r.json()
+
+
+def join(c, owner, role):
+    invite = c.post(f"/orgs/{owner['org_slug']}/invites", headers=bearer(owner),
+                    json={"email": f"{role}@a.example", "role": role})
+    assert invite.status_code < 300, invite.text
+    r = c.post("/auth/accept-invite", json={"token": invite.json()["token"], "password": "correct-horse-9"})
+    assert r.status_code < 300, r.text
+    return r.json()
+
+
+def send(c, session, name="a.csv", body=CSV):
+    return c.post("/uploads", headers=bearer(session), files=[("files", (name, body))])
+
+
+@pytest.fixture()
+def two_orgs(meta_db):
+    with TestClient(platform_api.create_platform_app()) as c:
+        yield c, signup(c, "alpha"), signup(c, "beta")
+
+
+def tenant_uploads(session):
+    return data_root() / "tenants" / session["org_id"] / "uploads"
+
+
+def test_an_upload_lands_under_the_callers_own_org(two_orgs):
+    c, a, b = two_orgs
+    made = send(c, a)
+    assert made.status_code == 201, made.text
+    upload_id = made.json()["id"]
+    assert (tenant_uploads(a) / upload_id / "a.csv").read_bytes() == CSV
+    assert not tenant_uploads(b).exists()
+    assert not (data_root() / "tenants" / DEV_ORG_ID).exists()
+
+
+def test_the_owner_reads_back_what_it_uploaded(two_orgs):
+    c, a, _ = two_orgs
+    upload_id = send(c, a).json()["id"]
+    profiler.profile(a["org_id"], upload_id, lambda *_: None)
+    for suffix in ("", "/profile", "/proposal"):
+        assert c.get(f"/uploads/{upload_id}{suffix}", headers=bearer(a)).status_code == 200, suffix
+
+
+@pytest.mark.parametrize("suffix", ["", "/profile", "/proposal"])
+def test_another_org_gets_the_same_answer_as_for_nothing(two_orgs, suffix):
+    c, a, b = two_orgs
+    upload_id = send(c, a).json()["id"]
+    profiler.profile(a["org_id"], upload_id, lambda *_: None)
+    theirs = c.get(f"/uploads/{upload_id}{suffix}", headers=bearer(b))
+    nothing = c.get(f"/uploads/{'a' * 32}{suffix}", headers=bearer(b))
+    assert theirs.status_code == 404
+    assert theirs.json() == {"detail": platform_api.NOT_FOUND}
+    assert theirs.content == nothing.content
+
+
+def test_the_same_id_in_two_orgs_stays_two_uploads(two_orgs):
+    """The id is only half the address. The org comes from the session."""
+    c, a, b = two_orgs
+    first, second = send(c, a).json()["id"], send(c, b, body=b"other,bytes\n1,2\n").json()["id"]
+    assert first != second
+    assert not (tenant_uploads(b) / first).exists()
+    assert not (tenant_uploads(a) / second).exists()
+
+
+def test_a_viewer_cannot_upload(two_orgs):
+    c, a, _ = two_orgs
+    viewer = join(c, a, "viewer")
+    assert send(c, viewer).status_code == 403
+    assert not tenant_uploads(a).exists()
+
+
+def test_a_viewer_can_read_what_the_org_uploaded(two_orgs):
+    c, a, _ = two_orgs
+    upload_id = send(c, a).json()["id"]
+    assert c.get(f"/uploads/{upload_id}", headers=bearer(join(c, a, "viewer"))).status_code == 200
+
+
+def test_a_member_can_upload(two_orgs):
+    c, a, _ = two_orgs
+    made = send(c, join(c, a, "member"))
+    assert made.status_code == 201, made.text
+    assert (tenant_uploads(a) / made.json()["id"] / "a.csv").exists()
+
+
+def test_a_session_for_one_org_cannot_be_steered_to_another(two_orgs):
+    """Nothing in the request names an org, so X-Principal and friends change nothing."""
+    c, a, b = two_orgs
+    made = c.post("/uploads", files=[("files", ("a.csv", CSV))],
+                  headers={**bearer(a), "X-Principal": f"user:{b['user_id']}", "X-Org": b["org_id"]})
+    assert (tenant_uploads(a) / made.json()["id"]).exists()
+    assert not tenant_uploads(b).exists()
 
 
 # ------------------------------------------------- behind the serving posture

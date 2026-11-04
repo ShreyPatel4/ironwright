@@ -726,17 +726,20 @@ def test_a_malformed_upload_id_is_refused_by_the_handler(stored):
 def test_the_profile_is_served_once_it_exists(stored):
     from fastapi.testclient import TestClient
 
-    from ironwright import platform_api
-    from ironwright.ingest import routes
+    from ironwright import auth, platform_api
+    from ironwright.tenancy import Ctx
+
+    def as_org(org_id):
+        return lambda: Ctx(org_id=org_id, org_slug=org_id, user_id="u", role="owner", principal="user:u")
 
     upload_id, _ = stored
     client = TestClient(platform_api.create_platform_app())
-    client.app.dependency_overrides[routes.current_org] = lambda: "org-a"
+    client.app.dependency_overrides[auth.ctx] = as_org("org-a")
     assert client.get(f"/uploads/{upload_id}/profile").status_code == 404
     assert client.get(f"/uploads/{upload_id}/proposal").status_code == 404
     profile("org-a", upload_id, lambda _: None)
     assert client.get(f"/uploads/{upload_id}/profile").json()["upload_id"] == upload_id
     body = client.get(f"/uploads/{upload_id}/proposal").json()
     validate_contract3(body["workspace"])
-    client.app.dependency_overrides[routes.current_org] = lambda: "org-b"
+    client.app.dependency_overrides[auth.ctx] = as_org("org-b")
     assert client.get(f"/uploads/{upload_id}/profile").status_code == 404

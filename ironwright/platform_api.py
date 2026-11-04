@@ -152,6 +152,7 @@ WRITE_ROLES = {
     "/workspaces/{name}/training/evaluate": "member",
     "/jobs": "member",
     "/jobs/{job_id}/cancel": "member",
+    "/uploads": "member",
     "/workspaces": "admin",
     "/workspaces/{name}": "admin",
     "/workspaces/{name}/approvals/{seq}/decide": "admin",

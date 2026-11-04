@@ -36,9 +36,6 @@ from ..config import (
 )
 from ..connectors import _MAX_FILE_BYTES, _MAX_FILES
 
-# Until T1 lands, every session maps to this one org. See routes.current_org.
-DEV_ORG = "dev-org"
-
 ALLOWED_SUFFIXES = {".csv", ".txt", ".dat", ".tsv"}
 UPLOAD_ID = re.compile(r"[0-9a-f]{32}")
 MANIFEST = "manifest.json"
