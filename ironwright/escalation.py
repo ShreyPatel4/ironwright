@@ -25,9 +25,9 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -52,7 +52,7 @@ def _valid_date(value: str) -> bool:
     if not _DATE.fullmatch(value):
         return False
     try:
-        datetime.strptime(value, "%Y-%m-%d")
+        date.fromisoformat(value)
         return True
     except ValueError:
         return False
@@ -203,10 +203,11 @@ def _audit(name: str, actor: str, action: str, status: str,
 
 
 router = APIRouter()
+CtxDep = Annotated[Ctx, Depends(auth.ctx)]
 
 
 @router.post("/workspaces/{name}/escalations", status_code=201)
-def escalate(name: str, body: EscalateBody, c: Ctx = Depends(auth.ctx)) -> dict[str, Any]:
+def escalate(name: str, body: EscalateBody, c: CtxDep) -> dict[str, Any]:
     kind, path = _workspace(name)
     principal = orgpolicy.acting_as(c, body.principal)
     for value, pattern, what in ((principal, _PRINCIPAL, "principal"),
@@ -241,7 +242,7 @@ def escalations(name: str) -> list[dict[str, Any]]:
 
 
 @router.post("/workspaces/{name}/escalations/{esc_id}/decide")
-def decide(name: str, esc_id: str, body: EscalationDecideBody, c: Ctx = Depends(auth.ctx)) -> dict[str, Any]:
+def decide(name: str, esc_id: str, body: EscalationDecideBody, c: CtxDep) -> dict[str, Any]:
     kind, path = _workspace(name)
     rec = _records(path).get(esc_id)
     if rec is None:

@@ -1,9 +1,7 @@
 """The hosted, multi-tenant security pass. docs/threat-model.md links here.
 
 Everything that needs a session runs with the door closed and through harden(),
-because that is how the hosted app serves. The upload tests against T3's real
-route skip until ironwright.ingest is on the branch. The stub route tests always
-run, so the BodyCap rule is proved either way.
+because that is how the hosted app serves.
 """
 from __future__ import annotations
 
@@ -187,7 +185,6 @@ def test_nothing_else_escapes_the_body_cap(stub_upload, method, path):
 
 @pytest.fixture()
 def real_upload(hosted, monkeypatch):
-    pytest.importorskip("ironwright.ingest", reason="T3 is not on this branch yet")
     monkeypatch.setenv("IRONWRIGHT_L1_MAX_FILE_BYTES", str(3 * MIB))
     return hosted
 
@@ -283,7 +280,7 @@ def test_orgpolicy_apply_is_approved_by_the_session(org_ws):
 
 
 def test_identity_fields_may_be_left_out_of_the_body(org_ws):
-    c, ws, org, owner, member = org_ws
+    c, ws, _, owner, member = org_ws
     action = orgpolicy.action_catalog(orgpolicy.read_org(ws))[0]
     r = c.post(f"/workspaces/{ws}/escalations", headers=bearer(member["token"]),
                json={"action": action, "object_id": "ITM-1", "denying_rule": "default-deny"})

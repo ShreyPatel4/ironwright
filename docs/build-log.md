@@ -255,6 +255,21 @@ run straight on the store, so it never met the runs limit. Nothing in my suite c
 out. Out of runs, accept refuses before it writes. The lesson: grep for `LLM(` and `.enqueue(` on every
 rebase, because a limit only holds at the doors it knows about.
 
+## 16. A settings table that named my home directory
+
+**Symptom.** The new security tests went red in two places I had assumed were fine. Any tenant could
+run `select * from duckdb_settings()` on the locked connection and read `secret_directory`, which
+holds the server's home path. And `orgpolicy.read_org("..")` read an `org.json` above the data root.
+
+**Cause.** Locking DuckDB's configuration stops a query changing a setting. It does not stop a query
+reading one, and I had blanked only the temp directory. The traversal was hidden by the app gate,
+which refuses `..` first, so nothing tested the module on its own. The escalation shape checks had a
+smaller miss: `$` with `re.match` lets a trailing newline through.
+
+**Fix.** `apply_limits` blanks every directory setting, both modules go through `safe_child`, and the
+shape checks use `fullmatch`. Lesson: "locked" and "hidden" are different promises, and a gate in
+front of a module is not a test of the module.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.

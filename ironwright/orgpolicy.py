@@ -34,7 +34,7 @@ import json
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import yaml
 from fastapi import APIRouter, Depends, HTTPException
@@ -293,6 +293,7 @@ class ApplyBody(BaseModel):
 
 
 router = APIRouter()
+CtxDep = Annotated[Ctx, Depends(auth.ctx)]
 
 
 def acting_as(c: Ctx, claimed: str = "") -> str:
@@ -324,7 +325,7 @@ def orgpolicy_preview(name: str) -> dict[str, Any]:
 
 
 @router.post("/workspaces/{name}/orgpolicy/apply")
-def orgpolicy_apply(name: str, body: ApplyBody, c: Ctx = Depends(auth.ctx)) -> dict[str, Any]:
+def orgpolicy_apply(name: str, body: ApplyBody, c: CtxDep) -> dict[str, Any]:
     org = _org_or_404(name)
     try:
         rules = generate(org)["rules"]
