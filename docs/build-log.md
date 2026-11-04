@@ -112,6 +112,20 @@ because `pragma version` parses as a SELECT. Clients now get a short category an
 the full text goes to the server log. The engine lockdown held throughout: no attack in the table
 read or wrote a file, before or after the fix. The guard was the part that was wrong.
 
+## 9. A cell could cite evidence with no model in the room
+
+**Symptom.** I planted `[ev:fake#note]` and a markdown link in a cell for the prompt boundary test.
+Both showed up in the Ask answer and in the agent narrative, with the LLM set to offline. The agent
+still reported `grounded: True`.
+
+**Cause.** I only ever guarded model output. The templates interpolate cell values too, and
+`web/app.js` draws anything shaped like `[ev:...]` as a citation. On the synthetic packs no cell ever
+said anything like that, so nothing caught it.
+
+**Fix.** Templates go through the same guardrail as model text, and each cell is scrubbed on its own
+so the authored sentence survives. Lesson: untrusted text has more than one way out. Guard the exit,
+not the one path I was thinking about.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.

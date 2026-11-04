@@ -17,7 +17,6 @@ would be exposed through AgentCore Gateway as MCP tools with Cedar policies.
 """
 from __future__ import annotations
 
-import json
 import re
 import sqlite3
 import time
@@ -28,10 +27,11 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from ..expr import evaluate
-from ..llm import LLM
+from ..llm import LLM, boundary_rule, fence_record, new_nonce, untrusted
 from ..ontology.runtime import Ontology
 from ..packs import Pack
 from ..tracing import Tracer
+from .guardrail import scrub_value, settle
 
 
 class AgentState(TypedDict, total=False):
@@ -57,13 +57,37 @@ def _fmt(template: str, env: dict[str, Any]) -> str:
             return m.group(0)
         if isinstance(v, float):
             return f"{v:,.2f}".rstrip("0").rstrip(".")
-        return str(v)
+        return scrub_value(v)
     return re.sub(r"\{([^{}]+)\}", rep, template)
 
 
 def _slim(ev: dict[str, Any]) -> dict[str, Any]:
     return {"id": ev["id"], "function": ev["function"], "summary": ev["summary"],
             "rows": ev["rows"][:12], "row_count": len(ev["rows"])}
+
+
+def check_action_is_rule_derived(uc: dict[str, Any], spec: dict[str, Any]) -> None:
+    """Model output cannot pick an action: the only action that may run is one
+    written in a diagnosis rule of the pack. Not an assert statement, so that
+    python -O cannot strip it."""
+    if not any(spec == r.get("action") for r in uc["diagnoses"]):
+        raise AssertionError(f"action {spec.get('name')} did not come from a diagnosis rule")
+
+
+def _narration_prompt(uc: dict[str, Any], s: AgentState, audience: str, nonce: str) -> str:
+    """Pack-authored text stays bare. Everything else is data and gets fenced,
+    including the explain line, which interpolates cell values."""
+    d = s["diagnosis"]
+    objects = "\n".join(f"{name}:\n{fence_record(o, 'object', nonce)}" for name, o in s["objects"].items())
+    evidence = []
+    for name, v in s["evidence"].items():
+        rows = "\n".join(fence_record(r, "cell", nonce) for r in v["rows"][:5])
+        evidence.append(f"{name}, cite as [ev:{v['id']}], {v['row_count']} rows:\n{rows}")
+    joined = "\n".join(evidence)
+    return (f"Decision: {uc['decision']}\nObjects:\n{objects}\nEvidence:\n{joined}\n"
+            f"Diagnosis: {d['label']} ({untrusted(d['explain'], 'explain', nonce, cap=1500)})\n"
+            f"Write 3 to 5 plain sentences for {audience}. Cite every fact with "
+            f"its [ev:ID]. Do not invent numbers.")
 
 
 def build_graph(pack: Pack, usecase: str, ont: Ontology, llm: LLM, tracer: Tracer):
@@ -126,25 +150,21 @@ def build_graph(pack: Pack, usecase: str, ont: Ontology, llm: LLM, tracer: Trace
         cites = d["cite"]
         template = f"{d['explain']} " + " ".join(f"[ev:{c}]" for c in cites)
         nar = uc.get("narrative", {})
-        if llm.offline:
-            return {"narrative": template.strip(), "grounded": True}
-        facts = json.dumps({k: {"id": v["id"], "summary": v["summary"], "sample_rows": v["rows"][:5]}
-                            for k, v in s["evidence"].items()}, default=str)[:6000]
-        prompt = (f"Decision: {uc['decision']}\nObjects: {json.dumps(s['objects'], default=str)[:1500]}\n"
-                  f"Evidence (cite as [ev:ID]): {facts}\nDiagnosis: {d['label']} ({d['explain']})\n"
-                  f"Write 3 to 5 plain sentences for {nar.get('audience', 'the reviewer')}. Cite every fact with "
-                  f"its [ev:ID]. Do not invent numbers.")
-        with tracer.span("llm.call", model=llm.model, provider=llm.provider) as sp:
-            res = llm.complete(nar.get("system", "You are a careful operations analyst."), prompt)
-            sp.set(tokens_in=res.tokens_in, tokens_out=res.tokens_out, latency_ms=res.latency_ms)
-        text = res.text or ""
-        cited = set(re.findall(r"\[ev:([^\]]+)\]", text))
         known = {v["id"] for v in s["evidence"].values()}
-        grounded = bool(text) and set(cites) <= cited and cited <= known
-        if not grounded:
-            Tracer.current().event("guardrail.rewrite", reason="missing or unknown citations")
-            return {"narrative": template.strip(), "grounded": False}
-        return {"narrative": text.strip(), "grounded": True}
+        if llm.offline:
+            text, grounded, _, _ = settle(None, template, known, cites)
+            return {"narrative": text, "grounded": grounded}
+        nonce = new_nonce()
+        prompt = _narration_prompt(uc, s, nar.get("audience", "the reviewer"), nonce)
+        system = f"{nar.get('system', 'You are a careful operations analyst.')}\n{boundary_rule(nonce)}"
+        with tracer.span("llm.call", model=llm.model, provider=llm.provider) as sp:
+            res = llm.complete(system, prompt)
+            sp.set(tokens_in=res.tokens_in, tokens_out=res.tokens_out, latency_ms=res.latency_ms)
+        text, grounded, reasons, _ = settle(res.text or "", template, known, cites)
+        if reasons:
+            Tracer.current().event("guardrail.rewrite" if not grounded else "guardrail.scrub",
+                                   reason=", ".join(reasons))
+        return {"narrative": text, "grounded": grounded}
 
     def _args(s: AgentState, spec: dict[str, Any]) -> dict[str, Any]:
         env = _env(s)
@@ -155,6 +175,7 @@ def build_graph(pack: Pack, usecase: str, ont: Ontology, llm: LLM, tracer: Trace
         spec = s["diagnosis"].get("action")
         if not spec:
             return {"proposal": {"status": "no_action"}}
+        check_action_is_rule_derived(uc, spec)
         attempts = []
         for cand in [spec] + ([spec["fallback"]] if spec.get("fallback") else []):
             args = _args(s, cand)

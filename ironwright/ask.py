@@ -10,10 +10,11 @@ The contract, which is the whole product here:
   every required parameter resolves to a real object named in the question.
   Anything else is a refusal with a named reason. A refusal is a feature;
   a confident wrong answer is the failure this surface cannot have.
-- With a model configured, the model may pick the function and arguments,
-  but only from the same registry, validated the same way. The model never
-  composes the answer's facts; it may only narrate them. (Model routing
-  lands behind the same validation; offline is the reference behavior.)
+- The route is always the deterministic one. A model, only when a caller hands
+  one in, runs after the call has happened and receives strings, so it cannot
+  pick the function or an argument. It may only narrate, inside the fences in
+  llm.py, and the guardrail in agents/guardrail.py has the last word. The offline
+  template passes that same guardrail, because it interpolates cell values too.
 - Every answer carries its calls (function, args, result digest) and lands
   in an append-only ask log, so any answer can be REPLAYED: run the same
   calls again and compare digests.
@@ -26,9 +27,12 @@ import re
 import time
 from typing import Any
 
+from .agents.guardrail import scrub_value, settle
+from .llm import LLM, boundary_rule, fence_record, new_nonce, sanitize, untrusted
 from .ontology.runtime import Ontology
 from .packs import Pack
 
+QUESTION_CAP = 500
 _WORD = re.compile(r"[a-z0-9_-]+")
 _TOKEN = re.compile(r"[A-Za-z0-9_-]+")  # case-preserving, for id resolution
 _STOP = {"the", "a", "an", "for", "in", "on", "of", "and", "or", "to", "is",
@@ -104,22 +108,38 @@ def route_offline(question: str, pack: Pack, ont: Ontology) -> dict[str, Any]:
 
 def _narrate_offline(description: str, args: dict[str, Any], result: Any) -> str:
     lines = [f"{description} For {json.dumps(args)}:"]
-    rows = result if isinstance(result, list) else [result]
+    rows = result["rows"]
     for row in rows[:5]:
-        if isinstance(row, dict):
-            lines.append("  " + ", ".join(f"{k}={row[k]}" for k in row))
-        else:
-            lines.append(f"  {row}")
-    if isinstance(result, list) and len(result) > 5:
-        lines.append(f"  … and {len(result) - 5} more rows")
+        lines.append("  " + ", ".join(f"{scrub_value(k)}={scrub_value(row[k])}" for k in row))
+    if len(rows) > 5:
+        lines.append(f"  ... and {len(rows) - 5} more rows")
     return "\n".join(lines)
 
 
-def ask(pack: Pack, ont: Ontology, question: str,
-        principal: str = "user:console") -> dict[str, Any]:
-    route = route_offline(question, pack, ont)
-    entry: dict[str, Any] = {"ts": round(time.time(), 3), "question": question,
+def _narration_prompt(question: str, description: str, args: dict[str, Any],
+                      result: dict[str, Any], nonce: str) -> str:
+    rows = "\n".join(fence_record(r, "cell", nonce) for r in result["rows"][:5])
+    return (f"Question: {untrusted(question, 'question', nonce, cap=QUESTION_CAP)}\n"
+            f"Function: {result['function']}: {description}\n"
+            f"Arguments:\n{fence_record(args, 'argument', nonce)}\n"
+            f"Result, cite as [ev:{result['id']}], {len(result['rows'])} rows:\n{rows}\n"
+            "Answer the question in 1 to 3 plain sentences from this result only. "
+            "Cite every fact with its [ev:ID]. Do not invent numbers.")
+
+
+def ask(pack: Pack, ont: Ontology, question: str, principal: str = "user:console",
+        llm: LLM | None = None) -> dict[str, Any]:
+    """llm is opt-in. Configuring a provider for the agents does not start
+    sending a user's cells to it from here; a caller has to hand one in."""
+    question = sanitize(question)
+    entry: dict[str, Any] = {"ts": round(time.time(), 3), "question": question[:QUESTION_CAP],
                              "principal": principal}
+    if len(question) > QUESTION_CAP:
+        entry.update(status="refused", reason_code="question_too_long",
+                     reason=f"The question is over {QUESTION_CAP} characters. Ask for one thing, by id.")
+        _log(pack, entry)
+        return entry
+    route = route_offline(question, pack, ont)
     if route["status"] == "refused":
         entry.update(status="refused", reason_code=route["reason_code"],
                      reason=route["reason"])
@@ -132,11 +152,25 @@ def ask(pack: Pack, ont: Ontology, question: str,
         _log(pack, entry)
         return entry
     call = {"call_id": "c1", "function": route["function"], "args": route["args"],
-            "result_digest": _digest(result)}
-    entry.update(status="answered",
-                 answer=_narrate_offline(route["description"], route["args"], result),
-                 narrator="offline-template",
+            "evidence_id": result["id"], "result_digest": _digest(result)}
+    template = f"{_narrate_offline(route['description'], route['args'], result)}\n[ev:{result['id']}]"
+    known = {result["id"]}
+    answer, _, reasons, cited = settle(None, template, known)
+    narrator = "offline-template"
+    if llm is not None and not llm.offline:
+        frozen = _digest(call)
+        nonce = new_nonce()
+        res = llm.complete(f"You narrate one governed answer.\n{boundary_rule(nonce)}",
+                           _narration_prompt(question, route["description"], route["args"], result, nonce))
+        if res.text:
+            answer, grounded, reasons, cited = settle(res.text, template, known, known)
+            narrator = res.model if grounded else narrator
+        if _digest(call) != frozen:  # not an assert statement: python -O must not strip it
+            raise AssertionError("the governed call changed during narration")
+    entry.update(status="answered", answer=answer, narrator=narrator, citations=cited,
                  calls=[call], result=result)
+    if reasons:
+        entry["guardrail"] = reasons
     _log(pack, {k: v for k, v in entry.items() if k != "result"})
     return entry
 
