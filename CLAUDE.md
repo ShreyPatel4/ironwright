@@ -52,11 +52,10 @@ Set `IRONWRIGHT_DATA` to keep generated data out of the repo (the Makefile does 
 - **Default deny.** New actions need an explicit permit in the pack's `policies.yaml`.
 - **Packs are data, the engine is generic.** Industry logic goes in `ironwright/packs/<pack>/`, never
   in engine modules.
-- **Synthetic demos; local-first real data.** The DEMOS are synthetic and the platform never
-  uploads anything anywhere. A user may point their LOCAL instance at their own files (an L1
-  workspace); those bytes stay on their machine, never reach a hosted service of ours, and are
-  treated as untrusted at every prompt boundary. Hosted multi-tenant ingestion of real data
-  remains out of scope. See the security section of `docs/ROADMAP.md`.
+- **Synthetic demos; tenant data is untrusted and isolated.** The DEMOS stay synthetic. As of
+  2026-11-04 Ironwright is a hosted multi-tenant product (see `docs/saas-mvp.md`, which is the
+  contract for that work). Tenant bytes are untrusted at every prompt boundary, never leave
+  their org's storage prefix, and cross-tenant isolation is proved by tests on every route.
 
 ## Writing style for docs and UI copy
 
