@@ -16,7 +16,7 @@ import pathlib
 import time
 from typing import Any, Iterator
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -45,7 +45,6 @@ from .ontology.runtime import Ontology
 from .packs import list_packs, load_pack
 from .tracing import Tracer
 
-CONSOLE_PRINCIPAL = "user:console"
 _SELECT_ONLY = re.compile(r"^\s*(select|with)\b", re.IGNORECASE)
 
 STAGE_ORDER = ["generate", "migrate", "reconcile", "ontology", "agents", "evals", "export"]
@@ -167,8 +166,12 @@ def _pending_approvals(ont: Ontology) -> list[dict[str, Any]]:
 
 
 def create_platform_app() -> FastAPI:
+    # Generated docs would be public routes outside the gate, so they stay off.
     app = FastAPI(title="ironwright platform",
-                  description="One spine over every workspace: runs, approvals, audit, verification.")
+                  description="One spine over every workspace: runs, approvals, audit, verification.",
+                  dependencies=[Depends(auth_mod.require_session)],
+                  docs_url=None, redoc_url=None, openapi_url=None)
+    app.add_middleware(auth_mod.BindPrincipalHeader)
 
     @app.get("/workspaces")
     def workspaces() -> list[dict[str, Any]]:
@@ -268,9 +271,9 @@ def create_platform_app() -> FastAPI:
 
     @app.get("/auth/status")
     def auth_status() -> dict[str, Any]:
-        return {"seeded": auth_mod.seeded(),
-                "note": "Invite gate on the console door; the API stays locally open until "
-                        "the hosted build. Seed accounts with: ironwright auth-set <email>"}
+        return {"seeded": auth_mod.seeded(), "dev_open": auth_mod.dev_open(),
+                "note": "Every API route needs a session from an invited account. "
+                        "Seed accounts with: ironwright auth-set <email>"}
 
     @app.post("/auth/login")
     def auth_login(body: LoginBody) -> dict[str, Any]:
@@ -280,15 +283,15 @@ def create_platform_app() -> FastAPI:
         return {"token": token, **(auth_mod.me(token) or {})}
 
     @app.get("/auth/me")
-    def auth_me(x_session: str = Header("")) -> dict[str, Any]:
-        info = auth_mod.me(x_session)
+    def auth_me(request: Request) -> dict[str, Any]:
+        info = auth_mod.me(auth_mod.bearer_token(request.headers))
         if not info:
             raise HTTPException(401, "no session")
         return info
 
     @app.post("/auth/logout")
-    def auth_logout(x_session: str = Header("")) -> dict[str, Any]:
-        auth_mod.logout(x_session)
+    def auth_logout(request: Request) -> dict[str, Any]:
+        auth_mod.logout(auth_mod.bearer_token(request.headers))
         return {"ok": True}
 
     @app.get("/platform/map")
@@ -348,9 +351,11 @@ def create_platform_app() -> FastAPI:
             return {"status": result.get("status"), "seq": seq, "result": result}
 
     @app.post("/workspaces/{name}/actions/{action}")
-    def act(name: str, action: str, body: ActionBody) -> dict[str, Any]:
+    def act(name: str, action: str, body: ActionBody,
+            principal: str = Depends(auth_mod.current_principal)) -> dict[str, Any]:
+        actor = body.actor if auth_mod.dev_open() else principal
         with _ontology(_pack(name)) as ont:
-            return ont.act(action, body.params, actor=body.actor,
+            return ont.act(action, body.params, actor=actor,
                            on_behalf_of=body.on_behalf_of,
                            idempotency_key=body.idempotency_key)
 
@@ -375,16 +380,16 @@ def create_platform_app() -> FastAPI:
 
     @app.get("/workspaces/{name}/objects/{type_}")
     def objects(name: str, type_: str, limit: int = 50, offset: int = 0,
-                x_principal: str = Header(CONSOLE_PRINCIPAL)) -> list[dict[str, Any]]:
+                principal: str = Depends(auth_mod.current_principal)) -> list[dict[str, Any]]:
         with _ontology(_pack(name)) as ont:
-            return [ont.masked({**o, "_type": type_}, x_principal)
+            return [ont.masked({**o, "_type": type_}, principal)
                     for o in ont.store.list(type_, limit, offset)]
 
     @app.get("/workspaces/{name}/objects/{type_}/{id_}")
     def obj(name: str, type_: str, id_: str,
-            x_principal: str = Header(CONSOLE_PRINCIPAL)) -> dict[str, Any]:
+            principal: str = Depends(auth_mod.current_principal)) -> dict[str, Any]:
         with _ontology(_pack(name)) as ont:
-            o = ont.masked(ont.store.get(type_, id_), x_principal)
+            o = ont.masked(ont.store.get(type_, id_), principal)
             if not o:
                 raise HTTPException(404, f"no {type_} {id_}")
             xw = ont.store.con.execute(
@@ -396,13 +401,13 @@ def create_platform_app() -> FastAPI:
 
     @app.get("/workspaces/{name}/objects/{type_}/{id_}/dashboard")
     def object_dashboard(name: str, type_: str, id_: str,
-                         x_principal: str = Header(CONSOLE_PRINCIPAL)) -> dict[str, Any]:
+                         principal: str = Depends(auth_mod.current_principal)) -> dict[str, Any]:
         """Sketch 02: the governed object page. Props, identity, history,
         the audit trail touching this object, pending approvals on it, and
         per-action permits from the real policy engine for the caller."""
         pack = _pack(name)
         with _ontology(pack) as ont:
-            o = ont.masked(ont.store.get(type_, id_), x_principal)
+            o = ont.masked(ont.store.get(type_, id_), principal)
             if not o:
                 raise HTTPException(404, f"no {type_} {id_}")
             xw = ont.store.con.execute(
@@ -436,15 +441,15 @@ def create_platform_app() -> FastAPI:
             allowed = []
             for action, adef in (pack.ontology.get("actions", {}) or {}).items():
                 pname = escalation_mod._object_param(name, "pack", action)
-                env = {"params": {pname: id_}, "principal": x_principal, "now": now}
-                d = engine.authorize(x_principal, f"action:{action}", env)
+                env = {"params": {pname: id_}, "principal": principal, "now": now}
+                d = engine.authorize(principal, f"action:{action}", env)
                 allowed.append({"action": action, "allowed": d.allowed, "reason": d.reason,
                                 "requires_approval": bool(adef.get("requires_approval"))})
             return {**o, "_crosswalk": [dict(zip(("system", "source_key", "method", "confidence"), r)) for r in xw],
                     "_neighbors": ont.store.neighbors(id_),
                     "_history": [dict(zip(("version", "changed_by", "action_run", "ts"), r)) for r in hist],
                     "_trail": trail, "_pending": pending, "_allowed_actions": allowed,
-                    "_as": x_principal}
+                    "_as": principal}
 
     @app.get("/workspaces/{name}/lake/tables")
     def lake_tables(name: str) -> list[dict[str, Any]]:
@@ -486,10 +491,10 @@ def create_platform_app() -> FastAPI:
 
     @app.post("/workspaces/{name}/ask")
     def ask(name: str, body: AskBody,
-            x_principal: str = Header(CONSOLE_PRINCIPAL)) -> dict[str, Any]:
+            principal: str = Depends(auth_mod.current_principal)) -> dict[str, Any]:
         pack = _pack(name)
         with _ontology(pack) as ont:
-            entry = ask_mod.ask(pack, ont, body.question, principal=x_principal)
+            entry = ask_mod.ask(pack, ont, body.question, principal=principal)
             entry["verification"] = verification.derive(pack)
             return entry
 
@@ -527,9 +532,8 @@ def create_platform_app() -> FastAPI:
                 "actions": actions,
                 "note": "Default deny. Serving decisions combine the hand-written rules "
                         "with applied generated policy and unexpired escalation grants; "
-                        "hand-written wins a conflict. The X-Principal header is an "
-                        "identity claim, not authentication; policy is a correctness "
-                        "control on this local build."}
+                        "hand-written wins a conflict. Your session sets who you act as; "
+                        "policy is a correctness control on this local build."}
 
     @app.post("/workspaces/{name}/governance/check")
     def governance_check(name: str, body: PolicyCheckBody) -> dict[str, Any]:
@@ -548,8 +552,11 @@ def create_platform_app() -> FastAPI:
             from_audit = sorted({r[0] for r in ont.store.con.execute(
                 "select distinct actor from audit_log").fetchall()})
         return {"policy_principals": from_rules, "seen_in_audit": from_audit,
-                "note": "Principals are policy identities, not users. This build has no "
-                        "authentication; you choose who you act as and the audit log records it."}
+                "note": "Principals are policy identities, not users. Dev open mode has no "
+                        "authentication; you choose who you act as and the audit log records it."
+                        if auth_mod.dev_open() else
+                        "Principals are policy identities. Your session sets who you act as, "
+                        "and the audit log records it."}
 
     @app.get("/workspaces/{name}/agents")
     def agents(name: str) -> dict[str, Any]:
@@ -581,10 +588,10 @@ def create_platform_app() -> FastAPI:
 
     @app.get("/workspaces/{name}/ask/examples")
     def ask_examples(name: str,
-                     x_principal: str = Header(CONSOLE_PRINCIPAL)) -> list[dict[str, Any]]:
+                     principal: str = Depends(auth_mod.current_principal)) -> list[dict[str, Any]]:
         pack = _pack(name)
         with _ontology(pack) as ont:
-            return ask_mod.examples(pack, ont, principal=x_principal)
+            return ask_mod.examples(pack, ont, principal=principal)
 
     @app.get("/workspaces/{name}/ask/log")
     def ask_log(name: str) -> list[dict[str, Any]]:
