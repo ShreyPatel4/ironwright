@@ -1004,3 +1004,21 @@ def _draft_after_profile(c, a, upload_id: str) -> dict:
     got = c.get(f"/uploads/{upload_id}/proposal", headers=bearer(a))
     assert got.status_code == 200, got.text
     return got.json()["workspace"]
+
+
+@pytest.mark.xfail(strict=True, reason="platform_api._pack only loads demo packs, so POST /workspaces/{name}/ask 404s "
+                                       "on a tenant workspace. That file is outside this ticket: see the PR's cross-ticket asks.")
+def test_ask_over_http_answers_on_a_tenant_workspace(meta_db):
+    with TestClient(create_platform_app()) as c:
+        a = signup(c, "alpha")
+        org = a["org_id"]
+        make_workspace(org)
+        prop.accept(org, SLUG, prop.store_proposal(pack(org))["id"], [], a["principal"])
+        assert wt.run_workspace(org, SLUG)["passed"] is True
+        ready = prop.askable(pack(org))
+        ont = Ontology(ready, attach_lake=False)
+        question = ask_mod.examples(ready, ont, principal=a["principal"])[0]["question"]
+        ont.store.con.close()
+        r = c.post(f"/workspaces/{SLUG}/ask", headers=bearer(a), json={"question": question})
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "answered", r.text
