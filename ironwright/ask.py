@@ -205,9 +205,7 @@ def examples(pack: Pack, ont: Ontology, limit: int = 3,
     ids, so a new user's first click answers instead of refusing. Only
     functions the asking principal is permitted are offered; the policy
     engine rules here exactly as it does on the call itself."""
-    from .policy import PolicyEngine
-
-    engine = PolicyEngine(pack.policies)
+    engine = ont.policy
     out = []
     for fn in registry(pack):
         if len(out) >= limit:

@@ -1006,8 +1006,6 @@ def _draft_after_profile(c, a, upload_id: str) -> dict:
     return got.json()["workspace"]
 
 
-@pytest.mark.xfail(strict=True, reason="platform_api._pack only loads demo packs, so POST /workspaces/{name}/ask 404s "
-                                       "on a tenant workspace. That file is outside this ticket: see the PR's cross-ticket asks.")
 def test_ask_over_http_answers_on_a_tenant_workspace(meta_db):
     with TestClient(create_platform_app()) as c:
         a = signup(c, "alpha")

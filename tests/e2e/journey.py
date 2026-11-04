@@ -37,10 +37,7 @@ NOT_FOUND = "no such resource"
 ISOLATION_ROUTES: list[tuple[str, str]] = [tuple(r) for r in json.loads((HERE / "isolation_routes.json").read_text())]
 MIN_ISOLATION_ROUTES = 50
 
-# What each one waits on: a profile job needs POST /jobs to take a workspace that does not exist
-# yet. Accepting needs a route that calls create_workspace, and GET /workspaces has to list the
-# result. Ask needs _pack() to resolve a tenant workspace.
-BLOCKED: dict[str, str] = dict.fromkeys(["profile_job", "accept_proposal", "ask"], "X1: journey routes")
+BLOCKED: dict[str, str] = {}
 
 
 @dataclass
@@ -131,8 +128,8 @@ def upload(stack: Stack, state: State) -> None:
 
 
 def profile_job(stack: Stack, state: State) -> None:
-    _wait_job(stack, state, _job(stack, state, "profile", state.workspace, {"upload_id": state.upload_id}, "profile_job"),
-              "profile_job")
+    job_id = expect(stack, "POST", f"/uploads/{state.upload_id}/profile", 202, "profile_job", token=state.a_token)["id"]
+    _wait_job(stack, state, job_id, "profile_job")
     got = expect(stack, "GET", f"/uploads/{state.upload_id}/proposal", 200, "profile_job", token=state.a_token)
     state.proposal = got["workspace"]
     if len(state.proposal["sources"]) != 2:
@@ -146,10 +143,8 @@ def workspace_is_listed(stack: Stack, state: State) -> None:
 
 
 def accept_proposal(stack: Stack, state: State) -> None:
-    """The route is my ask, not a contract: nothing makes a contract 3 workspace over HTTP yet.
-    POST /workspaces makes a scenario organization, which is a different thing."""
-    expect(stack, "POST", f"/uploads/{state.upload_id}/accept", 201, "accept_proposal", token=state.a_token,
-           body={"workspace": state.workspace, "spec": state.proposal})
+    expect(stack, "POST", "/workspaces", 201, "accept_proposal", token=state.a_token,
+           body={"from_upload": state.upload_id, "spec": state.proposal, "slug": state.workspace})
     state.workspace_made = True
     workspace_is_listed(stack, state)
 

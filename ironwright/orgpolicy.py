@@ -52,6 +52,10 @@ ESCALATION_PREFIX = "esc-"
 # with an explicit irreversible_actions list in org.json.
 DESTRUCTIVE_VERBS = ("close", "delete", "delist", "purge", "terminate")
 
+# The org-level default for a tenant workspace. A tenant's functions are only ever the
+# generated reads, and agents and actions never match it.
+_MEMBERS_READ = {"id": "org-default-members-read", "effect": "permit", "principal": "user:*", "action": "function:*"}
+
 _HEADER = ("# Generated from org.json by ironwright.orgpolicy. Do not hand-edit.\n"
            "# Changes go through the preview and apply flow; the log sits beside this file.\n")
 
@@ -235,13 +239,20 @@ def combined(name: str, now: str | None = None) -> tuple[list[dict[str, Any]], l
     return hand + kept, conflicts
 
 
-def live_engine(name: str, now: str | None = None):
+def live_engine(name: str, now: str | None = None, pack: Any = None):
     """The PolicyEngine every serving surface should use: hand-written rules
     plus the active generated ones and escalation grants. The batch pipeline
     and evals keep pack.policies alone, so planted-problem ground truth stays
-    reproducible; serving rebuilds this per request, so expiry is honored."""
+    reproducible; serving rebuilds this per request, so expiry is honored.
+
+    A tenant workspace passes its pack. Its rules live in its own folder, and
+    generated policy files by bare name in one namespace across every org, so
+    the name alone must never pick them. Members read by default, default deny
+    holds for everything else, and a forbid the tenant wrote still wins."""
     from .policy import PolicyEngine
 
+    if pack is not None and pack.is_tenant:
+        return PolicyEngine({"default": "deny", "rules": [*pack.policies.get("rules", []), _MEMBERS_READ]})
     return PolicyEngine({"default": "deny", "rules": combined_rules(name, now=now)})
 
 
