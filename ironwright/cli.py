@@ -7,10 +7,13 @@
   ironwright trace --pack retail [--id TRACE_ID]   print a trace as a span tree
   ironwright serve --pack retail          REST API over the ontology
   ironwright mcp --pack retail            MCP server exposing functions and actions as tools
+
+serve and platform bind 127.0.0.1. Anything else needs --host plus --i-know-this-is-exposed.
 """
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import shutil
 import sys
@@ -99,11 +102,30 @@ def stage_evals(pack, tracer, args) -> None:
 
 
 def stage_export(pack, tracer, args) -> None:
-    from .export import export_pack
     from pathlib import Path
+
+    from .export import export_pack
     out = Path(args.web_dir) / "data" if getattr(args, "web_dir", None) else None
     p = export_pack(pack, out)
     print(f"  snapshot written to {p}")
+
+
+def _is_loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:      # a name we cannot vouch for, so not loopback
+        return False
+
+
+def _serve(app: Any, args: argparse.Namespace) -> None:
+    import uvicorn
+
+    from .api import harden
+    # proxy_headers off: uvicorn would otherwise let a loopback peer pick its own
+    # client address, and the login limit keys on that address.
+    uvicorn.run(harden(app), host=args.host, port=args.port, proxy_headers=False, server_header=False)
 
 
 STAGES = {"generate": stage_generate, "migrate": stage_migrate, "reconcile": stage_reconcile,
@@ -111,15 +133,24 @@ STAGES = {"generate": stage_generate, "migrate": stage_migrate, "reconcile": sta
 
 
 def main(argv: list[str] | None = None) -> None:
-    ap = argparse.ArgumentParser(prog="ironwright", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(prog="ironwright", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
+                                 allow_abbrev=False)   # the exposure flag is spelled out in full
     ap.add_argument("command", choices=["list", "run", "trace", "serve", "platform", "auth-set", "mcp", *STAGES])
     ap.add_argument("--id", dest="trace_id", default=None, help="trace id for the trace command")
     ap.add_argument("--pack", default="retail")
     ap.add_argument("--seed", type=int, default=None, help="generator seed (default: the pack's own)")
     ap.add_argument("--limit", type=int, default=None, help="max agent decisions per use case")
     ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--host", default="127.0.0.1", help="bind address for serve and platform")
+    ap.add_argument("--i-know-this-is-exposed", action="store_true",
+                    help="required for any --host that is not loopback")
     ap.add_argument("--web-dir", default="web", help="where export writes data for the web demo")
     args = ap.parse_args(argv)
+
+    if args.command in ("serve", "platform") and not _is_loopback(args.host):
+        if not args.i_know_this_is_exposed:
+            ap.error(f"--host {args.host!r} is not loopback; this needs --i-know-this-is-exposed")
+        print(f"WARNING: exposed on {args.host}. Read docs/threat-model.md first.", file=sys.stderr)
 
     if args.command == "list":
         for name in list_packs():
@@ -133,10 +164,10 @@ def main(argv: list[str] | None = None) -> None:
         tracer = Tracer(pack.paths.ensure().traces) if args.command not in ("trace",) else None
         if args.command == "run":
             print(f"\n== {pack.title} ({name}) ==")
-            for stage in STAGES:
+            for stage, run_stage in STAGES.items():
                 t0 = time.time()
                 print(f"[{stage}]")
-                STAGES[stage](pack, tracer, args)
+                run_stage(pack, tracer, args)
                 print(f"  ({time.time() - t0:.1f}s)")
         elif args.command in STAGES:
             STAGES[args.command](pack, tracer, args)
@@ -151,19 +182,18 @@ def main(argv: list[str] | None = None) -> None:
             print(f"TRACE {target.stem}")
             print(render_tree(load_trace(target)))
         elif args.command == "serve":
-            import uvicorn
             from .api import create_app
-            uvicorn.run(create_app(name), host="0.0.0.0", port=args.port)
+            _serve(create_app(name), args)
         elif args.command == "auth-set":
             import getpass
+
             from .auth import set_account
             email = input("email: ").strip()
             set_account(email, getpass.getpass("password (min 8 chars): "))
             print(f"account set for {email}; hashes live under IRONWRIGHT_DATA/auth/")
         elif args.command == "platform":
-            import uvicorn
             from .platform_api import create_platform_app
-            uvicorn.run(create_platform_app(), host="127.0.0.1", port=args.port)
+            _serve(create_platform_app(), args)
         elif args.command == "mcp":
             from .mcp_server import build_server
             build_server(name).run()

@@ -125,6 +125,17 @@ said anything like that, so nothing caught it.
 **Fix.** Templates go through the same guardrail as model text, and each cell is scrubbed on its own
 so the authored sentence survives. Lesson: untrusted text has more than one way out. Guard the exit,
 not the one path I was thinking about.
+## 10. The MCP server could not start, and nothing noticed
+
+**Symptom.** The first test that built the MCP server died on import: `No module named
+'mcp.server.fastmcp'`.
+
+**Cause.** `pyproject.toml` asks for `mcp>=1.2` and the lockfile had moved to 2.3, which renamed
+`FastMCP` to `MCPServer`. The README advertised `ironwright mcp`, but no test ever built the server
+and the CLI imports it lazily, so the whole suite stayed green.
+
+**Fix.** Moved to `MCPServer`, and `tests/test_posture.py` now builds the server and calls its tools.
+Lesson: a surface with no test is a claim, not a feature.
 
 ## Smaller ones
 
