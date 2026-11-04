@@ -137,6 +137,22 @@ and the CLI imports it lazily, so the whole suite stayed green.
 **Fix.** Moved to `MCPServer`, and `tests/test_posture.py` now builds the server and calls its tools.
 Lesson: a surface with no test is a claim, not a feature.
 
+## 11. A 404 proves nothing until the owner gets through
+
+**Symptom.** The first isolation sweep passed for B on every route. Then I added the other half, where A walks the same routes and must get past the gate, and it failed on `DELETE /workspaces/{name}/boards/{slug}`.
+
+**Cause.** The bug was in my test. It deleted the workspace partway through the sweep, so every later route was 404 for A too. But it showed me what the B half alone is worth: a gate that refuses everyone passes it, and so does a test aimed at a name that never existed.
+
+**Fix.** The delete goes last. Each route now has to do three things: stop B, give B the same bytes it gets for a name nobody has, and let A through. I also broke the gate on purpose in seven ways and watched the file go red each time. Lesson: every "cannot see" test needs a "can see" twin, or it only proves the request failed.
+
+## 12. Green on my branch, red on the merge
+
+**Symptom.** Everything passed for me, then CI failed `test_rate_limit_window_expires` and the threat model link check. Neither test was in my tree.
+
+**Cause.** S5 merged to main after I branched, and a pull request tests the merge. S5 brought a login limiter, and I had written a small one because S5 was not there yet. Stacked, each kept its own clock, so mine kept refusing after S5's let go. I had also deleted a test the new threat model links to.
+
+**Fix.** I rebased, deleted my limiter, and pointed S5's at signup and accept-invite too, so there is one limiter on one clock. Lesson: fetch and rebase before the last test run, because the tree I test has to be the tree that merges.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.

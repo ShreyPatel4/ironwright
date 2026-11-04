@@ -15,7 +15,7 @@ does not exist fails CI.
 | L1 source files | a folder I point a workspace at | my real data leaves my machine, or gets changed |
 | Lake and ontology | `IRONWRIGHT_DATA/<workspace>/` | the copies of that data leak |
 | Audit chain | `audit_log` in the ontology DB | I can no longer prove what happened |
-| Credentials and sessions | `IRONWRIGHT_DATA/auth/`, process memory | someone signs in as me |
+| Credentials and sessions | the tenancy store (`IRONWRIGHT_DB_URL`, or `IRONWRIGHT_DATA/meta.sqlite`), hashed | someone signs in as me |
 | Identity on an action | the principal the policy engine sees | an action runs as someone it should not |
 | LLM keys | `.env`, process env | someone spends my money |
 
@@ -80,7 +80,8 @@ flowchart LR
 | Default deny, forbid beats permit | an action nobody permitted | `tests/test_engine.py::test_policy_forbid_beats_permit_and_default_deny` |
 | Hash-chained audit | rewriting history unnoticed | `tests/test_platform_api.py::test_audit_chain_verifies_over_rest` |
 | Workspace isolation | one workspace reading another | `tests/test_workspace_isolation.py::test_nothing_in_one_workspace_is_observable_from_the_other` |
-| Real identity on every platform API route (A1) | anyone who reaches the port acting as anyone | `tests/test_authn.py::test_no_token_gets_401_on_every_non_public_route`, `tests/test_authn.py::test_spoofed_header_is_ignored_with_a_token`, `tests/test_authn.py::test_login_refuses_an_agent_account_edited_into_the_file`, `tests/test_authn.py::test_token_expires_after_8h_idle`, `tests/test_posture.py::test_the_served_platform_app_is_closed_without_a_token` |
+| One org cannot see another's anything (T1) | a second tenant reading, writing or learning the name of what the first one owns | `tests/test_isolation_routes.py::test_b_gets_the_same_404_on_everything_a_owns_as_on_nothing`, `tests/test_isolation_routes.py::test_a_passes_the_gate_on_every_route_b_was_stopped_at`, `tests/test_isolation_routes.py::test_every_write_on_a_demo_pack_is_refused_for_a_tenant` |
+| Real identity on every platform API route (A1) | anyone who reaches the port acting as anyone | `tests/test_authn.py::test_no_token_gets_401_on_every_non_public_route`, `tests/test_authn.py::test_spoofed_header_is_ignored_with_a_token`, `tests/test_authn.py::test_no_account_can_hold_an_agent_principal`, `tests/test_authn.py::test_token_expires_after_8h_idle`, `tests/test_posture.py::test_the_served_platform_app_is_closed_without_a_token` |
 | SQL surface locked down and resource capped (A2) | SQL reading my disk, or eating the machine | `tests/test_sql_surface.py::test_engine_attack_fails_closed_in_explorer`, `tests/test_sql_surface.py::test_engine_attack_fails_closed_in_board_tile`, `tests/test_sql_surface.py::test_cpu_bomb_hits_the_timeout_in_explorer`, `tests/test_sql_surface.py::test_engine_errors_are_short_and_carry_an_id` |
 | Paths cannot escape, L1 folders read only (A3) | a request value reaching any file | `tests/test_paths.py::test_url_encoded_dots_do_not_read_outside_the_root`, `tests/test_paths.py::test_source_read_refuses_a_symlink_that_escapes`, `tests/test_paths.py::test_source_read_refuses_a_fifo_without_hanging`, `tests/test_paths.py::test_copy_leaves_the_source_untouched_and_the_copy_private`, `tests/test_paths.py::test_delete_refuses_a_foreign_folder_that_only_looks_like_an_org`, `tests/test_paths.py::test_ensure_tightens_the_credentials` |
 | Untrusted text at the prompt boundary (A4) | text in my files giving the model orders | `tests/test_prompt_boundary.py::test_every_planted_cell_reaches_the_model_only_inside_a_fence`, `tests/test_prompt_boundary.py::test_echo_model_leaks_nothing_and_falls_back_to_the_template`, `tests/test_prompt_boundary.py::test_ask_model_output_never_reaches_a_function_call`, `tests/test_prompt_boundary.py::test_a_model_citing_an_ungathered_id_is_rewritten` |
@@ -107,7 +108,7 @@ These are real and I would rather say so.
   stop it on `ironwright serve`, or with `IRONWRIGHT_DEV_OPEN=1`.
 - **`make demo` and `make preview` bind every interface.** They run `python -m http.server`, which
   serves static synthetic files only. The Makefile needs `--bind 127.0.0.1`.
-- **The login limit is per process and in memory.** A restart clears it. Behind a reverse proxy every
+- **The limit on login, signup and accept-invite is per process and in memory.** A restart clears it. Behind a reverse proxy every
   client shares one bucket, which fails closed and can lock me out for a minute.
 - **The posture comes from the CLI.** `harden()` wraps the app in `cli.py`. Anything that imports
   `create_platform_app()` directly, like `scripts/demo_console_check.py`, runs without it.

@@ -15,14 +15,17 @@ from fastapi.testclient import TestClient
 from starlette.routing import Mount
 
 from ironwright import auth, platform_api
+from ironwright.ontology.runtime import Ontology
 from ironwright.ontology.store import OntologyStore
 from ironwright.packs import load_pack
 from ironwright.platform_api import create_platform_app
+from ironwright.tenancy import db
+from ironwright.tracing import Tracer
 
 EMAIL = "tester@example.com"
 PASSWORD = "correct-horse-9"
 # "/" only redirects to the console and carries no data.
-PUBLIC = {"/auth/status", "/auth/login", "/"}
+PUBLIC = {"/auth/status", "/auth/login", "/auth/signup", "/auth/accept-invite", "/"}
 EIGHT_HOURS = 8 * 3600
 
 
@@ -33,10 +36,8 @@ def bearer(token: str) -> dict[str, str]:
 @pytest.fixture(autouse=True)
 def closed(monkeypatch, tmp_path):
     monkeypatch.delenv("IRONWRIGHT_DEV_OPEN", raising=False)
+    monkeypatch.delenv("IRONWRIGHT_DB_URL", raising=False)
     monkeypatch.setenv("IRONWRIGHT_DATA", str(tmp_path))
-    auth._SESSIONS.clear()
-    yield
-    auth._SESSIONS.clear()
 
 
 @pytest.fixture()
@@ -175,7 +176,8 @@ def test_a_real_token_in_the_old_header_is_not_a_credential(client, token):
 
 def test_a_valid_token_opens_the_door(client, token):
     assert client.get("/workspaces", headers=bearer(token)).status_code == 200
-    assert client.get("/auth/me", headers=bearer(token)).json()["principal"] == "user:tester"
+    me = client.get("/auth/me", headers=bearer(token)).json()
+    assert me["principal"] == f"user:{me['user_id']}" and me["email"] == EMAIL
 
 
 def test_logout_kills_the_token(client, token):
@@ -194,7 +196,7 @@ def test_spoofed_header_is_ignored_with_a_token(real):
     item = real.get("/workspaces/retail/objects/Item", params={"limit": 1}).json()[0]["_id"]
     spoof = {"X-Principal": "agent:spoofed"}
     dash = real.get(f"/workspaces/retail/objects/Item/{item}/dashboard", headers=spoof).json()
-    assert dash["_as"] == "user:tester"
+    assert dash["_as"] == real.get("/auth/me").json()["principal"]
 
 
 def test_spoofed_header_is_ignored_on_the_asof_router(real):
@@ -202,7 +204,7 @@ def test_spoofed_header_is_ignored_on_the_asof_router(real):
     asof = real.get(f"/workspaces/retail/objects/Item/{item}/asof",
                     params={"ts": "2200-01-01T00:00:00Z"},
                     headers={"X-Principal": "agent:spoofed"}).json()
-    assert asof["_as"] == "user:tester"
+    assert asof["_as"] == real.get("/auth/me").json()["principal"]
 
 
 def test_platform_routes_do_not_declare_the_header():
@@ -227,7 +229,7 @@ def test_action_body_cannot_name_an_agent_as_the_actor(real):
     actors = {row["actor"] for row in real.get("/workspaces/retail/audit",
                                                params={"limit": 500}).json()}
     assert "agent:spoofed" not in actors
-    assert "user:tester" in actors
+    assert real.get("/auth/me").json()["principal"] in actors
 
 
 def _real_item_and_open_store(offset):
@@ -241,13 +243,19 @@ def _real_item_and_open_store(offset):
 
 
 def _park_an_approval(c, offset):
-    """A real parked action, from an account the retail policy lets propose it."""
+    """A real parked action. An account's principal is user:<id> now (contract 1),
+    which no pack policy names, so the principal the retail policy lets propose
+    this acts through the engine directly, as an agent or a batch would."""
     item, store = _real_item_and_open_store(offset)
-    auth.set_account("cm@example.com", PASSWORD, principal="user:category.manager.1")
-    tok = c.post("/auth/login", json={"email": "cm@example.com", "password": PASSWORD}).json()["token"]
-    parked = c.post("/workspaces/retail/actions/propose_facing_change", headers=bearer(tok),
-                    json={"params": {"item_id": item, "store_id": store, "new_facings": 4}})
-    assert parked.json()["status"] == "needs_approval", parked.text
+    pack = load_pack("retail")
+    ont = Ontology(pack, Tracer(pack.paths.ensure().traces))
+    try:
+        parked = ont.act("propose_facing_change",
+                         {"item_id": item, "store_id": store, "new_facings": 4},
+                         actor="user:category.manager.1")
+    finally:
+        ont.store.con.close()
+    assert parked["status"] == "needs_approval", parked
     return next(p for p in c.get("/workspaces/retail/approvals").json()
                 if p["params"].get("item_id") == item and p["params"].get("store_id") == store)
 
@@ -271,44 +279,31 @@ def test_a_role_can_still_sign_an_approval_with_the_door_closed(real):
 
 # ----- agent principals
 
-@pytest.mark.parametrize("principal", ["agent:triage", "AGENT:triage", " agent:triage"])
-def test_set_account_refuses_an_agent_principal(principal):
-    with pytest.raises(ValueError):
-        auth.set_account(EMAIL, PASSWORD, principal=principal)
-    assert not auth.seeded()
+def test_no_account_can_hold_an_agent_principal(client, token):
+    """Principals are user:<id>, built by the server. An email cannot change that."""
+    auth.set_account("agent:triage@example.com", PASSWORD)
+    s = client.post("/auth/login", json={"email": "agent:triage@example.com", "password": PASSWORD}).json()
+    assert s["principal"] == f"user:{s['user_id']}" and not auth.is_agent(s["principal"])
 
 
-@pytest.mark.parametrize("principal", ["agent:triage", "AGENT:triage", " agent:triage"])
-def test_login_refuses_an_agent_account_edited_into_the_file(client, principal):
-    auth.set_account(EMAIL, PASSWORD)
-    p = auth._path()
-    accounts = json.loads(p.read_text())
-    accounts[EMAIL]["principal"] = principal
-    p.write_text(json.dumps(accounts))
-    r = client.post("/auth/login", json={"email": EMAIL, "password": PASSWORD})
-    assert r.status_code == 401 and "token" not in r.json()
-    assert auth.login(EMAIL, PASSWORD) is None
-
-
-def test_a_live_session_dies_if_its_account_becomes_an_agent(client, token):
-    p = auth._path()
-    accounts = json.loads(p.read_text())
-    accounts[EMAIL]["principal"] = "agent:triage"
-    p.write_text(json.dumps(accounts))
+def test_a_live_session_dies_if_its_membership_goes(client, token):
+    with db.engine().begin() as con:
+        con.execute(db.memberships.delete())
     assert client.get("/workspaces", headers=bearer(token)).status_code == 401
 
 
-def test_an_agent_shaped_email_still_maps_to_a_user():
-    assert auth.principal_for("agent:triage@example.com").startswith("user:")
-
-
 # ----- sessions
+
+def _session_count() -> int:
+    with db.engine().connect() as con:
+        return len(con.execute(db.sessions.select()).all())
+
 
 def test_token_expires_after_8h_idle(client, token, monkeypatch):
     start = auth._now()
     monkeypatch.setattr(auth, "_now", lambda: start + EIGHT_HOURS + 1)
     assert client.get("/workspaces", headers=bearer(token)).status_code == 401
-    assert token not in auth._SESSIONS
+    assert _session_count() == 0
 
 
 def test_activity_slides_the_idle_window(client, token, monkeypatch):
@@ -338,7 +333,7 @@ def test_login_clears_sessions_that_already_expired(client, token, monkeypatch):
     auth.set_account("other@example.com", PASSWORD)
     monkeypatch.setattr(auth, "_now", lambda: start + EIGHT_HOURS + 1)
     client.post("/auth/login", json={"email": "other@example.com", "password": PASSWORD})
-    assert token not in auth._SESSIONS
+    assert _session_count() == 1
 
 
 # ----- the dev flag

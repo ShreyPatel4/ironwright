@@ -15,7 +15,7 @@ import stat
 import pytest
 from fastapi.testclient import TestClient
 
-from ironwright import auth, boards, config, connectors, workspaces
+from ironwright import boards, config, connectors, workspaces
 from ironwright.legacy import read_source
 from ironwright.packs import load_pack
 from ironwright.platform_api import create_platform_app
@@ -232,8 +232,9 @@ def test_create_refuses_a_name_that_is_already_a_symlink(root, outer):
 
 
 def test_an_org_named_auth_cannot_take_the_credentials_with_it(root):
-    auth.set_account("a@b.example", "password123")
-    creds = root / "auth" / "credentials.json"
+    creds = root / "auth" / "credentials.json"  # a file a pre-tenancy install left behind
+    creds.parent.mkdir(parents=True, exist_ok=True)
+    creds.write_text("{}")
     before = creds.read_text()
     with pytest.raises(SpecError):
         workspaces.create_organization("auth", ARCHETYPE, 4, 7)
@@ -700,8 +701,9 @@ def test_ensure_tightens_the_audit_store_and_its_sidecars(root, wide_umask):
 
 
 def test_ensure_tightens_the_credentials(root, wide_umask):
-    auth.set_account("a@b.example", "password123")
-    creds = root / "auth" / "credentials.json"
+    creds = root / "auth" / "credentials.json"  # a file a pre-tenancy install left behind
+    creds.parent.mkdir(parents=True, exist_ok=True)
+    creds.write_text("{}")
     creds.chmod(0o644)
     (root / "auth").chmod(0o755)
     config.PackPaths("retail").ensure()

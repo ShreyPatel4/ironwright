@@ -75,6 +75,10 @@ export const api = {
   discovery: (ws) => req(`/workspaces/${ws}/discovery`),
   authStatus: () => req("/auth/status"),
   login: (email, password) => post("/auth/login", { email, password }),
+  signup: (email, password, org_name) => post("/auth/signup", { email, password, org_name }),
+  // The token is passed in because Login calls this before the session is stored.
+  switchOrg: (slug, token) => req(`/orgs/${encodeURIComponent(slug)}/switch`, {
+    method: "POST", ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}) }),
   me: () => req("/auth/me"),
   logout: () => req("/auth/logout", { method: "POST" }),
   sources: (ws) => req(`/workspaces/${ws}/sources`),
