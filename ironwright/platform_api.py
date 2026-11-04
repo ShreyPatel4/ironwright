@@ -9,15 +9,13 @@ needs no pool.
 """
 from __future__ import annotations
 
-import argparse
 import contextlib
 import json
 import pathlib
-import time
 from collections.abc import Iterator
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -38,9 +36,9 @@ from . import workspaces as org_mod
 from .asof import router as asof_router
 from .auth import ctx
 from .bi import router as bi_router
-from .cli import STAGES
 from .config import data_root, safe_child, write_private
 from .engines import router as engines_router
+from .jobs import routes as jobs_routes
 from .lake import Lakehouse
 from .ontology.runtime import Ontology
 from .otel_export import router as otel_router
@@ -51,13 +49,11 @@ from .tenancy import service as tenancy
 from .tenancy.models import at_least
 from .tracing import Tracer
 
-STAGE_ORDER = ["generate", "migrate", "reconcile", "ontology", "agents", "evals", "export"]
-DEFAULT_SEEDS = {"retail": 7, "supply_chain": 11, "banking_aml": 23, "insurance_claims": 31}
-
 
 class RunBody(BaseModel):
     seed: int | None = None
     stages: list[str] | None = None
+    wait: bool | None = None  # false: return the job id and leave it to the worker
 
 
 class ActionBody(BaseModel):
@@ -438,26 +434,9 @@ def create_platform_app() -> FastAPI:
         return platform_map()
 
     @app.post("/workspaces/{name}/runs")
-    def run(name: str, body: RunBody) -> dict[str, Any]:
-        pack = _pack(name)
-        stages = body.stages or STAGE_ORDER
-        bad = [s for s in stages if s not in STAGES]
-        if bad:
-            raise HTTPException(422, f"unknown stages {bad}")
-        tracer = Tracer(pack.paths.ensure().traces)
-        args = argparse.Namespace(seed=body.seed if body.seed is not None
-                                  else DEFAULT_SEEDS.get(name, 7), limit=None)
-        report = []
-        for stage in stages:
-            t0 = time.perf_counter()
-            STAGES[stage](pack, tracer, args)
-            report.append({"stage": stage, "status": "ok",
-                           "seconds": round(time.perf_counter() - t0, 2)})
-        evals_path = pack.paths.reports / "evals.json"
-        evals = json.loads(evals_path.read_text()) if evals_path.exists() else None
-        return {"workspace": name, "stages": report,
-                "evals": {"passed": evals.get("passed")} if evals else None,
-                "verification": verification.derive(pack)}
+    def run(name: str, body: RunBody, request: Request, response: Response) -> dict[str, Any]:
+        _pack(name)
+        return jobs_routes.submit_run(request, response, name, body.seed, body.stages, body.wait)
 
     @app.get("/workspaces/{name}/approvals")
     def approvals(name: str) -> list[dict[str, Any]]:
@@ -755,6 +734,7 @@ def create_platform_app() -> FastAPI:
     app.include_router(training_mod.router)
     app.include_router(bi_router)
     app.include_router(engines_router)
+    app.include_router(jobs_routes.router)
 
     # The console is a committed build (console/dist), so a git clone needs
     # uv and nothing else at runtime. Absent (e.g. a bare pip install of the
