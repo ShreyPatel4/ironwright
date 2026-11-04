@@ -220,10 +220,10 @@ def test_compose_leaves_the_door_closed_by_default():
 
 def test_the_image_runs_as_a_non_root_user_and_bakes_in_no_secret():
     text = (REPO / "Dockerfile").read_text()
-    users = re.findall(r"^USER\s+(\S+)", text, flags=re.M)
+    users = re.findall(r"^USER\s+(\S+)", text, flags=re.MULTILINE)
     assert users and users[-1] not in ("root", "0")
     # ENV and ARG persist in image layers and history.
-    assert not re.search(r"^(ENV|ARG)\s+\S*(SECRET|PASSWORD|TOKEN|API_KEY|ACCESS_KEY)", text, flags=re.M)
+    assert not re.search(r"^(ENV|ARG)\s+\S*(SECRET|PASSWORD|TOKEN|API_KEY|ACCESS_KEY)", text, flags=re.MULTILINE)
     assert "ENV IRONWRIGHT_HOST=" not in text, "the bind is stated by whoever runs the container"
 
 
@@ -296,3 +296,77 @@ def test_two_orgs_with_one_slug_stay_apart_in_one_catalog_database(s3_lake, tmp_
     assert lake_b.tables() == []
     assert _keys(s3_lake, f"t/tenants/{orga}/workspaces/{slug}/lake/")
     assert not _keys(s3_lake, f"t/tenants/{orgb}/")
+
+
+# ---------------------------------------------------------------- the S5 serving posture
+@pytest.fixture()
+def launch(monkeypatch):
+    """uvicorn.run captured, so the bind rule is tested without binding anything."""
+    calls: list[dict] = []
+    monkeypatch.setattr("uvicorn.run", lambda app, **kw: calls.append({"app": app, **kw}))
+    return calls
+
+
+def test_serve_platform_binds_loopback_by_default(launch):
+    from ironwright.cli import main
+    main(["serve-platform"])
+    assert launch[0]["host"] == "127.0.0.1" and launch[0]["port"] == 8000
+    assert launch[0]["proxy_headers"] is False and launch[0]["server_header"] is False
+
+
+def test_exposure_from_env_alone_refuses_to_start(launch, monkeypatch):
+    # S5's rule is two keys: an address and a stated acknowledgment. One setting is not enough.
+    from ironwright.cli import main
+    monkeypatch.setenv("IRONWRIGHT_HOST", "0.0.0.0")
+    with pytest.raises(SystemExit, match="IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED"):
+        main(["serve-platform"])
+    assert not launch
+
+
+def test_exposure_with_both_keys_binds_and_warns(launch, monkeypatch, capsys):
+    from ironwright.cli import main
+    monkeypatch.setenv("IRONWRIGHT_HOST", "0.0.0.0")
+    monkeypatch.setenv("IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED", "1")
+    main(["serve-platform"])
+    assert launch[0]["host"] == "0.0.0.0"
+    assert "exposed" in capsys.readouterr().err.lower()
+
+
+@pytest.mark.parametrize("flags", [["--host", "0.0.0.0"], ["--port", "9000"], ["--i-know-this-is-exposed"]])
+def test_serve_platform_takes_its_bind_from_env_and_refuses_flags(launch, flags):
+    # A flag it silently ignored would leave someone believing they had chosen an address.
+    from ironwright.cli import main
+    with pytest.raises(SystemExit):
+        main(["serve-platform", *flags])
+    assert not launch
+
+
+def test_the_local_platform_command_keeps_s5s_flag_rule(launch, monkeypatch):
+    from ironwright.cli import main
+    monkeypatch.setenv("IRONWRIGHT_HOST", "0.0.0.0")
+    monkeypatch.setenv("IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED", "1")
+    main(["platform"])
+    assert launch[0]["host"] == "127.0.0.1"
+    with pytest.raises(SystemExit):
+        main(["platform", "--host", "0.0.0.0"])
+
+
+def test_the_hosted_app_carries_the_hardening(closed_door):
+    # Every response, the public health routes included, has S5's security headers.
+    c = TestClient(hosted.create_hosted_app())
+    for path in ("/healthz", "/readyz", "/workspaces"):
+        assert c.get(path).headers.get("x-content-type-options") == "nosniff", path
+    assert c.post("/auth/login", json={"email": "x@y", "password": "w"},
+                  headers={"Origin": "https://evil.example"}).status_code == 403
+
+
+def test_the_kill_switch_does_not_take_the_health_routes_down(closed_door, monkeypatch):
+    # An operator who pulled the switch must not also get the service restarted by its health check.
+    monkeypatch.setenv("IRONWRIGHT_KILL_SWITCH", "1")
+    c = TestClient(hosted.create_hosted_app())
+    assert c.get("/healthz").status_code == 200 and c.get("/readyz").status_code == 200
+
+
+def test_compose_states_both_exposure_keys():
+    env = _compose()["services"]["api"]["environment"]
+    assert env["IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED"] == "1"

@@ -5,7 +5,7 @@ follows are in `saas-mvp.md`.
 
 ```mermaid
 flowchart LR
-  U["Browser or API client"] -->|"127.0.0.1:8000"| A["api<br/>python -m ironwright.hosted"]
+  U["Browser or API client"] -->|"127.0.0.1:8000"| A["api<br/>ironwright serve-platform"]
   W["worker<br/>ironwright worker"]
   A --> P[("postgres<br/>metadata and Iceberg catalog")]
   W --> P
@@ -62,8 +62,15 @@ Their default passwords are fine on that private network and nowhere else.
 | `GET /healthz` | The process is up. It checks nothing else. | No answer |
 | `GET /readyz` | The database and the object store both answered. | 503, naming the failed check and nothing more |
 
-Neither route needs a session. Both answer before the app sees the request, and every other route
-stays behind the session gate.
+Neither route needs a session. Both answer before the routes run, and every other route stays
+behind the session gate. They carry the same security headers as everything else.
+
+## How this differs from `ironwright platform`
+
+`ironwright platform` is the local server and takes its bind from flags. `ironwright serve-platform`
+is the hosted one. It takes its bind from the environment and refuses those flags, adds the health
+routes, and refuses `IRONWRIGHT_DEV_OPEN=1` on staging and prod. Both run S5's hardening and need
+the same two keys to leave loopback.
 
 ## Settings
 
@@ -75,11 +82,13 @@ that is not in this table.
 | Variable | Default | What it does |
 |---|---|---|
 | `IRONWRIGHT_ENV` | `local` | `local`, `staging` or `prod`. On `staging` and `prod` the server refuses to start with `IRONWRIGHT_DEV_OPEN=1`. |
-| `IRONWRIGHT_HOST` | `127.0.0.1` | Bind address. A container must set `0.0.0.0` to be reachable, and I make you say so. The image does not set it. |
+| `IRONWRIGHT_HOST` | `127.0.0.1` | Bind address for `serve-platform`. A container must set `0.0.0.0` to be reachable. The image does not set it. |
+| `IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED` | off | `1` is required for any host that is not loopback. Same two keys as the `--host` and `--i-know-this-is-exposed` flags on `platform`. |
 | `IRONWRIGHT_PORT` | `PORT`, then `8000` | Bind port. |
 | `PORT` | none | The port a platform like Railway injects. |
 | `IRONWRIGHT_DEV_OPEN` | off | `1` removes the login. Tests and demo-check only. Never on a reachable server. |
-| `IRONWRIGHT_KILL_SWITCH` | off | `1` turns off Ask and actions (arrives with S5). |
+| `IRONWRIGHT_KILL_SWITCH` | off | `1` turns off Ask and actions. Reads and health routes stay up. |
+| `IRONWRIGHT_CONSOLE_ORIGIN` | none | One origin allowed to call the API from a browser. Unset means same-origin only. |
 
 ### Storage
 
@@ -140,6 +149,7 @@ I expect to work. Confirm each one on the first deploy.
    |---|---|
    | `IRONWRIGHT_ENV` | `staging` |
    | `IRONWRIGHT_HOST` | `0.0.0.0` |
+   | `IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED` | `1` |
    | `IRONWRIGHT_DB_URL` | `${{Postgres.DATABASE_URL}}` |
    | `IRONWRIGHT_LAKE_URI` | `s3://<bucket>/staging` |
    | `IRONWRIGHT_S3_ENDPOINT` | `https://<account>.r2.cloudflarestorage.com` |
@@ -153,13 +163,16 @@ Then deploy with one command from the repo root:
 railway up --service ironwright --detach
 ```
 
-Three things to know before you rely on it:
+Four things to know before you rely on it:
 
 - **One service, not two.** A Railway volume mounts on a single service, and the API and the worker
   both need the same data root. So staging runs both in one service until that state moves off the
   disk. Once `ironwright worker` exists, the start command has to launch both.
 - **It runs as root.** Railway volumes need `RAILWAY_RUN_UID=0` for an image with a non-root user.
   Compose keeps the non-root user. Railway gives it up.
+- **The login limit sees one address.** S5 keys it on the socket and does not trust forwarded headers.
+  Behind Railway's proxy every client shares that address, so one person guessing passwords can lock
+  everyone out of login for the window. The fix needs a trusted proxy setting, which I have not added.
 - **R2 is untested.** CI proves the lake on MinIO. R2 speaks the same API, but no test has run on it.
 
 ## What CI proves

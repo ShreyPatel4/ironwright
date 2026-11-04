@@ -34,7 +34,9 @@ services:
     environment:
       <<: *hosted-env
       # A container has to listen on every interface to be reachable at all.
+      # S5's rule is two keys. What keeps this private is the loopback publish below.
       IRONWRIGHT_HOST: "0.0.0.0"
+      IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED: "1"
     ports:
       - "127.0.0.1:8000:8000"
     healthcheck:

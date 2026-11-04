@@ -1,16 +1,19 @@
-"""The platform app as a server: bind from the environment, health routes outside the gate.
+"""The platform app as a hosted server, behind `ironwright serve-platform`.
 
-    python -m ironwright.hosted
+It carries S5's posture with one difference: the bind comes from the environment,
+since a container has no one to type flags. The rule is the same two keys. An
+address that is not loopback needs IRONWRIGHT_HOST and also
+IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED=1.
 
-The health routes answer before the app sees the request, in an ASGI wrapper,
-because a load balancer has no session and the app's own gate is default deny.
+The health routes answer in an ASGI middleware, before the routes run, because a
+load balancer has no session and the app's own gate is default deny. S5's hardening
+sits outside them, so they still carry the security headers.
 /healthz says the process is up. /readyz says the database and the object store
 answer. A failed check is named and nothing else is said: no URL, no bucket, no
 exception text, because those routes are public.
 """
 from __future__ import annotations
 
-import ipaddress
 import logging
 import os
 import sys
@@ -21,6 +24,7 @@ from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from . import auth, config
+from .cli import _is_loopback
 
 log = logging.getLogger("ironwright.hosted")
 CHECK_TIMEOUT_SECONDS = 2
@@ -71,7 +75,7 @@ def readiness() -> dict[str, str]:
         try:
             check()
             checks[name] = "ok"
-        except Exception as e:  # the type only: messages carry URLs and credentials
+        except Exception as e:  # noqa: BLE001  the type only: messages carry URLs and credentials
             log.warning("readiness check %s failed: %s", name, type(e).__name__)
             checks[name] = "failed"
     return checks
@@ -104,29 +108,24 @@ class HealthGate:
 
 
 def create_hosted_app() -> ASGIApp:
+    from .api import harden
     from .platform_api import create_platform_app
 
     check_posture()
     config.secure_data_root()
-    return HealthGate(create_platform_app())
+    app = create_platform_app()
+    app.add_middleware(HealthGate)
+    return harden(app)  # added last, so outermost
 
 
-def _is_loopback(host: str) -> bool:
-    try:
-        return host == "localhost" or ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
-
-
-def main() -> None:
+def serve() -> None:
     import uvicorn
 
     host = config.bind_host()
     if not _is_loopback(host):
-        print(f"exposed on {host} because IRONWRIGHT_HOST says so. Read docs/deploy-hosted.md.", file=sys.stderr)
-    # proxy_headers off for the same reason as the local servers: a peer must not pick its own address.
+        if config.setting("I_KNOW_THIS_IS_EXPOSED") != "1":
+            raise SystemExit(f"refusing to start: IRONWRIGHT_HOST={host!r} is not loopback; "
+                             "this also needs IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED=1")
+        print(f"WARNING: exposed on {host}. Read docs/deploy-hosted.md first.", file=sys.stderr)
+    # proxy_headers off, as in cli._serve: a peer must not pick its own address.
     uvicorn.run(create_hosted_app(), host=host, port=config.bind_port(), proxy_headers=False, server_header=False)
-
-
-if __name__ == "__main__":
-    main()

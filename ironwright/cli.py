@@ -8,6 +8,7 @@
   ironwright serve --pack retail          REST API over the ontology
   ironwright mcp --pack retail            MCP server exposing functions and actions as tools
   ironwright worker [--once]              run background jobs from the jobs table
+  ironwright serve-platform               the hosted server: bind from env, see docs/deploy-hosted.md
 
 serve and platform bind 127.0.0.1. Anything else needs --host plus --i-know-this-is-exposed.
 """
@@ -136,7 +137,7 @@ STAGES = {"generate": stage_generate, "migrate": stage_migrate, "reconcile": sta
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(prog="ironwright", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter,
                                  allow_abbrev=False)   # the exposure flag is spelled out in full
-    ap.add_argument("command", choices=["list", "run", "trace", "serve", "platform", "auth-set", "mcp", "worker", *STAGES])
+    ap.add_argument("command", choices=["list", "run", "trace", "serve", "platform", "serve-platform", "auth-set", "mcp", "worker", *STAGES])
     ap.add_argument("--id", dest="trace_id", default=None, help="trace id for the trace command")
     ap.add_argument("--pack", default="retail")
     ap.add_argument("--seed", type=int, default=None, help="generator seed (default: the pack's own)")
@@ -153,6 +154,14 @@ def main(argv: list[str] | None = None) -> None:
         if not args.i_know_this_is_exposed:
             ap.error(f"--host {args.host!r} is not loopback; this needs --i-know-this-is-exposed")
         print(f"WARNING: exposed on {args.host}. Read docs/threat-model.md first.", file=sys.stderr)
+
+    if args.command == "serve-platform":
+        if args.host != ap.get_default("host") or args.port != ap.get_default("port") or args.i_know_this_is_exposed:
+            ap.error("serve-platform takes its bind from the environment, not from flags: "
+                     "IRONWRIGHT_HOST, IRONWRIGHT_PORT, IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED")
+        from .hosted import serve
+        serve()
+        return
 
     if args.command == "list":
         for name in list_packs():

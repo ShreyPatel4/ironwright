@@ -1,6 +1,6 @@
 # One image for every hosted process:
-#   python -m ironwright.hosted    the platform API and console
-#   ironwright worker              the job worker (arrives with T4)
+#   ironwright serve-platform    the platform API and console
+#   ironwright worker            the job worker (arrives with T4)
 # Settings and secrets come from the environment at run time, never from here.
 
 FROM node:22-slim AS console
@@ -33,4 +33,4 @@ ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 IRONWRIGHT_DATA=/data
 WORKDIR /data
 USER ironwright
 EXPOSE 8000
-CMD ["python", "-m", "ironwright.hosted"]
+CMD ["ironwright", "serve-platform"]

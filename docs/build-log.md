@@ -228,3 +228,4 @@ not a surprise. Lesson: a fixture I built only proves what I already thought of.
 - The audit hash check failed after a type round trip. Hashing a canonical JSON of the values fixed it.
 - A LangGraph interrupt was logged as an error span. It's now an `interrupt` event, because pausing for a human is not a failure.
 - The new link filter read customer emails as links. Scanning every string cell of every pack through the guardrail found it; no narration happened to carry one, so no eval would have. The bare domain pattern now skips anything after an `@`.
+- My hosted entrypoint built the platform app straight, so it served without S5's hardening: no security headers, no origin guard, no login limit. S5 installs that in `cli._serve`, and a second road to uvicorn skipped it. `tests/test_hosted.py` now checks the headers and the origin guard on the hosted app.
