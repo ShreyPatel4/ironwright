@@ -23,13 +23,44 @@ import pyarrow as pa
 from pyiceberg.catalog.sql import SqlCatalog
 from pyiceberg.exceptions import NoSuchTableError
 
-from . import sqlguard
+from . import config, sqlguard
 from .legacy import read_source
 from .packs import Pack
 from .quality import CheckResult, blocking_failures, run_checks
 from .tracing import Tracer
 
 LAYERS = ("bronze", "silver", "gold")
+
+
+@dataclass(frozen=True)
+class LakeLocation:
+    """Where a pack's Iceberg tables live when the lake is on object storage."""
+
+    catalog: str
+    catalog_uri: str
+    warehouse: str
+
+
+def lake_location(pack: Pack) -> LakeLocation | None:
+    """None means local disk. Otherwise the storage layout from contract 2.
+
+    SqlCatalog partitions a shared database by catalog name and nothing else, so
+    the name carries the org. A slash cannot appear in a safe name, which keeps
+    two different org and workspace pairs from ever spelling the same catalog.
+    """
+    uri = config.lake_uri()
+    if uri is None:
+        return None
+    org = getattr(pack, "org_id", None)
+    if org is None and pack.spec.get("kind") == "workspace":
+        raise ValueError(f"tenant workspace {pack.name!r} has no org, refusing to pick a warehouse for it")
+    for name in (pack.name, *(() if org is None else (org,))):
+        if not isinstance(name, str) or not config.SAFE_NAME.fullmatch(name):
+            raise ValueError(f"unsafe name in a lake path: {name!r}")
+    if org is None:
+        return LakeLocation(f"demo/{pack.name}", config.db_url(), f"{uri}/demo/{pack.name}/lake")
+    return LakeLocation(f"tenant/{org}/{pack.name}", config.db_url(),
+                        f"{uri}/tenants/{org}/workspaces/{pack.name}/lake")
 
 
 @dataclass
@@ -51,9 +82,14 @@ class Lakehouse:
     def __init__(self, pack: Pack):
         self.pack = pack
         p = pack.paths.ensure().lake
-        (p / "warehouse").mkdir(parents=True, exist_ok=True)
-        self.catalog = SqlCatalog(f"ironwright_{pack.name}", uri=f"sqlite:///{p / 'catalog.db'}",
-                                  warehouse=f"file://{p / 'warehouse'}")
+        loc = lake_location(pack)
+        if loc is None:
+            (p / "warehouse").mkdir(parents=True, exist_ok=True)
+            self.catalog = SqlCatalog(f"ironwright_{pack.name}", uri=f"sqlite:///{p / 'catalog.db'}",
+                                      warehouse=f"file://{p / 'warehouse'}")
+        else:
+            self.catalog = SqlCatalog(loc.catalog, uri=loc.catalog_uri, warehouse=loc.warehouse,
+                                      **config.s3_properties())
         for ns in LAYERS:
             self.catalog.create_namespace_if_not_exists(ns)
 

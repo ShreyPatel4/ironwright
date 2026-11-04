@@ -1,0 +1,11 @@
+# One Railway service, built from the repo's Dockerfile.
+# Set this file's path in the service settings. Steps: docs/deploy-hosted.md.
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python -m ironwright.hosted"
+healthcheckPath = "/readyz"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"
