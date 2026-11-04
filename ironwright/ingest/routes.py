@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from starlette.concurrency import run_in_threadpool
 
+from .. import auth
 from ..config import UnsafePath
 from . import uploads
 
@@ -17,7 +18,11 @@ _PART_OVERHEAD = 32 * 1024
 
 
 def current_org() -> str:
-    """The one place a route learns its org. T1 replaces the body with ctx().org_id."""
+    """The one place a route learns its org. T1 replaces the body with ctx().org_id.
+    Until then only dev mode has an org. A real session gets a refusal, because
+    every session sharing one org would break tenant isolation."""
+    if not auth.dev_open():
+        raise HTTPException(503, "uploads are waiting on tenancy")
     return uploads.DEV_ORG
 
 

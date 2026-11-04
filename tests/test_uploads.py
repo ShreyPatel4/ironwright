@@ -318,3 +318,18 @@ def test_uploads_do_not_touch_the_stored_bytes_of_an_earlier_upload(client, root
     first = post(client, ("a.csv", CSV)).json()
     post(client, ("a.csv", b"other,bytes\n1,2\n"))
     assert (uploads_root(root) / first["id"] / "a.csv").read_bytes() == CSV
+
+
+def test_a_real_session_gets_no_org_until_t1_wires_one(monkeypatch):
+    """Every session sharing dev-org would break tenant isolation, so outside dev
+    mode this refuses. A merge that forgets the swap fails closed, not shared."""
+    from fastapi import HTTPException
+
+    monkeypatch.delenv("IRONWRIGHT_DEV_OPEN", raising=False)
+    with pytest.raises(HTTPException) as e:
+        routes.current_org()
+    assert e.value.status_code == 503
+
+
+def test_dev_mode_maps_to_the_dev_org():
+    assert routes.current_org() == uploads.DEV_ORG
