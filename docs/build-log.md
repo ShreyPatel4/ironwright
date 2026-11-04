@@ -153,6 +153,36 @@ Lesson: a surface with no test is a claim, not a feature.
 
 **Fix.** I rebased, deleted my limiter, and pointed S5's at signup and accept-invite too, so there is one limiter on one clock. Lesson: fetch and rebase before the last test run, because the tree I test has to be the tree that merges.
 
+## 13. The contract's own example did not parse
+
+**Symptom.** The first run of the tenant fixture failed with `sources.claims.columns: unknown key 2)`.
+The fixture used the column spelling from contract 3 word for word.
+
+**Cause.** `{name: amount, type: decimal(12,2)}` is a YAML flow mapping, so the comma ends the value.
+YAML reads `type: decimal(12` and a bare key `2)`. I wrote the example without ever loading it.
+
+**Fix.** The loader puts the two halves back together, so the contract's spelling works, and a test
+loads the example as written. Strict validation found this. A loose loader would have stored a broken
+type and carried on. Lesson: load the examples in a contract before you build on them.
+
+**Same run, second catch.** `private_dir` only closes folders it creates. A `tenants/` folder that
+already existed with mode 0755 stayed open, so every org's folder name could be listed. `ensure_tenant`
+now tightens the whole tree on every create.
+
+## 14. A grant that outlived the run
+
+**Symptom.** `make demo-check` was green on a clean data dir and red on the second run. The step
+"a grant is policy the serving engine consults" reported BROKEN, because the first check, which should
+deny, already allowed.
+
+**Cause.** I moved the demo packs to `demo/<pack>/`, but `orgpolicy._target_dir` still built
+`data_root()/<pack>` by hand. Generated policy landed outside the folder `generate` wipes, so grant
+`esc-0001` from the last run stayed in `data/retail/policies.generated.yaml` and kept permitting. The
+suite stayed green because every test starts from an empty root. Only a reused data dir shows it.
+
+**Fix.** `_target_dir` asks `PackPaths`, and a test writes a grant, regenerates and expects no rules.
+Lesson: when a path moves, grep for everyone who spelled it by hand, and run the gate twice on one dir.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.

@@ -330,7 +330,7 @@ def test_packs_keep_hand_written_policy_and_stay_untouched(client, packs_before)
     assert dec.status_code == 200, dec.text
 
     # The grant landed in the data dir, next to the run artifacts.
-    assert (_data() / "retail" / "policies.generated.yaml").exists()
+    assert (_data() / "demo" / "retail" / "policies.generated.yaml").exists()
 
     # A hand-written forbid still beats a generated permit, loudly.
     engine = PolicyEngine({"rules": orgpolicy.combined_rules(

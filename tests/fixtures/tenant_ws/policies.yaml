@@ -1,0 +1,3 @@
+default: deny
+rules:
+  - {id: members-read, effect: permit, principal: "user:*", action: "function:*"}

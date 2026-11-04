@@ -123,7 +123,7 @@ def test_pack_paths_cannot_leave_the_data_root(root, name):
 
 def test_pack_paths_report_names_are_checked(root):
     paths = config.PackPaths("retail")
-    assert paths.report("evals") == root.resolve() / "retail" / "reports" / "evals.json"
+    assert paths.report("evals") == root.resolve() / "demo" / "retail" / "reports" / "evals.json"
     for bad in ("../../supply_chain/reports/evals", "%2e%2e%2fevals", "/etc/passwd"):
         with pytest.raises(config.UnsafePath):
             paths.report(bad)

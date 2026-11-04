@@ -7,6 +7,8 @@
   level exists so generated is never confused with proven.
 - L1: everything else, including a pack that has not run on this machine and
   a user's own files. No ground truth; the badge says exactly that.
+  A tenant workspace is always L1, whatever files sit in its run folder: its
+  checks are structural and reconciliation, and it has no ground truth contract.
 
 The UI renders this on every workspace and every answer; a test asserts the
 derivation matches the artifacts, so overclaiming a level is a red suite.
@@ -28,15 +30,23 @@ def derive_organization(org_dir) -> dict[str, Any]:
             "meaning": "generated scenario, structural invariants only"}
 
 
-def derive(pack: Pack) -> dict[str, Any]:
-    ground_truth = pack.paths.ground_truth.exists()
+def _evals_green(pack: Pack) -> bool:
     evals_path = pack.paths.reports / "evals.json"
-    evals_green = False
     if evals_path.exists():
         try:
-            evals_green = json.loads(evals_path.read_text()).get("passed") is True
-        except (json.JSONDecodeError, OSError):
-            evals_green = False
+            return json.loads(evals_path.read_text()).get("passed") is True
+        except (json.JSONDecodeError, OSError, AttributeError):
+            return False
+    return False
+
+
+def derive(pack: Pack) -> dict[str, Any]:
+    if pack.is_tenant:
+        return {"level": "L1", "ground_truth": False, "evals_green": _evals_green(pack),
+                "scenario_provenance": False,
+                "meaning": "your own files, no ground truth; structural and reconciliation checks only"}
+    ground_truth = pack.paths.ground_truth.exists()
+    evals_green = _evals_green(pack)
     scenario = (pack.paths.root / "scenario.yaml").exists()
 
     if ground_truth and evals_green:

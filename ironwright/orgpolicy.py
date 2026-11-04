@@ -40,7 +40,7 @@ import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .config import PACKS_DIR, data_root
+from .config import PACKS_DIR, PackPaths, data_root
 from .packs import list_packs, load_pack
 
 GENERATED_FILE = "policies.generated.yaml"
@@ -155,10 +155,10 @@ def read_org(name: str) -> dict[str, Any]:
 
 def _target_dir(name: str) -> Path:
     """Where generated policy lives: always the workspace's data directory.
-    For a pack that is data_root()/<pack>, beside its run artifacts. The
+    For a pack that is its run folder, demo/<pack>, beside its run artifacts. The
     pack source tree under ironwright/packs/ is never a write target."""
     if name in list_packs():
-        d = (data_root() / name).resolve()
+        d = PackPaths(name).root.resolve()
     else:
         d = _org_dir(name).resolve()
     packs = PACKS_DIR.resolve()

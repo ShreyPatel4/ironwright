@@ -231,7 +231,7 @@ def test_embed_config_round_trips_through_the_api(client):
     assert back["saved_at"] > 0
 
     # persisted as bi.json under the workspace data dir, the boards pattern
-    f = Path(os.environ["IRONWRIGHT_DATA"]) / "retail" / "bi.json"
+    f = Path(os.environ["IRONWRIGHT_DATA"]) / "demo" / "retail" / "bi.json"
     assert f.exists()
     assert json.loads(f.read_text())["url"] == GOOD_URL
 

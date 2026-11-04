@@ -7,6 +7,9 @@ A pack is a folder with:
   ontology.yaml    object types, resolution, precedence, links, functions, actions
   policies.yaml    Cedar-style permit/forbid rules
   usecases.yaml    agent decisions, evidence, diagnosis rules
+
+A tenant workspace is the same Pack with no generator, loaded through
+workspaces_tenant.load_workspace from the tenant's own folder.
 """
 from __future__ import annotations
 
@@ -21,6 +24,10 @@ import yaml
 from .config import PACKS_DIR, PackPaths
 
 
+class NoGenerator(ValueError):
+    """Asked a tenant workspace for its generator."""
+
+
 @dataclass
 class Pack:
     name: str
@@ -29,16 +36,25 @@ class Pack:
     ontology: dict[str, Any]
     policies: dict[str, Any]
     usecases: dict[str, Any]
+    run_root: Path | None = None
     paths: PackPaths = field(init=False)
 
     def __post_init__(self) -> None:
-        self.paths = PackPaths(self.name)
+        self.paths = PackPaths(self.name, self.run_root)
+
+    @property
+    def is_tenant(self) -> bool:
+        """A tenant workspace: the tenant's own files, no generator, no ground truth."""
+        return self.spec.get("kind") == "workspace"
 
     @property
     def title(self) -> str:
         return self.spec.get("title", self.name)
 
     def generator(self) -> ModuleType:
+        if self.is_tenant:
+            # Whatever sits in a tenant's folder is data. It is never imported.
+            raise NoGenerator(f"{self.name} is a tenant workspace and has no generator")
         spec = importlib.util.spec_from_file_location(f"ironwright_pack_{self.name}", self.dir / "generator.py")
         mod = importlib.util.module_from_spec(spec)
         assert spec and spec.loader

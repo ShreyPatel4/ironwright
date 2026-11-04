@@ -76,7 +76,7 @@ def test_nothing_in_one_workspace_is_observable_from_the_other(two_workspaces):
 
 
 def test_workspace_data_stays_under_its_own_root(two_workspaces):
-    root = two_workspaces
+    root = two_workspaces / "demo"
     for name in (A, B):
         pack = load_pack(name)
         assert str(pack.paths.root).startswith(str(root / name)), (
@@ -112,14 +112,15 @@ def test_a_board_in_one_workspace_cannot_be_reached_from_the_other(two_workspace
 
 
 def test_a_report_name_cannot_climb_into_the_other_workspace(two_workspaces):
-    assert (two_workspaces / A / "reports" / "reconcile.json").exists()
+    assert (two_workspaces / "demo" / A / "reports" / "reconcile.json").exists()
     for name in (f"../../{A}/reports/reconcile", f"%2e%2e%2f%2e%2e%2f{A}%2freports%2freconcile"):
         with pytest.raises(UnsafePath):
             load_pack(B).paths.report(name)
 
 
 def test_a_workspace_on_disk_is_closed_to_other_users(two_workspaces):
-    root = two_workspaces
+    assert stat.S_IMODE(two_workspaces.stat().st_mode) == 0o700
+    root = two_workspaces / "demo"
     assert stat.S_IMODE(root.stat().st_mode) == 0o700
     for name in (A, B):
         load_pack(name).paths.ensure()
