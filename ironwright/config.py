@@ -213,10 +213,9 @@ def setting(name: str, default: str | None = None) -> str | None:
 
 # Every hosted setting is an environment variable, documented in docs/deploy-hosted.md.
 def db_url() -> str:
-    """The metadata store. Bare postgres URLs name the driver we ship: left alone,
-    SQLAlchemy would reach for psycopg2, which the image does not have."""
-    url = setting("DB_URL") or f"sqlite:///{data_root() / 'meta.sqlite'}"
-    return re.sub(r"^postgres(ql)?://", "postgresql+psycopg://", url)
+    """The metadata store. Tenancy owns the rule, so the catalog can never land elsewhere."""
+    from .tenancy.db import _current_url
+    return _current_url()
 
 
 def lake_uri() -> str | None:

@@ -36,17 +36,18 @@ curl -s http://127.0.0.1:8000/readyz
 `/readyz` returns `{"status":"ready","checks":{"db":"ok","object_store":"ok"}}` when the stack is up.
 The console is at `http://127.0.0.1:8000/console/`.
 
-The door is closed by default, so you need an account:
+The door is closed by default. Sign up to make an org and get a token:
 
 ```bash
-docker compose -f deploy/compose.yaml exec api ironwright auth-set
+curl -s http://127.0.0.1:8000/auth/signup -H 'content-type: application/json' \
+  -d '{"email":"me@example.com","password":"at-least-8-chars","org_name":"Acme"}'
 ```
 
-To walk the whole stack with the smoke script, start it open. This is for tests and for your own
-machine only.
+The four demo packs are read only to every org, so an operator builds them from inside the container.
+Then the smoke script walks the stack as two signed-up orgs. It refuses a server with the door open.
 
 ```bash
-IRONWRIGHT_DEV_OPEN=1 docker compose -f deploy/compose.yaml up --build -d
+docker compose -f deploy/compose.yaml exec api ironwright run --pack all
 python deploy/hosted_smoke.py --base http://127.0.0.1:8000
 ```
 
@@ -184,8 +185,9 @@ Four things to know before you rely on it:
 
 ## What CI proves
 
-The `hosted-smoke` job builds the image, boots the stack and runs `deploy/hosted_smoke.py`. Then it
-checks that the catalog rows are in Postgres, the parquet files are in the bucket, none are on the
+The `hosted-smoke` job builds the image, boots the stack with the door closed, builds the demo packs
+and runs `deploy/hosted_smoke.py`. That walks signup, a demo pack read, a refused demo pack write, and
+one org failing to see another's workspace. Then the job checks that the catalog rows are in Postgres, the parquet files are in the bucket, none are on the
 disk, and the API is not root. It also runs `tests/test_hosted.py` against that same gateway and a real Postgres
 and fails if any test skips.
 

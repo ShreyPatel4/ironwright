@@ -1,11 +1,11 @@
-"""Walk a running hosted stack from the outside. Standard library only, so it
-runs anywhere. It prints one line per step and exits non-zero at the first break.
+"""Walk a running hosted stack from the outside, as signed-up orgs, with the door closed.
+Standard library only, so it runs anywhere. It prints one line per step and exits
+non-zero at the first break.
 
     python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 180
 
-The stack must allow the calls: IRONWRIGHT_DEV_OPEN=1 until T1's sign-up lands.
-Runs go through /jobs when that route exists and through the synchronous run
-route when it does not.
+The demo packs must be built first (`ironwright run --pack all` in the container),
+because a tenant can only read them.
 """
 from __future__ import annotations
 
@@ -15,15 +15,18 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from typing import Any
 
 PACKS = ("retail", "supply_chain", "banking_aml", "insurance_claims")
-RUN_TIMEOUT = 600
 
 
-def call(base: str, path: str, body: Any = None, timeout: float = 10) -> tuple[int, bytes]:
+def call(base: str, path: str, body: Any = None, token: str | None = None, timeout: float = 60) -> tuple[int, bytes]:
     data = None if body is None else json.dumps(body).encode()
-    req = urllib.request.Request(base + path, data=data, headers={"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(base + path, data=data, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, r.read()
@@ -53,24 +56,12 @@ def wait_ready(base: str, seconds: float) -> None:
     step("/readyz", False, f"not ready after {seconds}s: {last}")
 
 
-def run_with_jobs(base: str, pack: str) -> None:
-    status, raw = call(base, "/jobs", {"kind": "run", "workspace": pack, "params": {}})
-    step(f"enqueue {pack}", status in (200, 201), raw[:200])
-    job = json.loads(raw)["id"]
-    deadline = time.monotonic() + RUN_TIMEOUT
-    state = "queued"
-    while time.monotonic() < deadline:
-        state = json.loads(call(base, f"/jobs/{job}")[1])["state"]
-        if state in ("succeeded", "failed", "cancelled"):
-            break
-        time.sleep(2)
-    step(f"job {pack}", state == "succeeded", state)
-
-
-def run_sync(base: str, pack: str) -> None:
-    status, raw = call(base, f"/workspaces/{pack}/runs", {}, timeout=RUN_TIMEOUT)
-    step(f"run {pack}", status == 200, raw[:200] if status != 200 else "")
-    step(f"evals {pack}", json.loads(raw)["evals"]["passed"] is True)
+def signup(base: str, label: str) -> dict[str, Any]:
+    tag = uuid.uuid4().hex[:10]
+    status, raw = call(base, "/auth/signup", {"email": f"smoke-{tag}@example.com", "password": uuid.uuid4().hex,
+                                              "org_name": f"Smoke {label} {tag}"})
+    step(f"signup org {label}", status == 201, raw[:200] if status != 201 else "")
+    return json.loads(raw)
 
 
 def main() -> None:
@@ -86,19 +77,31 @@ def main() -> None:
     status, raw = call(base, "/console/")
     step("console is built in", status == 200 and b"<html" in raw.lower(), status)
 
-    has_jobs = call(base, "/jobs?workspace=retail")[0] != 404
-    print(f"runs go through {'/jobs' if has_jobs else 'the synchronous route'}", flush=True)
+    step("the door is closed", json.loads(call(base, "/auth/status")[1])["dev_open"] is False)
+    step("no token, no workspaces", call(base, "/workspaces")[0] == 401)
+    a, b = signup(base, "a"), signup(base, "b")
+    status, raw = call(base, "/auth/me", token=a["token"])
+    step("a token is one org", status == 200 and json.loads(raw)["org_id"] == a["org_id"] != b["org_id"])
+
     for pack in args.packs:
-        (run_with_jobs if has_jobs else run_sync)(base, pack)
+        status, raw = call(base, f"/workspaces/{pack}/reports/evals", token=a["token"])
+        step(f"evals {pack}", status == 200 and json.loads(raw).get("passed") is True, raw[:200] if status != 200 else "")
 
     pack = args.packs[0]
-    status, raw = call(base, f"/workspaces/{pack}/lake/tables", timeout=60)
+    status, raw = call(base, f"/workspaces/{pack}/lake/tables", token=a["token"])
     tables = json.loads(raw) if status == 200 else []
     gold = next((t["name"] for t in tables if t["layer"] == "gold"), None)
-    step("lake lists tables", gold is not None, f"{len(tables)} tables")
+    step("a tenant reads the demo lake", gold is not None, f"{len(tables)} tables")
     status, raw = call(base, f"/workspaces/{pack}/lake/query",
-                       {"sql": f"select count(*) as n from gold_{gold}"}, timeout=60)
-    step("lake answers a query", status == 200 and int(json.loads(raw)["rows"][0][0]) > 0, raw[:120])
+                       {"sql": f"select count(*) as n from gold_{gold}"}, token=a["token"])
+    step("the lake answers a query", status == 200 and int(json.loads(raw)["rows"][0][0]) > 0, raw[:120])
+    step("a tenant cannot run a demo pack", call(base, f"/workspaces/{pack}/runs", {}, token=a["token"])[0] == 403)
+
+    status, raw = call(base, "/workspaces", {"name": "smoke", "size": 4, "seed": 3}, token=a["token"], timeout=120)
+    step("org a makes a workspace", status == 201, raw[:200] if status != 201 else "")
+    ws = json.loads(raw)["name"]
+    step("org a sees it", call(base, f"/workspaces/{ws}/organization", token=a["token"])[0] == 200)
+    step("org b gets a 404", call(base, f"/workspaces/{ws}/organization", token=b["token"])[0] == 404)
     print("smoke passed", flush=True)
 
 

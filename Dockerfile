@@ -15,13 +15,11 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.3 /uv /usr/local/bin/uv
 ENV UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-install-project
+RUN uv sync --frozen --extra postgres --no-install-project
 COPY ironwright/ ironwright/
 # Editable on purpose: the app finds console/dist relative to its own source,
 # so the source has to stay at /app and not move into site-packages.
-RUN uv sync --frozen
-# The Postgres driver is a dev-only extra in pyproject today. Pinned to the lock.
-RUN uv pip install --python .venv/bin/python "psycopg[binary]==3.3.6"
+RUN uv sync --frozen --extra postgres
 
 FROM python:3.12-slim
 RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin ironwright \

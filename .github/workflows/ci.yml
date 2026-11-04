@@ -47,7 +47,6 @@ jobs:
     timeout-minutes: 30
     env:
       COMPOSE_FILE: deploy/compose.yaml
-      IRONWRIGHT_DEV_OPEN: "1"
     defaults:
       run:
         shell: bash   # stated, so GitHub adds pipefail: a pipe into tee must not hide a failure
@@ -57,7 +56,11 @@ jobs:
         with: { python-version: "3.12" }
       - run: docker compose build
       - run: docker compose up -d
-      - run: python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 180
+      - name: An operator builds the demo packs, which tenants only read
+        run: |
+          timeout 180 bash -c 'until curl -sf http://127.0.0.1:8000/readyz; do sleep 2; done'
+          docker compose exec -T api ironwright run --pack all
+      - run: python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 30
       - name: The catalog is in postgres
         run: |
           n=$(docker compose exec -T postgres psql -U ironwright -d ironwright -Atc \
@@ -80,7 +83,6 @@ jobs:
         run: docker compose down -v
       - name: Object store tests on the same store and postgres, with no skips
         env:
-          IRONWRIGHT_DEV_OPEN: ""
           POSTGRES_URI: postgresql://postgres:iw@127.0.0.1:5433/postgres
           IRONWRIGHT_TEST_S3_ENDPOINT: http://127.0.0.1:9100
           IRONWRIGHT_TEST_S3_KEY: iwtest

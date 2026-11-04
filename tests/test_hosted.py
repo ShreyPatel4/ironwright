@@ -402,3 +402,23 @@ def test_the_kill_switch_does_not_take_the_health_routes_down(closed_door, monke
 def test_compose_states_both_exposure_keys():
     env = _compose()["services"]["api"]["environment"]
     assert env["IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED"] == "1"
+
+
+# ---------------------------------------------------------------- with T1's tenancy
+@pytest.mark.parametrize("given", [None, "postgres://u:p@db/iw?options=-csearch_path%3Dx"])
+def test_the_lake_catalog_and_tenancy_use_one_store(monkeypatch, given):
+    from ironwright.tenancy import db
+    if given:
+        monkeypatch.setenv("IRONWRIGHT_DB_URL", given)
+    assert config.db_url() == db._current_url()
+
+
+def test_the_image_gets_the_postgres_driver_from_the_lock():
+    text = (REPO / "Dockerfile").read_text()
+    assert "--extra postgres" in text
+    assert "uv pip install" not in text, "a pin outside the lock drifts from it"
+
+
+def test_the_ci_smoke_runs_with_the_door_closed():
+    ci = yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
+    assert "IRONWRIGHT_DEV_OPEN" not in (ci["jobs"]["hosted-smoke"].get("env") or {})
