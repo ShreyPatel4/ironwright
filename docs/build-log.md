@@ -80,6 +80,23 @@ from the session.
 A real parked approval caught one more. `approved_by: "agent:spoofed"` on `/decide` applied the action.
 It now gets a 422. A role can still sign, because tying a person to a role needs a model I don't have yet.
 
+## 7. A delete that could leave the data root
+
+**Symptom.** A new test sent `DELETE /workspaces/%2e%2e` and the folder above the data root was gone.
+The same spelling on `GET /workspaces/%2e%2e/organization` returned an `org.json` planted up there.
+
+**Cause.** The server decodes `%2e%2e` to `..`, and that is one path segment, so it matches the route.
+Only create checked the name. Read and delete joined it straight onto the data root. Delete trusted
+`scenario.yaml` as proof that I made a folder, and any folder can hold one of those.
+
+**Fix.** Every request value now goes through `safe_child`: a regex on the name, then the resolved path
+must equal `root/name`. Delete needs a marker written at create that names the folder. Create refuses
+any folder that already exists.
+
+The same tests found two quieter ones. An organization named `auth` moved into the credentials folder,
+so deleting it deleted the credentials. And the slug regexes used `$` with `.match`, which lets a trailing
+newline through. Those are now a reserved name and `fullmatch`.
+
 ## Smaller ones
 
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.
