@@ -12,6 +12,7 @@ import sqlalchemy as sa
 from fastapi.testclient import TestClient
 
 from ironwright import auth
+from ironwright.api import LOGIN_ATTEMPTS, LOGIN_WINDOW_S
 from ironwright.tenancy import db, service
 from ironwright.tenancy.models import DEV_ORG_ID, Ctx
 
@@ -351,25 +352,57 @@ def test_set_account_seeds_an_owner_in_the_dev_org(client):
 
 # ----- rate limits
 
-@pytest.mark.parametrize("path,body", [
+DOORS = [
     ("/auth/login", {"email": "x@a.example", "password": "wrong-password"}),
     ("/auth/signup", {"email": "bad", "password": "x", "org_name": "y"}),
     ("/auth/accept-invite", {"token": "nope", "password": "x"}),
-])
-def test_door_routes_are_rate_limited_per_ip(client, monkeypatch, path, body):
-    answered = [client.post(path, json=body).status_code for _ in range(auth.AUTH_ATTEMPTS)]
-    assert 429 not in answered
-    limited = client.post(path, json=body)
+]
+
+
+def _served(now):
+    """harden() is what `ironwright platform` serves, and it owns the limiter."""
+    from ironwright.api import harden
+    from ironwright.platform_api import create_platform_app
+    app = harden(create_platform_app(), clock=lambda: now[0])
+    return lambda ip: TestClient(app, client=(ip, 5000), raise_server_exceptions=False)
+
+
+@pytest.mark.parametrize("path,body", DOORS)
+def test_door_routes_are_rate_limited_per_ip(meta_db, path, body):
+    now = [1000.0]
+    served = _served(now)
+    c = served("10.0.0.1")
+    assert 429 not in [c.post(path, json=body).status_code for _ in range(LOGIN_ATTEMPTS)]
+    limited = c.post(path, json=body)
     assert limited.status_code == 429 and int(limited.headers["retry-after"]) >= 1
-    other = TestClient(client.app, client=("10.0.0.9", 50000))
-    assert other.post(path, json=body).status_code != 429
-    start = auth._now()
-    monkeypatch.setattr(auth, "_now", lambda: start + auth.AUTH_WINDOW + 1)
-    assert client.post(path, json=body).status_code != 429
+    assert served("10.0.0.2").post(path, json=body).status_code != 429
+    now[0] += LOGIN_WINDOW_S + 1
+    assert c.post(path, json=body).status_code != 429
 
 
-def test_a_forwarded_header_cannot_dodge_the_limit(client):
-    body = {"email": "x@a.example", "password": "wrong-password"}
-    codes = [client.post("/auth/login", json=body, headers={"X-Forwarded-For": f"10.1.1.{i}"}).status_code
-             for i in range(auth.AUTH_ATTEMPTS + 1)]
+@pytest.mark.parametrize("path,body", DOORS)
+def test_a_forwarded_header_cannot_dodge_the_limit(meta_db, path, body):
+    c = _served([1000.0])("10.0.0.1")
+    codes = [c.post(path, json=body, headers={"X-Forwarded-For": f"10.1.1.{i}"}).status_code
+             for i in range(LOGIN_ATTEMPTS + 1)]
     assert codes[-1] == 429
+
+
+def test_each_door_counts_for_itself(meta_db):
+    """Someone mistyping a password can still accept the invite in their inbox."""
+    c = _served([1000.0])("10.0.0.1")
+    (path, body), *others = DOORS
+    for _ in range(LOGIN_ATTEMPTS + 1):
+        c.post(path, json=body)
+    assert c.post(path, json=body).status_code == 429
+    for other, other_body in others:
+        assert c.post(other, json=other_body).status_code != 429
+
+
+def test_the_app_has_one_limiter_and_harden_owns_it(meta_db):
+    """Two stacked limiters on different clocks: the second kept refusing after the first let go."""
+    from ironwright.platform_api import create_platform_app
+    with TestClient(create_platform_app()) as bare:
+        body = {"email": "x@a.example", "password": "wrong-password"}
+        assert {bare.post("/auth/login", json=body).status_code
+                for _ in range(LOGIN_ATTEMPTS + 2)} == {401}

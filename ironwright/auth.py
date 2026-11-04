@@ -12,9 +12,7 @@ prompts for the password so no secret ever lands in code, logs or history.
 from __future__ import annotations
 
 import os
-import threading
 import time
-from collections import defaultdict, deque
 from typing import Any
 
 from fastapi import HTTPException, Request
@@ -30,8 +28,6 @@ IDLE_SECONDS = service.IDLE_SECONDS
 # route dependencies never reach.
 PUBLIC_ROUTES = frozenset({"/auth/status", "/auth/login", "/auth/signup",
                            "/auth/accept-invite", "/"})
-AUTH_ATTEMPTS = 10
-AUTH_WINDOW = 60
 
 _now = time.time
 
@@ -78,36 +74,6 @@ def ctx(request: Request) -> Ctx:
         raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
     request.state.ctx = found
     return found
-
-
-class DoorLimit:
-    """Attempts per IP per route, per app, in memory: each worker counts for itself.
-
-    The key is the socket peer. X-Forwarded-For is whatever the client wants it
-    to be, so a proxy in front must set the peer address (uvicorn --proxy-headers).
-    """
-
-    MAX_KEYS = 50_000
-
-    def __init__(self) -> None:
-        self._hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
-        self._lock = threading.Lock()
-
-    def __call__(self, request: Request) -> None:
-        now = _now()
-        host = request.client.host if request.client else "unknown"
-        key = (request.url.path, host)
-        with self._lock:
-            if len(self._hits) > self.MAX_KEYS:
-                self._hits.clear()
-            hits = self._hits[key]
-            while hits and now - hits[0] >= AUTH_WINDOW:
-                hits.popleft()
-            if len(hits) >= AUTH_ATTEMPTS:
-                wait = max(1, int(AUTH_WINDOW - (now - hits[0])) + 1)
-                raise HTTPException(429, "too many attempts, try again soon",
-                                    headers={"Retry-After": str(wait)})
-            hits.append(now)
 
 
 def describe(found: Ctx) -> dict[str, Any]:

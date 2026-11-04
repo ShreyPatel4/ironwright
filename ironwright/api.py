@@ -41,6 +41,8 @@ from .tracing import Tracer
 MAX_BODY_BYTES = 2 * 1024 * 1024
 LOGIN_ATTEMPTS = 10           # per IP, per window
 LOGIN_WINDOW_S = 60.0
+# Every route that takes a password with no session behind it.
+DOORS = frozenset({"/auth/login", "/auth/signup", "/auth/accept-invite"})
 
 # The console's own needs and nothing more. frame-src is open to http(s) because
 # the BI embed is a URL the user chose, rendered in a sandboxed iframe.
@@ -141,7 +143,7 @@ class KillSwitch:
 
 
 class LoginLimit:
-    """Keys on the socket's address. X-Forwarded-For is client text, so it never counts."""
+    """Attempts per door, per socket address. X-Forwarded-For is client text, so it never counts."""
 
     def __init__(self, app, attempts: int = LOGIN_ATTEMPTS, window: float = LOGIN_WINDOW_S,
                  clock: Callable[[], float] = time.monotonic) -> None:
@@ -149,15 +151,15 @@ class LoginLimit:
         self.attempts = attempts
         self.window = window
         self.clock = clock
-        self.hits: dict[str, deque[float]] = {}
+        self.hits: dict[tuple[str, str], deque[float]] = {}
 
     async def __call__(self, scope, receive, send) -> None:
-        if scope["type"] == "http" and scope["method"] == "POST" and scope["path"] == "/auth/login":
+        if scope["type"] == "http" and scope["method"] == "POST" and scope["path"] in DOORS:
             now = self.clock()
-            for ip in [ip for ip, hits in self.hits.items() if now - hits[-1] >= self.window]:
-                del self.hits[ip]     # keeps the table as small as the live attackers
+            for key in [k for k, hits in self.hits.items() if now - hits[-1] >= self.window]:
+                del self.hits[key]    # keeps the table as small as the live attackers
             ip = scope["client"][0] if scope.get("client") else "unknown"
-            hits = self.hits.setdefault(ip, deque())
+            hits = self.hits.setdefault((scope["path"], ip), deque())
             while hits and now - hits[0] >= self.window:
                 hits.popleft()
             if len(hits) >= self.attempts:

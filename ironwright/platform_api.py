@@ -257,7 +257,6 @@ def create_platform_app() -> FastAPI:
                   dependencies=[Depends(_gate)],
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(auth_mod.BindPrincipalHeader)
-    door = [Depends(auth_mod.DoorLimit())]
 
     @app.get("/workspaces")
     def workspaces(c: CtxDep) -> list[dict[str, Any]]:
@@ -372,7 +371,7 @@ def create_platform_app() -> FastAPI:
                 "note": "Every API route needs a session. Sign up to make an org, "
                         "or accept an invite to join one."}
 
-    @app.post("/auth/signup", status_code=201, dependencies=door)
+    @app.post("/auth/signup", status_code=201)
     def auth_signup(body: SignupBody) -> dict[str, Any]:
         try:
             return tenancy.signup(body.email, body.password, body.org_name, auth_mod._now())
@@ -381,14 +380,14 @@ def create_platform_app() -> FastAPI:
         except tenancy.EmailTaken as e:
             raise HTTPException(409, "that email already has an account; sign in instead") from e
 
-    @app.post("/auth/login", dependencies=door)
+    @app.post("/auth/login")
     def auth_login(body: LoginBody) -> dict[str, Any]:
         try:
             return tenancy.login(body.email, body.password, auth_mod._now())
         except tenancy.BadCredentials as e:
             raise HTTPException(401, "that email and password do not match") from e
 
-    @app.post("/auth/accept-invite", dependencies=door)
+    @app.post("/auth/accept-invite")
     def auth_accept_invite(body: AcceptInviteBody) -> dict[str, Any]:
         try:
             return tenancy.accept_invite(body.token, body.password, auth_mod._now())
