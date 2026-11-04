@@ -21,7 +21,9 @@ from ironwright.jobs import handlers, routes
 from ironwright.jobs import store as store_mod
 from ironwright.jobs.store import JobStore
 from ironwright.jobs.worker import Worker
-from ironwright.platform_api import create_platform_app
+from ironwright.platform_api import NOT_FOUND, create_platform_app
+from ironwright.tenancy import DEV_ORG_ID
+from ironwright.tenancy import db as tenancy_db
 
 
 @pytest.fixture()
@@ -43,7 +45,7 @@ def db_url(request, tmp_path, monkeypatch) -> str:
         url = f"{uri}{sep}options=-csearch_path%3D{schema}"
     monkeypatch.setenv("IRONWRIGHT_DB_URL", url)
     yield url
-    store_mod.dispose_engines()
+    tenancy_db.dispose_current()
 
 
 @pytest.fixture()
@@ -74,6 +76,7 @@ def _race(store_factory, workers: int, rounds: int) -> list[str]:
                 with lock:
                     claimed.append(got["id"])
                 s.finish(got["id"], got["token"], "succeeded")
+            s.engine.dispose()
         except BaseException as e:  # noqa: BLE001  surfaced by the assert below
             errors.append(e)
 
@@ -112,6 +115,7 @@ def _hold_race(workers: int, tries: int, cap: int) -> list[dict]:
                 if got:
                     with lock:
                         held.append(got)
+            s.engine.dispose()
         except BaseException as e:  # noqa: BLE001  surfaced by the assert below
             errors.append(e)
 
@@ -178,7 +182,7 @@ def test_many_processes_can_boot_on_an_empty_database(db_url):
     def boot() -> None:
         try:
             barrier.wait()
-            JobStore(fresh_engine=True)
+            JobStore(fresh_engine=True).engine.dispose()
         except Exception as e:  # noqa: BLE001  surfaced by the assert below
             errors.append(e)
 
@@ -632,7 +636,7 @@ def test_a_waited_run_that_fails_is_not_a_200(client, monkeypatch):
 
 def test_a_waited_run_behind_a_busy_org_returns_queued_not_a_hang(client, store, monkeypatch):
     monkeypatch.setattr(routes, "RUN_WAIT_SECONDS", 0.1)
-    store.enqueue(routes.DEV_ORG, "retail", "run", "user:a", {})
+    store.enqueue(DEV_ORG_ID, "retail", "run", "user:a", {})
     store.claim("other")
     r = client.post("/workspaces/retail/runs", json={"seed": 7})
     assert r.status_code == 202
@@ -652,7 +656,7 @@ def test_post_jobs_returns_only_an_id(client):
     assert set(r.json()) == {"id"}
     got = client.get(f"/jobs/{r.json()['id']}").json()
     assert got["kind"] == "profile" and got["workspace"] == "claims"
-    assert got["org_id"] == routes.DEV_ORG
+    assert got["org_id"] == DEV_ORG_ID
     assert got["created_by"] == "user:console"
 
 
@@ -713,12 +717,97 @@ def test_job_routes_are_closed_without_a_session(db_url, monkeypatch):
         assert c.post("/workspaces/retail/runs", json={}).status_code == 401
 
 
+# --- real sessions (T1)
+
+
+def _bearer(session: dict) -> dict[str, str]:
+    return {"Authorization": f"Bearer {session['token']}"}
+
+
+@pytest.fixture()
+def orgs(meta_db):
+    with TestClient(create_platform_app()) as c:
+        a = c.post("/auth/signup", json={"email": "a@a.example", "password": "correct-horse-9",
+                                         "org_name": "Alpha org"}).json()
+        b = c.post("/auth/signup", json={"email": "b@b.example", "password": "correct-horse-9",
+                                         "org_name": "Beta org"}).json()
+        ws = c.post("/workspaces", headers=_bearer(a), json={"name": "claims", "size": 4, "seed": 3})
+        assert ws.status_code == 201, ws.text
+        yield c, a, b, ws.json()["name"]
+
+
+def _join(c, owner: dict, email: str, role: str) -> dict:
+    tok = c.post(f"/orgs/{owner['org_slug']}/invites", headers=_bearer(owner),
+                 json={"email": email, "role": role}).json()["token"]
+    return c.post("/auth/accept-invite", json={"token": tok, "password": "correct-horse-9"}).json()
+
+
+def test_a_job_belongs_to_the_session_org_and_principal(orgs):
+    c, a, _, ws = orgs
+    j = c.post("/jobs", headers=_bearer(a), json={"kind": "profile", "workspace": ws}).json()["id"]
+    got = c.get(f"/jobs/{j}", headers=_bearer(a)).json()
+    assert got["org_id"] == a["org_id"]
+    assert got["created_by"] == f"user:{a['user_id']}"
+
+
+def test_a_body_cannot_set_the_org(orgs):
+    c, a, _, ws = orgs
+    r = c.post("/jobs", headers=_bearer(a),
+               json={"kind": "profile", "workspace": ws, "org_id": DEV_ORG_ID})
+    assert c.get(f"/jobs/{r.json()['id']}", headers=_bearer(a)).json()["org_id"] == a["org_id"]
+
+
+def test_the_worker_runs_a_tenant_job_under_its_own_org(orgs, handler):
+    c, a, _, ws = orgs
+    seen = {}
+
+    @handler("t_tenant")
+    def grab(ctx, workspace, params, log):
+        seen.update(org=ctx.org_id, principal=ctx.principal)
+        log("mine")
+
+    j = c.post("/jobs", headers=_bearer(a), json={"kind": "t_tenant", "workspace": ws}).json()["id"]
+    Worker().run_once()
+    assert seen == {"org": a["org_id"], "principal": f"user:{a['user_id']}"}
+    assert (data_root() / "tenants" / a["org_id"] / "jobs" / f"{j}.log").exists()
+    assert "mine" in c.get(f"/jobs/{j}/log", headers=_bearer(a)).json()["data"]
+
+
+def test_naming_another_orgs_workspace_looks_like_naming_nothing(orgs):
+    """The gate cannot see a body, so this handler has to ask itself."""
+    c, a, b, ws = orgs
+    theirs = c.post("/jobs", headers=_bearer(b), json={"kind": "profile", "workspace": ws})
+    ghost = c.post("/jobs", headers=_bearer(b), json={"kind": "profile", "workspace": "no-such-ws"})
+    assert theirs.status_code == 404
+    assert (theirs.status_code, theirs.content) == (ghost.status_code, ghost.content)
+    assert theirs.json() == {"detail": NOT_FOUND}
+    assert c.get("/jobs", headers=_bearer(b)).json() == []
+    assert c.get("/jobs", headers=_bearer(a)).json() == []
+
+
+def test_a_tenant_cannot_queue_a_write_on_a_demo_pack(orgs):
+    c, a, _, _ = orgs
+    r = c.post("/jobs", headers=_bearer(a), json={"kind": "run", "workspace": "retail"})
+    assert r.status_code == 403
+    assert c.get("/jobs", headers=_bearer(a)).json() == []
+
+
+def test_roles_on_job_writes(orgs):
+    c, a, _, ws = orgs
+    viewer = _join(c, a, "v@a.example", "viewer")
+    member = _join(c, a, "m@a.example", "member")
+    body = {"kind": "profile", "workspace": ws}
+    assert c.post("/jobs", headers=_bearer(viewer), json=body).status_code == 403
+    made = c.post("/jobs", headers=_bearer(member), json=body)
+    assert made.status_code == 200, made.text
+    j = made.json()["id"]
+    assert c.get(f"/jobs/{j}", headers=_bearer(viewer)).status_code == 200
+    assert c.get(f"/jobs/{j}/log", headers=_bearer(viewer)).status_code == 200
+    assert c.post(f"/jobs/{j}/cancel", headers=_bearer(viewer)).status_code == 403
+    assert c.post(f"/jobs/{j}/cancel", headers=_bearer(member)).status_code == 200
+
+
 # --- engine and CLI
-
-
-def test_postgres_urls_use_the_driver_we_ship():
-    assert store_mod.driver_url("postgresql://u@h/d") == "postgresql+psycopg://u@h/d"
-    assert store_mod.driver_url("sqlite:///x.db") == "sqlite:///x.db"
 
 
 def test_default_database_is_a_private_file_under_the_data_root(tmp_path, monkeypatch):
@@ -729,7 +818,7 @@ def test_default_database_is_a_private_file_under_the_data_root(tmp_path, monkey
         path = tmp_path / "root" / "meta.sqlite"
         assert path.stat().st_mode & 0o777 == 0o600
     finally:
-        store_mod.dispose_engines()
+        tenancy_db.dispose_current()
 
 
 def test_worker_once_with_nothing_queued_returns(db_url, capsys):

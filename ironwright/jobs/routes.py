@@ -1,39 +1,42 @@
 """The jobs API (contract 4) and the enqueue behind POST /workspaces/{name}/runs.
 
 Every lookup is scoped to the caller's org in the store, so another org's job id
-reads as 404 on every route. Until T1 merges the org is DEV_ORG; request_org is
-the one line T1 swaps for ctx().
+reads as 404 on every route. The org and principal come from ctx(), never from
+the request body.
 """
 from __future__ import annotations
 
 import json
 import os
 import time
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 
-from .. import auth as auth_mod
+from ..auth import ctx
 from ..config import SAFE_NAME
+from ..packs import list_packs
+from ..tenancy import DEV_ORG_ID, Ctx
+from ..tenancy import service as tenancy
 from . import handlers
-from .store import DEV_ORG, TERMINAL, JobStore
+from .store import TERMINAL, JobStore
 from .worker import Worker
 
+# The same bytes the app gate answers, so a job id reads like everything else
+# a tenant cannot see. tests/test_isolation_routes.py compares them.
+NOT_FOUND = "no such resource"
 MAX_PARAMS_BYTES = 64 * 1024
 RUN_WAIT_SECONDS = 600.0
 
 router = APIRouter()
+CtxDep = Annotated[Ctx, Depends(ctx)]
 
 
 class JobBody(BaseModel):
     kind: str
     workspace: str
     params: dict[str, Any] = {}
-
-
-def request_org(request: Request) -> tuple[str, str]:
-    return DEV_ORG, auth_mod.current_principal(request)
 
 
 def _public(job: dict[str, Any]) -> dict[str, Any]:
@@ -54,40 +57,47 @@ def _validate(kind: str, workspace: str, params: dict[str, Any]) -> None:
         raise HTTPException(422, str(e)) from e
 
 
+def _check_workspace(c: Ctx, workspace: str) -> None:
+    """The app gate cannot see a body, so this asks the same two questions it would."""
+    if not tenancy.can_see_workspace(c, workspace):
+        raise HTTPException(404, NOT_FOUND)
+    if c.org_id != DEV_ORG_ID and workspace in list_packs():
+        raise HTTPException(403, "demo packs are read only; work in your own workspace")
+
+
 @router.post("/jobs")
-def create_job(body: JobBody, who: tuple[str, str] = Depends(request_org)) -> dict[str, str]:
+def create_job(body: JobBody, c: CtxDep) -> dict[str, str]:
     _validate(body.kind, body.workspace, body.params)
-    org_id, principal = who
-    return {"id": JobStore().enqueue(org_id, body.workspace, body.kind, principal, body.params)}
+    _check_workspace(c, body.workspace)
+    return {"id": JobStore().enqueue(c.org_id, body.workspace, body.kind, c.principal, body.params)}
 
 
 @router.get("/jobs")
-def list_jobs(workspace: str | None = None, who: tuple[str, str] = Depends(request_org)) -> list[dict[str, Any]]:
-    return [_public(j) for j in JobStore().list(who[0], workspace)]
+def list_jobs(c: CtxDep, workspace: str | None = None) -> list[dict[str, Any]]:
+    return [_public(j) for j in JobStore().list(c.org_id, workspace)]
 
 
 @router.get("/jobs/{job_id}")
-def get_job(job_id: str, who: tuple[str, str] = Depends(request_org)) -> dict[str, Any]:
-    job = JobStore().get(who[0], job_id)
+def get_job(job_id: str, c: CtxDep) -> dict[str, Any]:
+    job = JobStore().get(c.org_id, job_id)
     if job is None:
-        raise HTTPException(404, "no such job")
+        raise HTTPException(404, NOT_FOUND)
     return _public(job)
 
 
 @router.get("/jobs/{job_id}/log")
-def job_log(job_id: str, offset: int = Query(0, ge=0),
-            who: tuple[str, str] = Depends(request_org)) -> dict[str, Any]:
-    tail = JobStore().read_log(who[0], job_id, offset=offset)
+def job_log(job_id: str, c: CtxDep, offset: Annotated[int, Query(ge=0)] = 0) -> dict[str, Any]:
+    tail = JobStore().read_log(c.org_id, job_id, offset=offset)
     if tail is None:
-        raise HTTPException(404, "no such job")
+        raise HTTPException(404, NOT_FOUND)
     return tail
 
 
 @router.post("/jobs/{job_id}/cancel")
-def cancel_job(job_id: str, who: tuple[str, str] = Depends(request_org)) -> dict[str, str]:
-    state = JobStore().cancel(who[0], job_id)
+def cancel_job(job_id: str, c: CtxDep) -> dict[str, str]:
+    state = JobStore().cancel(c.org_id, job_id)
     if state is None:
-        raise HTTPException(404, "no such job")
+        raise HTTPException(404, NOT_FOUND)
     return {"id": job_id, "state": state}
 
 
@@ -99,15 +109,15 @@ def _waits(asked: bool | None) -> bool:
     return os.environ.get("IRONWRIGHT_RUNS_WAIT", "1") != "0" and asked is not False
 
 
-def submit_run(request: Request, response: Response, workspace: str, seed: int | None,
+def submit_run(c: Ctx, response: Response, workspace: str, seed: int | None,
                stages: list[str] | None, wait: bool | None) -> dict[str, Any]:
     """Always through the queue. Waiting uses the same claim and execute a worker
     does, so one running job per org and the cap hold here too."""
     params = {k: v for k, v in (("seed", seed), ("stages", stages)) if v is not None}
     _validate("run", workspace, params)
-    org_id, principal = request_org(request)
+    org_id = c.org_id
     store = JobStore()
-    job_id = store.enqueue(org_id, workspace, "run", principal, params)
+    job_id = store.enqueue(org_id, workspace, "run", c.principal, params)
     if _waits(wait):
         worker = Worker(store)
         deadline = time.monotonic() + RUN_WAIT_SECONDS

@@ -45,10 +45,22 @@ UNSCOPED = {
     "/auth/me": "answers for the caller's own session",
     "/auth/logout": "acts on the caller's own session",
     "/workspaces": "filtered by ctx; the canary sweep proves it",
+    "/jobs": "filtered by ctx; world queues a canary job, and the POST body is checked in the handler",
 }
 # Param routes that scope themselves: template -> f(client, a_session) -> path values
 # of a real resource in org A.
-SELF_SCOPED: dict[str, object] = {}
+def _a_job(c, a) -> dict[str, str]:
+    ws = c.get("/jobs", headers=bearer(a["token"])).json()[0]["workspace"]  # world queued one
+    r = c.post("/jobs", headers=bearer(a["token"]), json={"kind": "profile", "workspace": ws})
+    assert r.status_code == 200, r.text
+    return {"job_id": r.json()["id"]}
+
+
+SELF_SCOPED: dict[str, object] = {
+    "/jobs/{job_id}": _a_job,
+    "/jobs/{job_id}/log": _a_job,
+    "/jobs/{job_id}/cancel": _a_job,
+}
 
 
 def bearer(token: str) -> dict[str, str]:
@@ -121,7 +133,10 @@ def world(meta_db):
         made = c.post("/workspaces", headers=bearer(a["token"]),
                       json={"name": A_WS, "size": 4, "seed": 3})
         assert made.status_code == 201, made.text
-        yield c, app, a, b, made.json()["name"]
+        ws = made.json()["name"]
+        queued = c.post("/jobs", headers=bearer(a["token"]), json={"kind": "profile", "workspace": ws})
+        assert queued.status_code == 200, queued.text
+        yield c, app, a, b, ws
 
 
 def _scoped_targets(c, app, a, ws):
@@ -147,16 +162,16 @@ def test_every_route_is_classified(world):
 def test_a_self_scoped_route_is_swept_and_a_leaky_one_goes_red(world, monkeypatch):
     """A route can opt out of the path gate, but it cannot opt out of the proof."""
     c, app, a, b, ws = world
-    jobs = {"j1": a["org_id"]}
+    things = {"j1": a["org_id"]}
 
-    @app.get("/jobs/{id}")
-    def job(id: str):  # no org filter: this is the bug the sweep must catch
-        return {"id": id, "org": jobs.get(id)}
+    @app.get("/things/{id}")
+    def thing(id: str):  # no org filter: this is the bug the sweep must catch
+        return {"id": id, "org": things.get(id)}
 
-    monkeypatch.setitem(SELF_SCOPED, "/jobs/{id}", lambda _c, _a: {"id": "j1"})
-    swept = [t for t in _scoped_targets(c, app, a, ws) if t[0] == "/jobs/{id}"]
-    assert [(t[1], t[2], t[3]) for t in swept] == [("GET", "/jobs/j1", f"/jobs/{GHOST}")]
-    with pytest.raises(AssertionError, match="/jobs/"):
+    monkeypatch.setitem(SELF_SCOPED, "/things/{id}", lambda _c, _a: {"id": "j1"})
+    swept = [t for t in _scoped_targets(c, app, a, ws) if t[0] == "/things/{id}"]
+    assert [(t[1], t[2], t[3]) for t in swept] == [("GET", "/things/j1", f"/things/{GHOST}")]
+    with pytest.raises(AssertionError, match="/things/"):
         _b_is_stopped_everywhere(c, app, a, b, ws)
 
 
@@ -165,6 +180,7 @@ def test_the_canary_is_real(world):
     c, _, a, _, ws = world
     assert ws in {w["name"] for w in c.get("/workspaces", headers=bearer(a["token"])).json()}
     assert c.get(f"/workspaces/{ws}/organization", headers=bearer(a["token"])).status_code == 200
+    assert [j["workspace"] for j in c.get("/jobs", headers=bearer(a["token"])).json()] == [ws]
     assert c.post(f"/orgs/{a['org_slug']}/switch", headers=bearer(a["token"])).status_code == 200
 
 

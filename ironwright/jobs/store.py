@@ -10,25 +10,26 @@ On SQLite it is a lock row: the first statement of the transaction writes it,
 which takes SQLite's write lock before anything is read. A crash releases
 either one, because each lives and dies with its transaction.
 
-The engine helper here is for T1 to absorb when tenancy/ merges.
+The engine is T1's metadata store. These tables keep their own MetaData and are
+created on it on first use, so tenancy needs no knowledge of jobs.
 """
 from __future__ import annotations
 
 import codecs
 import json
 import os
-import threading
 import time
 import uuid
+import weakref
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import sqlalchemy as sa
 
-from ..config import UnsafePath, data_root, private_dir, safe_child
+from ..config import UnsafePath, data_root, safe_child
+from ..tenancy import db as tenancy_db
 
-DEV_ORG = "dev"  # until T1's ctx() supplies the real org
 MAX_ATTEMPTS = 3  # a job that keeps killing workers stops being retried
 LOG_CHUNK = 64 * 1024
 TERMINAL = {"succeeded", "failed", "cancelled"}
@@ -75,55 +76,7 @@ job_claim_lock = sa.Table(
     sa.Column("acquired_at", sa.Float),
 )
 
-_engines: dict[str, sa.Engine] = {}
-_ready: set[str] = set()
-_engines_lock = threading.Lock()
-
-
-def db_url() -> str:
-    return os.environ.get("IRONWRIGHT_DB_URL") or f"sqlite:///{data_root()}/meta.sqlite"
-
-
-def driver_url(url: str) -> str:
-    """psycopg 3 is the Postgres driver this project ships."""
-    if url.startswith("postgresql://"):
-        return "postgresql+psycopg://" + url[len("postgresql://"):]
-    return url
-
-
-def _make_engine(url: str) -> sa.Engine:
-    url = driver_url(url)
-    if not url.startswith("sqlite"):
-        return sa.create_engine(url)
-    database = sa.engine.make_url(url).database
-    if database and database != ":memory:":
-        path = Path(database)
-        private_dir(path.parent)
-        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600))
-        path.chmod(0o600)
-    made = sa.create_engine(url, connect_args={"timeout": 30})
-
-    @sa.event.listens_for(made, "connect")
-    def _wal(con, _record) -> None:
-        con.execute("pragma journal_mode=wal")
-
-    return made
-
-
-def engine() -> sa.Engine:
-    url = db_url()
-    with _engines_lock:
-        if url not in _engines:
-            _engines[url] = _make_engine(url)
-        return _engines[url]
-
-
-def dispose_engines() -> None:
-    with _engines_lock:
-        for e in _engines.values():
-            e.dispose()
-        _engines.clear()
-        _ready.clear()
+_ready: weakref.WeakSet[sa.Engine] = weakref.WeakSet()
 
 
 def worker_cap() -> int:
@@ -163,15 +116,12 @@ _VIEW = sa.select(jobs, job_runtime.c.params, job_runtime.c.result, job_runtime.
 
 class JobStore:
     def __init__(self, fresh_engine: bool = False) -> None:
-        if fresh_engine:  # its own connections, as a separate process has
-            self.engine = _make_engine(db_url())
+        shared = tenancy_db.engine()
+        # fresh_engine: its own connections, as a separate process has. Dispose it.
+        self.engine = sa.create_engine(shared.url) if fresh_engine else shared
+        if fresh_engine or self.engine not in _ready:
             _create_schema(self.engine)
-            return
-        self.engine = engine()
-        key = str(self.engine.url)
-        if key not in _ready:
-            _create_schema(self.engine)
-            _ready.add(key)
+            _ready.add(self.engine)
 
     def _serialize(self, c: sa.Connection, holder: str) -> None:
         """Must be the first statement of its transaction. See the module note."""

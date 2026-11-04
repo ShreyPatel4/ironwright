@@ -15,8 +15,8 @@ from typing import Any
 
 from .. import verification
 from ..packs import list_packs, load_pack
+from ..tenancy import DEV_ORG_ID
 from ..tracing import Tracer
-from .store import DEV_ORG
 
 STAGE_ORDER = ["generate", "migrate", "reconcile", "ontology", "agents", "evals", "export"]
 DEFAULT_SEEDS = {"retail": 7, "supply_chain": 11, "banking_aml": 23, "insurance_claims": 31}
@@ -82,7 +82,7 @@ def _load(org_id: str, workspace: str) -> Any:
     """The dev org runs the demo packs. Every other org runs its own workspaces
     and sees a demo pack as read only (contract 2): generate wipes the pack's
     folder, and that folder is shared."""
-    if org_id == DEV_ORG and workspace in list_packs():
+    if org_id == DEV_ORG_ID and workspace in list_packs():
         return load_pack(workspace)
     try:
         from ..workspaces_tenant import load_workspace  # T2

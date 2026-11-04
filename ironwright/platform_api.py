@@ -149,6 +149,8 @@ WRITE_ROLES = {
     "/workspaces/{name}/escalations": "member",
     "/workspaces/{name}/engines/check": "member",
     "/workspaces/{name}/training/evaluate": "member",
+    "/jobs": "member",
+    "/jobs/{job_id}/cancel": "member",
     "/workspaces": "admin",
     "/workspaces/{name}": "admin",
     "/workspaces/{name}/approvals/{seq}/decide": "admin",
@@ -434,9 +436,9 @@ def create_platform_app() -> FastAPI:
         return platform_map()
 
     @app.post("/workspaces/{name}/runs")
-    def run(name: str, body: RunBody, request: Request, response: Response) -> dict[str, Any]:
+    def run(name: str, body: RunBody, response: Response, c: CtxDep) -> dict[str, Any]:
         _pack(name)
-        return jobs_routes.submit_run(request, response, name, body.seed, body.stages, body.wait)
+        return jobs_routes.submit_run(c, response, name, body.seed, body.stages, body.wait)
 
     @app.get("/workspaces/{name}/approvals")
     def approvals(name: str) -> list[dict[str, Any]]:
