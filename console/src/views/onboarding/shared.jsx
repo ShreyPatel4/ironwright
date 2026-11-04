@@ -25,7 +25,12 @@ export const canAdmin = (role) => role === "owner" || role === "admin";
 export const runPassed = (job) => job?.state === "succeeded" && job.result?.evals?.passed === true;
 
 export async function loadJourney() {
-  const [me, uploads, workspaces] = await Promise.all([api.me(), api.uploads(), api.workspaces()]);
+  // Main can store an upload and cannot list them yet, and that is not an outage.
+  const listed = api.uploads().catch((e) => {
+    if (e.message === "Method Not Allowed") return [];
+    throw e;
+  });
+  const [me, uploads, workspaces] = await Promise.all([api.me(), listed, api.workspaces()]);
   const upload = uploads[0] ?? null;
   const workspace = workspaces.filter((w) => w.kind === "workspace").at(-1) ?? null;
   const [uploadJobs, workspaceJobs] = await Promise.all([

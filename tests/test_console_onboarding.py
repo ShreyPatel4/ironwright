@@ -7,10 +7,13 @@ validation and T2's run, down to the silver tables in the lake.
 Not real yet: the routes in the GAP table below. They do not exist on main, so an
 adapter stands in for each and names the ticket that owes the real one. An adapter
 drops out by itself once a real route of that method and path exists, except those
-marked `replaces`, which change a route that already exists. The ontology proposal
-and every Ask answer are hand written stubs of W2's contract. So this suite proves
-the wizard, and it does not prove a grounded answer over tenant data. W4's journey on
-the hosted stack is what proves that.
+marked `replaces`, which change a route that already exists.
+
+W2 is one switch. Until its routes exist, the proposal and every Ask answer are hand
+written stubs of its contract, read from its branch at e988c92, so the suite proves the
+wizard and not a grounded answer. Once they exist, the proposal, the accept and the
+propose job are W2's own, and Ask runs the real engine through a thin adapter, because
+the serving routes still 404 a tenant workspace. Nothing else here has to change.
 
 Each test states the break it catches in its name.
 """
@@ -28,14 +31,17 @@ import pytest
 import uvicorn
 from fastapi import Depends, HTTPException, Request
 
+from ironwright import ask as ask_mod
 from ironwright import auth, verification
 from ironwright import config as cfg
 from ironwright import workspaces_tenant as wt
+from ironwright.api import harden
 from ironwright.jobs import handlers
 from ironwright.jobs import routes as job_routes
 from ironwright.jobs.store import JobStore
 from ironwright.jobs.worker import Worker
 from ironwright.lake import Lakehouse
+from ironwright.platform_api import _ontology as serving_ontology
 from ironwright.platform_api import create_platform_app
 from ironwright.tenancy import Ctx, db
 
@@ -102,19 +108,33 @@ def _uploads_root(org_id: str) -> Path:
     return cfg.uploads_root(org_id)
 
 
-def _proposal_stub(workspace: str) -> dict[str, Any]:
+def _stub_property(name: str, type_: str = "varchar", unique: bool = False) -> dict[str, Any]:
+    return {"name": name, "type": type_, "unique": unique, "confidence": 0.8,
+            "reason": f"Stored as {type_}."}
+
+
+def _proposal_stub(workspace: str, source_names: set[str]) -> dict[str, Any]:
+    """W2's shape. Files with no unique column get what W2 gives them: no objects."""
+    base = {"id": f"proposal-{workspace}", "source_layer": "silver", "identity_hints": [], "functions": []}
+    if "customers" not in source_names:
+        return {**base, "objects": [], "links": [],
+                "skipped": [{"table": "silver.claims", "reason": "No column in its 5 rows is unique and never empty, "
+                                                                 "so it has no key to build an object on."}]}
     return {
-        "id": f"proposal-{workspace}",
+        **base,
         "objects": [
-            {"name": "Policy", "table": "silver.policies", "key": "policy_no",
-             "properties": ["policy_no", "policy_holder", "premium"], "confidence": 0.9,
-             "reason": "This table has one row per policy_no."},
-            {"name": "Claim", "table": "silver.claims", "key": "claim_id",
-             "properties": ["claim_id", "policy_ref", "amount"], "confidence": 0.7,
-             "reason": "Most rows have their own claim_id."},
+            {"name": "Customer", "table": "silver.customers", "key": "customer_id",
+             "properties": [_stub_property("customer_id", "integer", True), _stub_property("name", unique=True),
+                            _stub_property("region")],
+             "confidence": 0.9, "reason": "silver.customers has 6 rows and customer_id is unique and never empty."},
+            {"name": "Order", "table": "silver.orders", "key": "order_id",
+             "properties": [_stub_property("order_id", "integer", True), _stub_property("cust_no")],
+             "confidence": 0.9, "reason": "silver.orders has 7 rows and order_id is unique and never empty."},
         ],
-        "links": [{"from": "Claim", "to": "Policy", "via": "policy_ref", "cardinality": "many_to_one",
-                   "confidence": 0.8, "reason": "policy_ref values match policy_no."}],
+        "links": [{"name": "order_to_customer", "from": "Order", "to": "Customer", "via": "cust_no",
+                   "cardinality": "many_to_one", "confidence": 0.8, "reason": "Values repeat, so many orders share one Customer.",
+                   "to_column": "customer_id", "normalize": True, "orphans": 1}],
+        "skipped": [],
     }
 
 
@@ -168,36 +188,62 @@ def _install_gaps(app: Any, stack: Stack) -> None:
                 if j["kind"] == "ontology_propose" and j["state"] == "succeeded"]
         if not done:
             raise missing()
-        return _proposal_stub(name)
+        return _proposal_stub(name, {s["name"] for s in wt.load_workspace(c.org_id, name).spec["sources"]})
 
     async def ontology_accept(name: str, request: Request, c: CtxDep) -> dict[str, Any]:
         stack.accepted[name] = await request.json()
-        return {"ontology_version": 1}
+        return {"ontology_version": 1, "job_id": JobStore().enqueue(c.org_id, name, "run", c.principal, {})}
 
-    def ontology_read(name: str, c: CtxDep) -> dict[str, Any]:
-        types = {"Policy": {}, "Claim": {}} if name in stack.accepted else {}
+    def stub_ontology_read(name: str, c: CtxDep) -> dict[str, Any]:
+        types = {"Customer": {}, "Order": {}} if name in stack.accepted else {}
         return {"describe": {"object_types": types, "link_types": {}, "functions": {}, "actions": {}},
                 "stats": {}}
 
-    def ask_examples(name: str, c: CtxDep) -> list[dict[str, Any]]:
+    def stub_ask_examples(name: str, c: CtxDep) -> list[dict[str, Any]]:
         if name not in stack.accepted:
             return []
-        return [{"question": "Get one policy for policy P-100", "function": "get_policy"}]
+        return [{"question": "Get one customer for customer 1001", "function": "get_customer"}]
 
-    async def ask(name: str, request: Request, c: CtxDep) -> dict[str, Any]:
+    async def stub_ask(name: str, request: Request, c: CtxDep) -> dict[str, Any]:
         question = (await request.json())["question"]
         entry = {"ts": 1.0, "question": question, "principal": c.principal}
-        if "policy" not in question.lower():
+        if "customer" not in question.lower():
             return {**entry, "status": "refused", "reason_code": "out_of_scope",
                     "reason": "No registered question matches this."}
-        eid = "get_policy#1a2b3c4d"
-        call = {"call_id": "c1", "function": "get_policy", "args": {"policy": "P-100"},
+        eid = "get_customer#1a2b3c4d"
+        call = {"call_id": "c1", "function": "get_customer", "args": {"id": "1001"},
                 "evidence_id": eid, "result_digest": "f" * 64}
-        return {**entry, "status": "answered", "answer": f"Policy P-100 has a premium of 1000.\n[ev:{eid}]",
+        return {**entry, "status": "answered", "answer": f"Customer 1001 is Ann Lee.\n[ev:{eid}]",
                 "narrator": "offline-template", "citations": [eid], "calls": [call],
-                "result": {"id": eid, "function": "get_policy", "args": {"policy": "P-100"},
-                           "rows": [{"premium": 1000}], "summary": None},
+                "result": {"id": eid, "function": "get_customer", "args": {"id": "1001"},
+                           "rows": [{"name": "Ann Lee"}], "summary": None},
                 "verification": {"level": "L1", "meaning": "your files, structural checks only"}}
+
+    # The real engine over a tenant workspace, which is all the _pack ask would add.
+    def askable(c: Ctx, name: str) -> Any:
+        from ironwright.ontology.propose import askable as with_reads
+        return with_reads(wt.load_workspace(c.org_id, name))
+
+    def real_ontology_read(name: str, c: CtxDep) -> dict[str, Any]:
+        with serving_ontology(askable(c, name)) as ont:
+            return {"describe": ont.describe(), "stats": ont.store.stats()}
+
+    def real_ask_examples(name: str, c: CtxDep) -> list[dict[str, Any]]:
+        pack = askable(c, name)
+        with serving_ontology(pack) as ont:
+            return ask_mod.examples(pack, ont, principal=c.principal)
+
+    async def real_ask(name: str, request: Request, c: CtxDep) -> dict[str, Any]:
+        question = (await request.json())["question"]
+        pack = askable(c, name)
+        with serving_ontology(pack) as ont:
+            return {**ask_mod.ask(pack, ont, question, principal=c.principal),
+                    "verification": verification.derive(pack)}
+
+    w2_landed = ("POST", "/workspaces/{name}/ontology/accept") in real
+    ontology_read = real_ontology_read if w2_landed else stub_ontology_read
+    ask_examples = real_ask_examples if w2_landed else stub_ask_examples
+    ask = real_ask if w2_landed else stub_ask
 
     gaps = [
         ("GET", "/uploads", "ask: no list route", list_uploads, False),
@@ -220,7 +266,8 @@ def _install_gaps(app: Any, stack: Stack) -> None:
         log("proposed 2 objects and 1 link")
         return {"objects": 2, "links": 1}
 
-    handlers.HANDLERS["ontology_propose"] = propose_handler
+    if not w2_landed:
+        handlers.HANDLERS["ontology_propose"] = propose_handler
 
 
 @pytest.fixture()
@@ -233,7 +280,7 @@ def stack(console_dist, monkeypatch, tmp_path):
     s = Stack()
     app = create_platform_app()
     _install_gaps(app, s)
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=0, log_level="error"))
+    server = uvicorn.Server(uvicorn.Config(harden(app), host="127.0.0.1", port=0, log_level="error"))
     thread = threading.Thread(target=server.run, daemon=True, name="test-server")
     thread.start()
     deadline = time.monotonic() + 15
@@ -331,6 +378,85 @@ def to_ontology(page):
 
 
 def walk_to_ask(page, stack):
+    """T3's two CSVs: they have the keys and the join an ontology needs."""
+    sign_up(page, stack)
+    upload(page, JOIN_FILES)
+    to_map(page)
+    page.get_by_label("workspace name").fill("acme-sales")
+    page.get_by_role("button", name="Create the workspace").click()
+    expect()(page.get_by_role("heading", name="Run")).to_be_visible()
+    run_pipeline(page)
+    to_ontology(page)
+    with page.expect_response(lambda r: r.url.endswith("/ontology/proposal")) as read:
+        page.get_by_role("button", name="Propose an ontology").click()
+    proposal = read.value.json()
+    first = proposal["objects"][0]["name"]
+    page.get_by_label(f"object name {first}").fill("Renamed", timeout=SLOW)
+    with page.expect_request(lambda r: r.url.endswith("/ontology/accept")) as accepted:
+        page.get_by_role("button", name="Accept this ontology").click()
+    # Accept queues the run that builds the objects, so Ask comes after that run.
+    expect()(page.get_by_role("heading", name="Ask")).to_be_visible(timeout=SLOW)
+    return proposal, json.loads(accepted.value.post_data)
+
+
+def test_the_whole_wizard_ends_on_an_answer_with_evidence(browser, stack):
+    page = new_page(browser, stack)
+    errors: list[str] = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    proposal, accepted = walk_to_ask(page, stack)
+
+    # The accept carries the id of what was reviewed and only what changed.
+    assert accepted["proposal_id"] == proposal["id"]
+    assert accepted["edits"] == [{"op": "rename_object", "object": proposal["objects"][0]["name"], "to": "Renamed"}]
+
+    # A refusal is shown as a refusal, with its reason.
+    page.get_by_label("your question").fill("what is the weather")
+    page.get_by_role("button", name="Ask", exact=True).click()
+    expect()(page.get_by_text("No registered question matches this.")).to_be_visible()
+
+    with page.expect_response(lambda r: r.url.endswith("/ask")) as asked:
+        page.get_by_label("example questions").get_by_role("button").first.click()
+    answer = asked.value.json()
+    assert answer["status"] == "answered", answer
+    assert answer["citations"], answer
+    expect()(page.get_by_label("answer")).to_contain_text(f"[ev:{answer['citations'][0]}]")
+    expect()(page.get_by_label(f"evidence {answer['citations'][0]}")).to_be_visible()
+    assert errors == []
+
+
+def test_ontology_edits_go_out_as_w2s_ops_in_an_order_it_can_apply(browser, stack):
+    """W2 applies edits in order, by the current name, and a dropped object takes its
+    links with it. So a link drop goes first, and set_key goes before a rename."""
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    upload(page, JOIN_FILES)
+    to_map(page)
+    page.get_by_label("workspace name").fill("acme-sales")
+    page.get_by_role("button", name="Create the workspace").click()
+    run_pipeline(page)
+    to_ontology(page)
+    with page.expect_response(lambda r: r.url.endswith("/ontology/proposal")) as read:
+        page.get_by_role("button", name="Propose an ontology").click()
+    proposal = read.value.json()
+    customer = next(o for o in proposal["objects"] if o["name"] == "Customer")
+    other_key = next(p["name"] for p in customer["properties"] if p["unique"] and p["name"] != customer["key"])
+    link = proposal["links"][0]["name"]
+    page.get_by_label("object name Customer").fill("Buyer", timeout=SLOW)
+    page.get_by_label("key of Customer").select_option(other_key)
+    page.get_by_label(f"keep link {link}").uncheck()
+    with page.expect_request(lambda r: r.url.endswith("/ontology/accept")) as accepted:
+        page.get_by_role("button", name="Accept this ontology").click()
+    assert json.loads(accepted.value.post_data)["edits"] == [
+        {"op": "drop_link", "link": link},
+        {"op": "set_key", "object": "Customer", "key": other_key},
+        {"op": "rename_object", "object": "Customer", "to": "Buyer"},
+    ]
+
+
+def test_ontology_says_why_a_table_became_no_object(browser, stack):
+    """T2's two CSVs have duplicates in every column, so no key and no object.
+    Accept would only be refused, so there is no button to press."""
+    page = new_page(browser, stack)
     sign_up(page, stack)
     upload(page)
     to_map(page)
@@ -338,33 +464,19 @@ def walk_to_ask(page, stack):
     run_pipeline(page)
     to_ontology(page)
     page.get_by_role("button", name="Propose an ontology").click()
-    page.get_by_label("object name Policy").fill("Insured", timeout=SLOW)
-    with page.expect_request(lambda r: r.url.endswith("/ontology/accept")) as accepted:
-        page.get_by_role("button", name="Accept this ontology").click()
-    expect()(page.get_by_role("heading", name="Ask")).to_be_visible()
-    return json.loads(accepted.value.post_data)
+    expect()(page.get_by_text("no key to build an object on").first).to_be_visible(timeout=SLOW)
+    expect()(page.get_by_role("button", name="Accept this ontology")).to_have_count(0)
 
 
-def test_the_whole_wizard_ends_on_an_answer_with_evidence(browser, stack):
+def test_the_first_screen_works_while_uploads_cannot_be_listed(browser, stack):
+    """Main has POST /uploads and no GET, so a list answers 405. A new signup must
+    get the upload form, not a bare Method Not Allowed."""
     page = new_page(browser, stack)
-    errors: list[str] = []
-    page.on("pageerror", lambda e: errors.append(str(e)))
-    accepted = walk_to_ask(page, stack)
-
-    # The accept carries the id of what was reviewed and only what changed.
-    assert accepted["proposal_id"] == "proposal-acme-claims"
-    assert accepted["edits"]["objects"] == [{"name": "Policy", "rename": "Insured"}]
-    assert accepted["edits"]["links"] == []
-
-    # A refusal is shown as a refusal, with its reason.
-    page.get_by_label("your question").fill("what is the weather")
-    page.get_by_role("button", name="Ask", exact=True).click()
-    expect()(page.get_by_text("No registered question matches this.")).to_be_visible()
-
-    page.get_by_role("button", name="Get one policy for policy P-100").click()
-    expect()(page.get_by_label("answer")).to_contain_text("[ev:get_policy#1a2b3c4d]")
-    expect()(page.get_by_label("evidence get_policy#1a2b3c4d")).to_be_visible()
-    assert errors == []
+    page.route("**/uploads", lambda route: route.fulfill(status=405, json={"detail": "Method Not Allowed"})
+               if route.request.method == "GET" else route.continue_())
+    sign_up(page, stack)
+    expect()(page.get_by_role("heading", name="Upload your files")).to_be_visible()
+    expect()(page.get_by_text("No files yet.")).to_be_visible()
 
 
 def test_map_edits_reach_the_real_lake(browser, stack):
@@ -582,20 +694,20 @@ def test_a_viewer_joins_by_invite_and_can_change_nothing(browser, stack):
     # Read only is on every step, and each step still shows the org's real data.
     expect()(page.get_by_text("You have read access here")).to_be_visible()
     expect()(page.get_by_label("your question")).to_be_disabled()
-    expect()(page.get_by_role("button", name="Get one policy for policy P-100")).to_be_disabled()
+    expect()(page.get_by_label("example questions").get_by_role("button").first).to_be_disabled()
     page.get_by_role("button", name="Ontology", exact=False).first.click()
-    expect()(page.get_by_text("This table has one row per policy_no.")).to_be_visible()
+    expect()(page.get_by_text("is unique and never empty").first).to_be_visible()
     expect()(page.get_by_role("button", name="Accept this ontology")).to_have_count(0)
     page.get_by_role("button", name="Run", exact=False).first.click()
     expect()(page.get_by_label("job log")).to_contain_text("evals passed: True")
     expect()(page.get_by_role("button", name="Run again")).to_have_count(0)
     page.get_by_role("button", name="Map", exact=False).first.click()
-    expect()(page.get_by_label("rename policies.holder")).to_be_disabled()
+    expect()(page.get_by_label("rename customers.region")).to_be_disabled()
     expect()(page.get_by_role("button", name="Create the workspace")).to_have_count(0)
     page.get_by_role("button", name="Profile", exact=False).first.click()
-    expect()(page.get_by_text("policy_no").first).to_be_visible()
+    expect()(page.get_by_text("customer_id").first).to_be_visible()
     page.get_by_role("button", name="Upload", exact=False).first.click()
-    expect()(page.get_by_text("claims.csv").first).to_be_visible()
+    expect()(page.get_by_text("customers.csv").first).to_be_visible()
     expect()(page.get_by_role("button", name="Upload and profile")).to_have_count(0)
     assert writes == [f"{stack.base}/auth/accept-invite"]
 

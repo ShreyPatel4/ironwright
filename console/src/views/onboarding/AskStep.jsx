@@ -46,7 +46,7 @@ export default function AskStep({ journey }) {
           {examples === null && <p className="note">Loading example questions.</p>}
           {examples?.length === 0 && !err && <p className="note">I have no example questions for your role.</p>}
           {examples?.length > 0 && (
-            <div className="row">
+            <div aria-label="example questions" className="row" role="group">
               <span className="note">try one, built from your real records:</span>
               {examples.map((ex) => (
                 <button className="btn ghost" disabled={!writable || busy} key={ex.question}

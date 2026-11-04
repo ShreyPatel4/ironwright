@@ -1,31 +1,28 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api.js";
 import { Err } from "../../components.jsx";
-import { canAdmin, canWrite, JobLog, JobState, Loading, Panel, useJob } from "./shared.jsx";
+import { canAdmin, canWrite, JobLog, JobState, Loading, Panel, runPassed, useJob } from "./shared.jsx";
 
 /* W2's proposal, for a human to accept or edit. Rules propose, a person decides.
-   Only what changed goes in the edits, so the server can tell a choice from a default. */
-
-const propName = (p) => (typeof p === "string" ? p : p.name);
-const linkId = (l) => `${l.from} to ${l.to}`;
+   Only what changed goes in the edits, so the server can tell a choice from a default.
+   The server applies them in order and by the current name, and a dropped object takes
+   its links with it. So link drops go first and a rename goes last. */
 
 export function buildEdits(proposal, objects, links) {
-  const dropped = (name) => objects[name]?.keep === false;
-  return {
-    objects: proposal.objects.flatMap((o) => {
+  const dropped = (name) => !objects[name].keep;
+  return [
+    ...proposal.links
+      .filter((l) => links[l.name] === false && !dropped(l.from) && !dropped(l.to))
+      .map((l) => ({ op: "drop_link", link: l.name })),
+    ...proposal.objects.flatMap((o) => {
       const e = objects[o.name];
-      const edit = {
-        ...(e.keep ? {} : { drop: true }),
-        ...(e.keep && e.name !== o.name ? { rename: e.name } : {}),
-        ...(e.keep && e.key !== o.key ? { key: e.key } : {}),
-      };
-      return Object.keys(edit).length ? [{ name: o.name, ...edit }] : [];
+      if (!e.keep) return [{ op: "drop_object", object: o.name }];
+      return [
+        ...(e.key !== o.key ? [{ op: "set_key", object: o.name, key: e.key }] : []),
+        ...(e.name !== o.name ? [{ op: "rename_object", object: o.name, to: e.name }] : []),
+      ];
     }),
-    links: proposal.links.flatMap((l) => (
-      links[linkId(l)] === false || dropped(l.from) || dropped(l.to)
-        ? [{ from: l.from, to: l.to, via: l.via, drop: true }] : []
-    )),
-  };
+  ];
 }
 
 function ObjectForm({ object, edit, locked, onChange }) {
@@ -42,12 +39,30 @@ function ObjectForm({ object, edit, locked, onChange }) {
         <span className="note">key</span>
         <select aria-label={`key of ${object.name}`} disabled={locked || !edit.keep}
                 onChange={(e) => set({ key: e.target.value })} value={edit.key}>
-          {object.properties.map(propName).map((p) => <option key={p} value={p}>{p}</option>)}
+          {object.properties.map((p) => (
+            <option disabled={!p.unique} key={p.name} value={p.name}>{p.name}</option>
+          ))}
         </select>
         <span className="note mono">{object.table} · confidence {object.confidence}</span>
       </div>
       <p className="note" style={{ margin: "8px 0 4px" }}>{object.reason}</p>
-      <p className="mono" style={{ margin: 0 }}>{object.properties.map(propName).join(", ")}</p>
+      <p className="mono" style={{ margin: 0 }}>{object.properties.map((p) => p.name).join(", ")}</p>
+    </Panel>
+  );
+}
+
+/* Accept queues the run that builds the objects. Ask has nothing to read until it ends. */
+function Building({ jobId, advance }) {
+  const { job, log, err } = useJob(jobId);
+  const passed = runPassed(job);
+  useEffect(() => { if (passed) advance(); }, [passed, advance]);
+  return (
+    <Panel>
+      <p style={{ margin: "0 0 6px" }}>Accepted. I am building the objects now.</p>
+      <JobState job={job} />
+      {job?.error && <Err e={job.error} />}
+      <JobLog text={log} />
+      <Err e={err} />
     </Panel>
   );
 }
@@ -59,18 +74,25 @@ function Review({ workspace, proposal, locked, advance }) {
   const [links, setLinks] = useState({});
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const [building, setBuilding] = useState(null);
 
   async function accept() {
     setBusy(true); setErr(null);
     try {
-      await api.ontologyAccept(workspace.name, proposal.id, buildEdits(proposal, objects, links));
-      await advance();
+      const done = await api.ontologyAccept(workspace.name, proposal.id, buildEdits(proposal, objects, links));
+      setBuilding(done.job_id);
     } catch (e) { setErr(e); setBusy(false); }
   }
 
+  if (building) return <Building advance={advance} jobId={building} />;
   return (
     <>
       {proposal.objects.length === 0 && <p className="note">The proposal has no objects in it.</p>}
+      {(proposal.skipped ?? []).map((t) => (
+        <Panel key={t.table}>
+          <b className="mono">{t.table}</b> <span className="note">became no object. {t.reason}</span>
+        </Panel>
+      ))}
       {proposal.objects.map((o) => (
         <ObjectForm edit={objects[o.name]} key={o.name} locked={locked} object={o}
                     onChange={(edit) => setObjects({ ...objects, [o.name]: edit })} />
@@ -78,17 +100,17 @@ function Review({ workspace, proposal, locked, advance }) {
       <h3>Links</h3>
       {proposal.links.length === 0 && <p className="note">The proposal has no links in it.</p>}
       {proposal.links.map((l) => (
-        <Panel key={linkId(l)}>
+        <Panel key={l.name}>
           <label>
-            <input aria-label={`keep link ${linkId(l)}`} checked={links[linkId(l)] !== false} disabled={locked}
-                   onChange={(e) => setLinks({ ...links, [linkId(l)]: e.target.checked })} type="checkbox" />
+            <input aria-label={`keep link ${l.name}`} checked={links[l.name] !== false} disabled={locked}
+                   onChange={(e) => setLinks({ ...links, [l.name]: e.target.checked })} type="checkbox" />
             {" "}<span className="mono">{l.from} to {l.to} via {l.via}</span>
           </label>
           <span className="note mono"> {l.cardinality} · confidence {l.confidence}</span>
           <p className="note" style={{ margin: "6px 0 0" }}>{l.reason}</p>
         </Panel>
       ))}
-      {!locked && (
+      {!locked && proposal.objects.length > 0 && (
         <button className="btn" disabled={busy} onClick={accept} type="button">
           {busy ? "Accepting…" : "Accept this ontology"}
         </button>
