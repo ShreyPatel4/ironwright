@@ -413,7 +413,16 @@ def _rich_org(c, email="canary-owner@a.example", org="Canary Alpha") -> dict:
                   json={"email": f"canary-invited-{owner['org_id'][:6]}@a.example", "role": "viewer"}).status_code == 201
     made = c.post("/uploads", headers=h, files=[("files", ("canary.csv", b"id,name\n1,ann\n"))])
     assert made.status_code == 201, made.text
-    assert c.post("/workspaces", headers=h, json={"name": "canary-scenario", "size": 4, "seed": 3}).status_code == 201
+    made = c.post("/workspaces", headers=h, json={"name": "canary-scenario", "size": 4, "seed": 3})
+    assert made.status_code == 201, made.text
+    scenario = made.json()["name"]
+    # Generated policy and escalation records write into the scenario's own folder.
+    done = c.post(f"/workspaces/{scenario}/orgpolicy/apply", headers=h, json={"approved_by": owner["principal"]})
+    assert done.status_code == 200, done.text
+    asked = c.post(f"/workspaces/{scenario}/escalations", headers=h,
+                   json={"principal": owner["principal"], "action": "delist_item", "object_id": "canary-object",
+                         "denying_rule": "default-deny"})
+    assert asked.status_code in (200, 201), asked.text
     assert c.put(f"/orgs/{owner['org_slug']}/llm-key", headers=h,
                  json={"provider": "anthropic", "key": "sk-canary-" + "x" * 30}).status_code == 200
     assert c.post("/jobs", headers=h, json={"kind": "run", "workspace": "claims"}).status_code == 200
@@ -695,6 +704,29 @@ def test_marking_shuts_the_door_before_the_job_runs(client, monkeypatch):
         assert client.get("/auth/me", headers=bearer(session)).status_code == 401
     assert client.post("/auth/login", json={"email": "owner@a.example", "password": PASSWORD}).status_code == 401
     assert client.post("/auth/accept-invite", json={"token": token, "password": PASSWORD}).status_code == 404
+
+
+def test_an_invite_accepted_as_the_org_is_marked_gets_nothing(client, monkeypatch):
+    """The accept has read the invite, and the mark commits before it writes. Without
+    a second look under the org's lock, a new member lands in an org being deleted."""
+    owner = signup(client)
+    token = service.invite(owner["org_slug"], "late@a.example", "member", time.time())
+    real_lock = service._lock_org
+    fired = []
+
+    def mark_first(con, org_id):
+        if not fired:
+            fired.append(True)
+            assert service.mark_deleting(org_id, owner["principal"], NOON) is True
+        real_lock(con, org_id)
+
+    monkeypatch.setattr(service, "_lock_org", mark_first)
+    with pytest.raises(service.NoSuchInvite):
+        service.accept_invite(token, PASSWORD, time.time())
+    assert fired
+    with usage.engine().connect() as con:
+        assert con.execute(sa.select(db.memberships).where(db.memberships.c.org_id == owner["org_id"])).first() is None
+        assert con.execute(sa.select(db.users).where(db.users.c.email == "late@a.example")).first() is None
 
 
 def test_marking_cancels_what_was_queued_and_asks_what_runs_to_stop(client, monkeypatch):

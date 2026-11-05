@@ -321,6 +321,12 @@ def accept_invite(token: str, password: str, now: float) -> dict[str, Any]:
     hashed = _token_hash(token)
     with usage.engine().begin() as con:
         row = con.execute(sa.select(db.invites).where(db.invites.c.token_hash == hashed)).mappings().first()
+        if row is None:
+            raise NoSuchInvite
+        # Then look again under the org's lock. Marking an org for deletion deletes its
+        # invites, and nobody may join once that has committed.
+        _lock_org(con, row["org_id"])
+        row = con.execute(sa.select(db.invites).where(db.invites.c.token_hash == hashed)).mappings().first()
         if row is None or row["expires_at"] <= now:
             raise NoSuchInvite
         user = con.execute(sa.select(db.users).where(db.users.c.email == row["email"])).mappings().first()
