@@ -2,7 +2,7 @@
 
 This is the story of Ironwright as a SaaS product: one insurer's messy files, from sign-up to a
 grounded answer and a governed action, with a second org on the same stack refused on screen.
-`docs/DEMO-SCRIPT.md` is still the script for the synthetic packs and the `make demo-check` gate.
+`docs/DEMO-SCRIPT.md` is still the `make demo-check` gate, and it walks the demo companies. This page is the film.
 
 The film is a recording of the real console on the compose stack. Nothing is stubbed. Each beat
 checks what the server answered, and a beat that cannot happen stops the take.

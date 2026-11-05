@@ -4,6 +4,8 @@ This script is a gate. Any phase of work must change this script in the same
 PR, or it is not a phase. CI runs `make demo-check` so the path below cannot
 silently break.
 
+The hosted product story is `docs/DEMO-SCRIPT-SAAS.md`.
+
 Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
 (about 50 s). Then `make demo` and open http://localhost:8001.
 
