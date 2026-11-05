@@ -516,16 +516,15 @@ def test_a_small_upload_passes_the_serving_posture(root):
     assert post(served, ("a.csv", CSV)).status_code == 201
 
 
-def test_a_body_refused_by_the_serving_posture_leaves_nothing(root):
+def test_a_body_refused_by_the_serving_posture_leaves_nothing(root, monkeypatch):
     from ironwright.api import harden
 
+    monkeypatch.setenv("IRONWRIGHT_L1_MAX_FILE_BYTES", str(2 * 1024 ** 2))
     served = TestClient(harden(platform_api.create_platform_app()))
     assert post(served, ("a.csv", big_csv())).status_code == 413
     assert nothing_stored(root)
 
 
-@pytest.mark.xfail(strict=True, reason="api.BodyCap holds every body to 2 MiB, under the upload caps. "
-                                       "The fix is in api.py, outside T3. Cross-ticket ask on PR 8.")
 def test_the_served_app_takes_a_file_over_the_global_body_cap(root):
     from ironwright.api import harden
 

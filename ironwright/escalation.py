@@ -25,16 +25,17 @@ from __future__ import annotations
 import json
 import re
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from . import orgpolicy
-from .config import PackPaths, data_root
+from . import auth, orgpolicy
+from .config import PackPaths
 from .packs import list_packs, load_pack
+from .tenancy.models import Ctx
 
 RECORD_FILE = "escalations.jsonl"
 
@@ -48,17 +49,17 @@ _DATE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
 
 def _valid_date(value: str) -> bool:
-    if not _DATE.match(value):
+    if not _DATE.fullmatch(value):
         return False
     try:
-        datetime.strptime(value, "%Y-%m-%d")
+        date.fromisoformat(value)
         return True
     except ValueError:
         return False
 
 
 class EscalateBody(BaseModel):
-    principal: str
+    principal: str = ""  # only a dev open server reads this; see orgpolicy.acting_as
     action: str
     object_id: str
     denying_rule: str
@@ -66,7 +67,7 @@ class EscalateBody(BaseModel):
 
 class EscalationDecideBody(BaseModel):
     decision: str  # grant | deny
-    decided_by: str
+    decided_by: str = ""  # same
     expires: str | None = None  # iso date, required for grants
     reason: str | None = None
 
@@ -78,10 +79,10 @@ def _workspace(name: str) -> tuple[str, Path]:
         d = PackPaths(name).reports
         d.mkdir(parents=True, exist_ok=True)
         return "pack", d / RECORD_FILE
-    d = data_root() / name
-    if (d / "org.json").exists():
-        return "organization", d / RECORD_FILE
-    raise HTTPException(404, f"no workspace named {name}")
+    try:
+        return "organization", orgpolicy._org_dir(name) / RECORD_FILE
+    except FileNotFoundError as e:
+        raise HTTPException(404, f"no workspace named {name}") from e
 
 
 def _moments(path: Path) -> list[dict[str, Any]]:
@@ -175,7 +176,7 @@ def _object_param(name: str, kind: str, action: str) -> str:
              **(pack.ontology.get("created_types", {}) or {})}
     for pname, p in (adef.get("params", {}) or {}).items():
         t = p.get("type") if isinstance(p, dict) else p
-        if t in types and _PARAM_NAME.match(pname):
+        if t in types and _PARAM_NAME.fullmatch(pname):
             return pname
     return "object_id"
 
@@ -202,26 +203,28 @@ def _audit(name: str, actor: str, action: str, status: str,
 
 
 router = APIRouter()
+CtxDep = Annotated[Ctx, Depends(auth.ctx)]
 
 
 @router.post("/workspaces/{name}/escalations", status_code=201)
-def escalate(name: str, body: EscalateBody) -> dict[str, Any]:
+def escalate(name: str, body: EscalateBody, c: CtxDep) -> dict[str, Any]:
     kind, path = _workspace(name)
-    for value, pattern, what in ((body.principal, _PRINCIPAL, "principal"),
+    principal = orgpolicy.acting_as(c, body.principal)
+    for value, pattern, what in ((principal, _PRINCIPAL, "principal"),
                                  (body.action, _ACTION, "action"),
                                  (body.object_id, _OBJECT, "object_id"),
                                  (body.denying_rule, _RULE, "denying_rule")):
-        if not pattern.match(value):
+        if not pattern.fullmatch(value):
             raise HTTPException(422, f"{what} has an unexpected shape")
     owner = _owner_role(name, kind, body.action)
     esc_id = f"esc-{sum(1 for m in _moments(path) if m['moment'] == 'escalated') + 1:04d}"
     at = datetime.now(timezone.utc).isoformat()
     record = {"id": esc_id, "workspace": name, "kind": kind,
-              "principal": body.principal, "action": body.action,
+              "principal": principal, "action": body.action,
               "object_id": body.object_id, "denying_rule": body.denying_rule,
               "owner_role": owner, "at": at, "ts": round(time.time(), 6)}
     _append(path, {"moment": "escalated", **record})
-    recorded = _audit(name, body.principal, body.action, "escalated",
+    recorded = _audit(name, principal, body.action, "escalated",
                       params={"object_id": body.object_id,
                               "denying_rule": body.denying_rule,
                               "escalation": esc_id},
@@ -239,14 +242,15 @@ def escalations(name: str) -> list[dict[str, Any]]:
 
 
 @router.post("/workspaces/{name}/escalations/{esc_id}/decide")
-def decide(name: str, esc_id: str, body: EscalationDecideBody) -> dict[str, Any]:
+def decide(name: str, esc_id: str, body: EscalationDecideBody, c: CtxDep) -> dict[str, Any]:
     kind, path = _workspace(name)
     rec = _records(path).get(esc_id)
     if rec is None:
         raise HTTPException(404, f"no escalation {esc_id}")
     if rec["status"] != "pending":
         raise HTTPException(409, f"{esc_id} is already {rec['status']}")
-    if not _PRINCIPAL.match(body.decided_by):
+    decided_by = orgpolicy.acting_as(c, body.decided_by)
+    if not _PRINCIPAL.fullmatch(decided_by):
         raise HTTPException(422, "decided_by has an unexpected shape")
     at = datetime.now(timezone.utc).isoformat()
 
@@ -259,18 +263,18 @@ def decide(name: str, esc_id: str, body: EscalationDecideBody) -> dict[str, Any]
                 "action": f"action:{rec['action']}",
                 "when": (f"params.{pname} == '{rec['object_id']}' "
                          f"and now < '{body.expires}'"),
-                "expires": body.expires, "granted_by": body.decided_by,
+                "expires": body.expires, "granted_by": decided_by,
                 "escalation": esc_id}
         # Record before permit: if the audit write fails, the grant must not
         # exist on file with no record of who made it.
         _append(path, {"moment": "granted", "id": esc_id, "at": at,
-                       "decided_by": body.decided_by, "expires": body.expires,
+                       "decided_by": decided_by, "expires": body.expires,
                        "rule_id": rule["id"]})
-        recorded = _audit(name, body.decided_by, rec["action"], "escalation_granted",
+        recorded = _audit(name, decided_by, rec["action"], "escalation_granted",
                           params={"object_id": rec["object_id"],
                                   "escalation": esc_id, "expires": body.expires},
-                          policy=rule["id"], approved_by=body.decided_by)
-        orgpolicy.upsert_rules(name, [rule], actor=body.decided_by,
+                          policy=rule["id"], approved_by=decided_by)
+        orgpolicy.upsert_rules(name, [rule], actor=decided_by,
                                note=f"escalation {esc_id} granted until {body.expires}")
         return {"id": esc_id, "status": "granted", "rule": rule,
                 "expires": body.expires, "recorded": recorded,
@@ -278,11 +282,11 @@ def decide(name: str, esc_id: str, body: EscalationDecideBody) -> dict[str, Any]
 
     if body.decision == "deny":
         _append(path, {"moment": "denied", "id": esc_id, "at": at,
-                       "decided_by": body.decided_by, "reason": body.reason})
-        recorded = _audit(name, body.decided_by, rec["action"], "escalation_denied",
+                       "decided_by": decided_by, "reason": body.reason})
+        recorded = _audit(name, decided_by, rec["action"], "escalation_denied",
                           params={"object_id": rec["object_id"],
                                   "escalation": esc_id, "reason": body.reason},
-                          policy=rec["denying_rule"], approved_by=body.decided_by)
+                          policy=rec["denying_rule"], approved_by=decided_by)
         return {"id": esc_id, "status": "denied", "reason": body.reason,
                 "recorded": recorded}
 

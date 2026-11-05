@@ -133,7 +133,19 @@ def _session_answer(con: Connection, token: str, user_id: str, org_id: str) -> d
             "orgs": [{"slug": o["slug"], "name": o["name"], "role": o["role"]} for o in orgs]}
 
 
+def _decoy_answer(con: Connection, email: str, org_name: str, base: str) -> dict[str, Any]:
+    """What a signup on a taken email answers: a new account's shape over ids and a token
+    nobody stored. No password is checked and no row is written, so it opens nothing.
+    The account's owner keeps their session and never knows."""
+    user_id, slug = _id(), _free_slug(con, base)
+    return {"token": secrets.token_urlsafe(32), "email": email, "org_id": _id(), "org_slug": slug,
+            "user_id": user_id, "role": "owner", "principal": principal_of(user_id),
+            "orgs": [{"slug": slug, "name": org_name, "role": "owner"}]}
+
+
 def signup(email: str, password: str, org_name: str, now: float) -> dict[str, Any]:
+    """The answer cannot say whether an email has an account, and neither can the slow
+    part of the work: the password is hashed before anyone looks the email up."""
     email = clean_email(email)
     _check_password(password)
     org_name = org_name.strip()
@@ -146,7 +158,7 @@ def signup(email: str, password: str, org_name: str, now: float) -> dict[str, An
         try:
             with db.engine().begin() as con:
                 if con.execute(sa.select(db.users.c.id).where(db.users.c.email == email)).first():
-                    raise EmailTaken
+                    return _decoy_answer(con, email, org_name, base)
                 user_id, org_id = _id(), _id()
                 con.execute(db.users.insert().values(id=user_id, email=email, pw_hash=pw_hash,
                                                      created_at=now))

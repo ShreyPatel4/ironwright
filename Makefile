@@ -13,7 +13,7 @@ test:
 	pytest -q
 
 demo: run
-	cd web && python -m http.server 8001
+	cd web && python -m http.server 8001 --bind 127.0.0.1
 
 # The CI gate behind docs/DEMO-SCRIPT.md: the whole demo path, headless,
 # bounded by wall clock. Fails loudly if the one-command narrative breaks.
@@ -61,7 +61,7 @@ site:
 	python scripts/build_site.py
 
 preview: site
-	cd site && python -m http.server 8002
+	cd site && python -m http.server 8002 --bind 127.0.0.1
 
 deploy: site
 	npx wrangler pages deploy site --project-name ironwright --branch main
