@@ -53,7 +53,7 @@ Fixed means fixed in this PR with a test. A number means a GitHub issue labeled 
 
 | ID | Sev | Area | What happened | Expected | Repro | Evidence | Status |
 |---|---|---|---|---|---|---|---|
-| F-01 | P0 | Wizard | Upload lands, then `no such resource`. The wizard's real calls answer 404, 405 and 422. `_install_gaps` in the test hides all of it | Upload moves on to Profile | Sign up, upload anything | `02-F01-upload-dead-end.png`, `02-F01-after-reload.png` | #22 |
+| F-01 | P0 | Wizard | Upload lands, then `no such resource`. The wizard's real calls answer 404, 405 and 422. `_install_gaps` in the test hides all of it | Upload moves on to Profile | Sign up, upload anything | `02-F01-upload-dead-end.png`, `02-F01-after-reload.png` | #22. The profile call is known: F1 |
 | F-02 | P0 | Wizard | After accept the job says succeeded and the wizard never reaches Ask, because `GET .../ontology` 404s for a tenant | Lands on Ask | Accept any ontology | `03-ontology-proposal.png` | #23 |
 | F-03 | P1 | Console | 13 of 15 views show `no workspace named acme-sales` beside the selector naming it | Views work, or are hidden | Open any view on your workspace | `05-view-Data_explorer.png`, `05-view-Audit.png` | #24 |
 | F-04 | P1 | Data | The trailer becomes an object: a `PoliciesFixed` titled `END OF`. CSV silver has 10 rows from 9 records. `0 flagged` | Trailer is skipped and counted | Upload a file with a trailer | `06-map.png`, `06-ontology.png` | #25 |
@@ -69,8 +69,8 @@ Fixed means fixed in this PR with a test. A number means a GitHub issue labeled 
 | F-14 | P2 | Gate | `make demo-check` fails every evening west of UTC. The script builds "tomorrow" in local time, and grants expire in UTC | Green at any hour | Run after 18:00 CST | `tests/test_review_2026_11.py` | Fixed |
 | F-15 | P2 | Quotas | A refused PDF or empty file spends a daily upload | Only a stored upload counts | Upload a PDF, read usage | `tests/test_quotas.py` | Fixed |
 | F-16 | P2 | Sign up | A returning customer who signs up lands back on the login form with no word why | The form says what to do | Sign up with an existing email | `10-returning-user-signup.png` | Fixed. The check reads the decoy's dead session, the same signal as F-11. It reveals nothing the API did not, and #32 must change it |
-| F-17 | P2 | Local path | `make console` prints `up to date` and builds nothing: a folder has the same name | It builds | `make console` on a fresh clone | `tests/test_review_2026_11.py` | Fixed |
-| F-18 | P2 | Local path | On a clone without a build, `/console/` and `/` are bare 404s. CLAUDE.md and a code comment say the build is committed. It is gitignored | `/` says how to get the console | `serve-platform` on a fresh clone | `tests/test_review_2026_11.py` | Fixed |
+| F-17 | P2 | Local path | `make console` prints `up to date` and builds nothing: a folder has the same name | It builds | `make console` on a fresh clone | `make -n console` | Known: F1 |
+| F-18 | P2 | Local path | On a clone without a build, `/console/` and `/` are bare 404s. CLAUDE.md and a code comment say the build is committed. It is gitignored | `/` says how to get the console | `serve-platform` on a fresh clone | `tests/test_review_2026_11.py` | Fixed. The hint names `make console`, which builds once F1 lands |
 | F-19 | P2 | Run report | `0 reconciliation rules ... cutover ready` over a file with a junk row | Say nothing was reconciled | Run any wizard workspace | `06-run.png` | Fixed |
 | F-20 | P3 | Gate | `demo-check` checks four pack exports. There are five, and `insurance_policy` is not among them | All packs | Read the Makefile | `Makefile` | Fixed |
 | F-21 | P3 | Copy | Workspaces says `The four demo companies` above five | No count to go stale | Open Workspaces | `05-console-home.png` | Fixed |
@@ -84,6 +84,17 @@ Fixed means fixed in this PR with a test. A number means a GitHub issue labeled 
 | F-29 | P3 | Security | A tenant can read `duckdb_settings()` on a demo lake. No secret: `duckdb_secrets()`, `getenv` and the S3 setting are refused | Maybe refuse it | `POST .../lake/query` | none, API | Open |
 | F-30 | P3 | Gate | The house rule says ruff clean. `ruff check .` finds 83 errors on main in files this PR does not touch, and CI does not run it | Clean, and a CI step to keep it so | `ruff check .` | `.github/workflows/ci.yml` | #36 |
 | F-31 | P3 | Sign up | `Create the org` stays disabled with no reason until all three fields are filled. A short password is fine: it gets `a password needs at least 8 characters` | Say what is missing, or let it submit and say so | Open sign up | `01-signup-empty.png`, `01-signup-weak-pw-submitted.png` | Open: minor, and the empty fields are visible |
+| F-32 | P2 | Console | The console's `index.html` is cached. Reported from the PMO's live walk. I did not reproduce it | A new build shows up on reload | See F1 | none from me | Known: F1 |
+
+## Known, being fixed in F1
+
+The PMO found these three in a live walk. They are being fixed on `saas/f1-journey-seams`, so this PR leaves them alone.
+
+| Finding | What | In this review |
+|---|---|---|
+| F-01, in part | The wizard's profile step calls `POST /jobs` instead of `POST /uploads/{id}/profile` | I found it too. The rest of #22 is separate: `GET /uploads`, the `POST /workspaces` body, the job lookup and `_install_gaps`. I could not see F1's branch on the remote, so I do not know if it covers those |
+| F-17 | `make console` is a no-op, because `.PHONY` does not list it, so local runs serve a stale console | I found it too. I had fixed it here and took the fix back out |
+| F-32 | The console's `index.html` is cached | Theirs. I did not test it |
 
 ## What held
 

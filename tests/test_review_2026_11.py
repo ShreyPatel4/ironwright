@@ -29,11 +29,6 @@ def test_f14_demo_check_grant_is_tomorrow_in_utc_whatever_the_laptop_says(tz):
     assert _demo_check_tomorrow(tz) == want
 
 
-def test_f17_make_console_builds_even_though_a_folder_has_that_name():
-    done = subprocess.run(["make", "-n", "console"], cwd=ROOT, capture_output=True, text=True, check=True)
-    assert "npm run build" in done.stdout
-
-
 def test_f20_demo_check_covers_every_pack():
     from ironwright.packs import list_packs
     checked = re.search(r"for p in ([^;]+);", (ROOT / "Makefile").read_text()).group(1).split()
