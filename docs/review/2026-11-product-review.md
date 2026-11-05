@@ -68,7 +68,7 @@ Fixed means fixed in this PR with a test. A number means a GitHub issue labeled 
 | F-13 | P2 | Operator | Every failed job logs `JobError`. Drift and a parser failure look the same, so the reason needs the database | A closed error code in the log | Run after a missing key column | `docs/operations.md`, worker log | #34 |
 | F-14 | P2 | Gate | `make demo-check` fails every evening west of UTC. The script builds "tomorrow" in local time, and grants expire in UTC | Green at any hour | Run after 18:00 CST | `tests/test_review_2026_11.py` | Fixed |
 | F-15 | P2 | Quotas | A refused PDF or empty file spends a daily upload | Only a stored upload counts | Upload a PDF, read usage | `tests/test_quotas.py` | Fixed |
-| F-16 | P2 | Sign up | A returning customer who signs up lands back on the login form with no word why | The form says what to do | Sign up with an existing email | `10-returning-user-signup.png` | Fixed |
+| F-16 | P2 | Sign up | A returning customer who signs up lands back on the login form with no word why | The form says what to do | Sign up with an existing email | `10-returning-user-signup.png` | Fixed. The check reads the decoy's dead session, the same signal as F-11. It reveals nothing the API did not, and #32 must change it |
 | F-17 | P2 | Local path | `make console` prints `up to date` and builds nothing: a folder has the same name | It builds | `make console` on a fresh clone | `tests/test_review_2026_11.py` | Fixed |
 | F-18 | P2 | Local path | On a clone without a build, `/console/` and `/` are bare 404s. CLAUDE.md and a code comment say the build is committed. It is gitignored | `/` says how to get the console | `serve-platform` on a fresh clone | `tests/test_review_2026_11.py` | Fixed |
 | F-19 | P2 | Run report | `0 reconciliation rules ... cutover ready` over a file with a junk row | Say nothing was reconciled | Run any wizard workspace | `06-run.png` | Fixed |
@@ -80,9 +80,10 @@ Fixed means fixed in this PR with a test. A number means a GitHub issue labeled 
 | F-25 | P2 | Demo | `docs/DEMO-SCRIPT.md` no longer matches the product. Rewrites below | | Read it | below | Noted |
 | F-26 | P3 | Quotas | A refused Ask question spends one of the 100 | Maybe only answers count | Ask nonsense, read usage | `07-viewer-settings.png`: 3 refusals among the 5 counted | Open: a product call |
 | F-27 | P3 | Copy | `acting as user:<id>`, `evals green on this machine` on a hosted server, `New organization` for a tenant, a workspace card titled `Draft from customers, orders` instead of its name, Pipeline's `Nothing has run` after a run | Words for a hosted customer | Open the console | `05-console-home.png`, `05-view-Pipeline.png` | Open: same screens as #24 |
-| F-28 | P3 | Security | The session token is in `localStorage`, so any XSS can read it | Consider an HttpOnly cookie | Read `api.js` | `console/src/api.js` | Open: a design call |
+| F-28 | P3 | Security | The session token is in `localStorage`, so any XSS can read it | Consider an HttpOnly cookie | Read `api.js` | `console/src/api.js` | #37 |
 | F-29 | P3 | Security | A tenant can read `duckdb_settings()` on a demo lake. No secret: `duckdb_secrets()`, `getenv` and the S3 setting are refused | Maybe refuse it | `POST .../lake/query` | none, API | Open |
-| F-30 | P3 | Gate | The house rule says ruff clean. `ruff check .` finds 83 errors on main in files this PR does not touch, and CI does not run it | Clean, and a CI step to keep it so | `ruff check .` | `.github/workflows/ci.yml` | Open: too wide for this PR |
+| F-30 | P3 | Gate | The house rule says ruff clean. `ruff check .` finds 83 errors on main in files this PR does not touch, and CI does not run it | Clean, and a CI step to keep it so | `ruff check .` | `.github/workflows/ci.yml` | #36 |
+| F-31 | P3 | Sign up | `Create the org` stays disabled with no reason until all three fields are filled. A short password is fine: it gets `a password needs at least 8 characters` | Say what is missing, or let it submit and say so | Open sign up | `01-signup-empty.png`, `01-signup-weak-pw-submitted.png` | Open: minor, and the empty fields are visible |
 
 ## What held
 
