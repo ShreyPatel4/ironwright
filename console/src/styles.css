@@ -60,7 +60,8 @@ h3{font:600 13.5px/1.4 var(--font-sans);margin:26px 0 8px}
 .badge.L2,.badge.hold{color:var(--warn)}
 .badge.L1{color:var(--ink-2)}
 .badge.bad{color:var(--danger)}
-.card .badge,.row .badge{white-space:normal}
+.card .badge,.row .badge,.rail .ws .badge{white-space:normal}
+.rail .ws .mono{overflow-wrap:anywhere}
 
 /* ---------- tables ---------- */
 .scroll{overflow-x:auto}
