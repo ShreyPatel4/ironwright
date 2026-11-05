@@ -10,7 +10,7 @@ aloud over a broken console.
 from __future__ import annotations
 
 import sys
-from datetime import date, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -21,6 +21,11 @@ def step(name: str, ok: bool, detail: str = "") -> None:
     print(f"{'ok' if ok else 'BROKEN'}  {name}  {detail}")
     if not ok:
         sys.exit(1)
+
+
+def tomorrow_utc() -> str:
+    """A grant dies at the start of its date in UTC, so local tomorrow can already be today."""
+    return (datetime.now(timezone.utc).date() + timedelta(days=1)).isoformat()
 
 
 def main() -> None:
@@ -82,7 +87,7 @@ def main() -> None:
         esc = c.post("/workspaces/retail/escalations",
                      json={"principal": "user:demo.check", "action": "delist_item",
                            "object_id": item, "denying_rule": "default-deny"}).json()
-        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        tomorrow = tomorrow_utc()
         c.post(f"/workspaces/retail/escalations/{esc['id']}/decide",
                json={"decision": "grant", "decided_by": "role:category_manager",
                      "expires": tomorrow})
