@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
-import { Err } from "../components.jsx";
+import { Err, ReadOnlyNote } from "../components.jsx";
 
 /* BI embed: the honest slice of "Looker, Power BI, Metabase over the lake".
    The mirror button copies every silver and gold table into postgres and
@@ -58,9 +58,12 @@ export default function BIEmbed({ ws }) {
         deploy/bi in the repo has a Metabase recipe.</p>
       <Err e={err} />
 
+      <ReadOnlyNote ws={ws} />
       <div className="row">
-        <button className="btn" disabled={busy} onClick={mirror}>
-          {busy ? "Mirroring…" : "Mirror lake to postgres"}</button>
+        {!ws.read_only && (
+          <button className="btn" disabled={busy} onClick={mirror}>
+            {busy ? "Mirroring…" : "Mirror lake to postgres"}</button>
+        )}
         {report && <span className="note">
           schema <span className="mono">{report.schema}</span>
           {report.matched ? " · every table verified" : " · at least one table did not verify"}
@@ -72,16 +75,20 @@ export default function BIEmbed({ ws }) {
         </div>
       )}
 
-      <div className="row">
-        <label className="note" htmlFor="bi-url">dashboard URL</label>
-        <input id="bi-url" onChange={(e) => setDraft(e.target.value)}
-               placeholder="https://your-bi-host/dashboard/…" style={{ flex: 1, minWidth: 320 }}
-               type="url" value={draft} />
-        <button className="btn" disabled={!draft.trim() || draft.trim() === config?.url}
-                onClick={save}>Save</button>
-      </div>
-      <p className="note">Only an absolute http(s) URL is accepted; anything else is rejected
-        at save. Saved {config?.saved_at ? new Date(config.saved_at * 1000).toLocaleString() : "never"}.</p>
+      {!ws.read_only && (
+        <>
+          <div className="row">
+            <label className="note" htmlFor="bi-url">dashboard URL</label>
+            <input id="bi-url" onChange={(e) => setDraft(e.target.value)}
+                   placeholder="https://your-bi-host/dashboard/…" style={{ flex: 1, minWidth: 320 }}
+                   type="url" value={draft} />
+            <button className="btn" disabled={!draft.trim() || draft.trim() === config?.url}
+                    onClick={save}>Save</button>
+          </div>
+          <p className="note">Only an absolute http(s) URL is accepted; anything else is rejected
+            at save. Saved {config?.saved_at ? new Date(config.saved_at * 1000).toLocaleString() : "never"}.</p>
+        </>
+      )}
 
       {config?.url && (
         <>

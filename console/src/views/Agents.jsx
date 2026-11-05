@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
-import { Err } from "../components.jsx";
+import { Err, ReadOnlyNote } from "../components.jsx";
 
 export default function Agents({ ws }) {
   const [agents, setAgents] = useState(null);
@@ -40,15 +40,18 @@ export default function Agents({ ws }) {
         decide and the model narrates; a narrative may only cite evidence ids the agent actually
         gathered. Pick a decision to investigate its full span waterfall.</p>
       <Err e={err} />
-      <div className="row">
-        <label className="note" htmlFor="otel-ep">export traces (OTLP/HTTP)</label>
-        <input id="otel-ep" onChange={(e) => setOtelEndpoint(e.target.value)}
-               placeholder="http://localhost:4318/v1/traces" style={{ minWidth: 260 }}
-               type="text" value={otelEndpoint} />
-        <button className="btn ghost" onClick={exportTraces}>Export</button>
-        {otelOut && <span aria-live="polite" className="badge ok">
-          {otelOut.traces} traces, {otelOut.spans} spans sent</span>}
-      </div>
+      <ReadOnlyNote ws={ws} />
+      {!ws.read_only && (
+        <div className="row">
+          <label className="note" htmlFor="otel-ep">export traces (OTLP/HTTP)</label>
+          <input id="otel-ep" onChange={(e) => setOtelEndpoint(e.target.value)}
+                 placeholder="http://localhost:4318/v1/traces" style={{ minWidth: 260 }}
+                 type="text" value={otelEndpoint} />
+          <button className="btn ghost" onClick={exportTraces}>Export</button>
+          {otelOut && <span aria-live="polite" className="badge ok">
+            {otelOut.traces} traces, {otelOut.spans} spans sent</span>}
+        </div>
+      )}
       {agents && (
         <div className="row">
           {Object.keys(agents).map((k) => (

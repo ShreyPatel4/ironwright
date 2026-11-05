@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
-import { Err, Rows } from "../components.jsx";
+import { Err, Rows, ReadOnlyNote } from "../components.jsx";
 
 /* Boards: tiles over the lakehouse. Every tile carries its SQL (one click
    away), its viz and its last run time; a stale tile says when it ran
@@ -112,6 +112,7 @@ export default function Boards({ ws }) {
       <p className="sub">The built-in BI: tiles over this workspace's lakehouse. Every tile is a
         single SELECT (anything else is rejected when you save it), shows its SQL one click
         away, and says when it last ran instead of posing as current.</p>
+      <ReadOnlyNote ws={ws} />
       <Err e={err} />
       {!current && (
         <>
@@ -124,13 +125,15 @@ export default function Boards({ ws }) {
               </button>
             ))}
           </div>
-          <div className="row">
-            <label className="note" htmlFor="board-slug">new board</label>
-            <input id="board-slug" onChange={(e) => setNewSlug(e.target.value)}
-                   placeholder="slug, e.g. weekly-ops" type="text" value={newSlug} />
-            <button className="btn" disabled={!newSlug.trim()} onClick={create}>
-              Create with starter tiles</button>
-          </div>
+          {!ws.read_only && (
+            <div className="row">
+              <label className="note" htmlFor="board-slug">new board</label>
+              <input id="board-slug" onChange={(e) => setNewSlug(e.target.value)}
+                     placeholder="slug, e.g. weekly-ops" type="text" value={newSlug} />
+              <button className="btn" disabled={!newSlug.trim()} onClick={create}>
+                Create with starter tiles</button>
+            </div>
+          )}
         </>
       )}
       {current && (
@@ -139,13 +142,19 @@ export default function Boards({ ws }) {
             <button className="btn ghost" onClick={() => { setCurrent(null); setResults(null); load(); }}>
               ← all boards</button>
             <b>{current.title}</b>
-            <button className="btn" disabled={busy} onClick={runAll}>
-              {busy ? "Running…" : "Run all tiles"}</button>
+            {!ws.read_only && (
+              <button className="btn" disabled={busy} onClick={runAll}>
+                {busy ? "Running…" : "Run all tiles"}</button>
+            )}
             {results && <span className="note">ran {new Date(results.ran_at * 1000).toLocaleTimeString()}</span>}
-            <button className="btn ghost" onClick={addTile}>Add tile</button>
-            <button className="btn danger"
-                    onClick={async () => { await api.deleteBoard(ws.name, current.slug); setCurrent(null); load(); }}>
-              Delete board</button>
+            {!ws.read_only && (
+              <>
+                <button className="btn ghost" onClick={addTile}>Add tile</button>
+                <button className="btn danger"
+                        onClick={async () => { await api.deleteBoard(ws.name, current.slug); setCurrent(null); load(); }}>
+                  Delete board</button>
+              </>
+            )}
           </div>
           <div aria-live="polite"
                style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fill,minmax(330px,1fr))" }}>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api } from "../api.js";
-import { Badge, Err } from "../components.jsx";
+import { Badge, Err, ReadOnlyNote } from "../components.jsx";
 
 const STAGES = ["generate", "migrate", "reconcile", "ontology", "agents", "evals", "export"];
 
@@ -18,6 +18,8 @@ export default function Pipeline({ ws, refresh }) {
     setBusy(false);
   }
 
+  // POST /runs is for a pack this caller may write to. A tenant workspace runs as a job.
+  const canRun = ws.kind === "pack" && !ws.read_only;
   const done = Object.fromEntries((report?.stages ?? []).map((s) => [s.stage, s]));
 
   return (
@@ -26,10 +28,14 @@ export default function Pipeline({ ws, refresh }) {
       <p className="sub">The real stages, run in order on this machine: legacy generation, landing
         with write-audit-publish, reconciliation, ontology build, agents, evals, export. Timings
         are measured, not estimated.</p>
+      <ReadOnlyNote ws={ws} />
+      {ws.kind !== "pack" && <p className="note">This workspace runs from its setup flow, not from here.</p>}
       <div aria-live="polite" className="row">
-        <button className="btn" disabled={busy} onClick={run}>
-          {busy ? "Running…" : "Run all stages"}
-        </button>
+        {canRun && (
+          <button className="btn" disabled={busy} onClick={run}>
+            {busy ? "Running…" : "Run all stages"}
+          </button>
+        )}
         <Badge v={report?.verification ?? ws.verification} />
         {report?.evals && (
           <span className={`badge ${report.evals.passed ? "ok" : "bad"}`}>

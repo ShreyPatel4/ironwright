@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
-import { Err, Rows } from "../components.jsx";
+import { Err, Rows, ReadOnlyNote } from "../components.jsx";
 
 export default function Explorer({ ws }) {
   const [tables, setTables] = useState([]);
@@ -60,10 +60,13 @@ export default function Explorer({ ws }) {
           <p className="note">Transforms are SQL. This runs every model of this workspace
             unchanged on a second engine (postgres, from POSTGRES_URI) and compares the
             results to DuckDB's, value for value. Trino and Spark are not claimed.</p>
+          <ReadOnlyNote ws={ws} />
           <div className="row">
-            <button className="btn ghost" disabled={engBusy} onClick={checkEngines}>
-              {engBusy ? "Comparing engines…" : "Run models on postgres and compare"}
-            </button>
+            {!ws.read_only && (
+              <button className="btn ghost" disabled={engBusy} onClick={checkEngines}>
+                {engBusy ? "Comparing engines…" : "Run models on postgres and compare"}
+              </button>
+            )}
             {engines && (
               <span aria-live="polite" className={`badge ${engines.match ? "ok" : "bad"}`}>
                 {engines.match ? "identical on both engines" : "DIVERGED"} ·{" "}
