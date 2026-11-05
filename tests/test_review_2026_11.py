@@ -38,3 +38,18 @@ def test_f20_demo_check_covers_every_pack():
     from ironwright.packs import list_packs
     checked = re.search(r"for p in ([^;]+);", (ROOT / "Makefile").read_text()).group(1).split()
     assert sorted(checked) == sorted(list_packs())
+
+
+def test_f19_no_rules_does_not_read_as_cutover_ready(monkeypatch):
+    from ironwright import evals
+    monkeypatch.setattr(evals, "_load", lambda pack, name: {"rules": [], "cutover_ready": True})
+    got = evals.eval_migration(None)
+    assert "cutover ready" not in got["headline"] and "no reconciliation rules" in got["headline"]
+    assert got["passed"], "nothing to reconcile is not a failure"
+
+
+def test_f19_rules_still_say_ready(monkeypatch):
+    from ironwright import evals
+    rule = {"counts": {"explained": 2, "unexplained": 0}}
+    monkeypatch.setattr(evals, "_load", lambda pack, name: {"rules": [rule], "cutover_ready": True})
+    assert "cutover ready" in evals.eval_migration(None)["headline"]
