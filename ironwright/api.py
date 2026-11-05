@@ -36,6 +36,7 @@ from starlette.responses import JSONResponse
 
 from . import auth, sqlguard
 from .config import setting
+from .obs.middleware import RequestObs
 from .ontology.runtime import ActionError, Ontology
 from .packs import load_pack
 from .tenancy.models import DEV_ORG_ID
@@ -260,6 +261,7 @@ def harden(app: FastAPI, clock: Callable[[], float] = time.monotonic) -> FastAPI
     app.add_middleware(OriginGuard, allowed=allowed)
     app.add_middleware(CORSMiddleware, allow_origins=allowed, allow_methods=["GET", "POST", "PUT", "DELETE"],
                        allow_headers=["authorization", "content-type"])
+    app.add_middleware(RequestObs)
     app.add_middleware(SecurityHeaders)
     return app
 

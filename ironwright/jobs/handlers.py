@@ -7,6 +7,7 @@ print() output stays on the worker's stdout for that reason.
 from __future__ import annotations
 
 import argparse
+import contextvars
 import json
 import time
 from collections.abc import Callable
@@ -123,10 +124,18 @@ def run(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[str]
     """The whole pipeline, or the stages asked for. Cancel lands between stages:
     a stage holds a DuckDB or Iceberg write, and stopping inside one tears it."""
     pack = _load(ctx.org_id, workspace)
-    if pack.is_tenant:
-        return _run_tenant(ctx, pack, params, log)
-    if params.get("mode"):
-        raise JobError("run modes are for tenant workspaces; a demo pack regenerates from scratch")
+    # One job, one trace: every span under this root inherits the job id as its trace id.
+    tracer = Tracer(pack.paths.ensure().traces)
+    with tracer.span("job.run", trace_id=ctx.job_id, **{"job.kind": "run", "org_id": ctx.org_id}):
+        if pack.is_tenant:
+            return _run_tenant(ctx, pack, params, log)
+        if params.get("mode"):
+            raise JobError("run modes are for tenant workspaces; a demo pack regenerates from scratch")
+        return _run_stages(ctx, pack, workspace, params, log, tracer)
+
+
+def _run_stages(ctx: JobCtx, pack: Any, workspace: str, params: dict[str, Any], log: Callable[[str], None],
+                tracer: Tracer) -> dict[str, Any]:
     available = pipeline_stages()
     stages = params.get("stages") or list(available)
     missing = [s for s in stages if s not in available]
@@ -135,13 +144,18 @@ def run(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[str]
     seed = params.get("seed")
     args = argparse.Namespace(seed=seed if seed is not None else DEFAULT_SEEDS.get(workspace, 7),
                               limit=None)
-    tracer = Tracer(pack.paths.ensure().traces)
     report = []
     for stage in stages:
         ctx.check_cancel()
         log(f"[{stage}] started")
         t0 = time.perf_counter()
-        available[stage](pack, tracer, args)
+        with tracer.span(f"stage.{stage}"):
+            if stage == "agents":
+                # Each decision is its own trace: export.py and the console read them one
+                # by one. An empty context keeps them from inheriting the job as a parent.
+                contextvars.Context().run(available[stage], pack, tracer, args)
+            else:
+                available[stage](pack, tracer, args)
         seconds = round(time.perf_counter() - t0, 2)
         log(f"[{stage}] ok in {seconds}s")
         report.append({"stage": stage, "status": "ok", "seconds": seconds})
