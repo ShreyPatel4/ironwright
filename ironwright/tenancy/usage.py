@@ -9,6 +9,7 @@ refusal changes nothing. Days are UTC. Time always comes in as an argument.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 import weakref
@@ -45,6 +46,15 @@ org_audit = sa.Table(
     sa.Column("actor", sa.String(256), nullable=False),
     sa.Column("action", sa.String(32), nullable=False),
     sa.Column("detail", sa.Text, nullable=False),
+)
+# One hash per org_audit row, written with it. It sits beside org_audit because there are
+# no migrations and that table is already live. A row with no link predates the chain.
+org_audit_chain = sa.Table(
+    "org_audit_chain", metadata,
+    sa.Column("seq", sa.Integer, primary_key=True, autoincrement=False),
+    sa.Column("org_id", sa.String(32), nullable=False, index=True),
+    sa.Column("prev_hash", sa.String(64), nullable=False),
+    sa.Column("hash", sa.String(64), nullable=False),
 )
 org_llm_keys = sa.Table(
     "org_llm_keys", metadata,
@@ -115,10 +125,26 @@ def used(org_id: str, metric: str, now: float) -> int:
         return con.execute(sa.select(usage.c.amount).where(_this(org_id, day_of(now), metric))).scalar() or 0
 
 
+def _link(org_id: str, seq: int, ts: float, actor: str, action: str, detail: str, prev: str) -> str:
+    return hashlib.sha256(json.dumps([org_id, seq, ts, actor, action, detail, prev]).encode()).hexdigest()
+
+
 def audit(con: Connection, org_id: str, actor: str, action: str, detail: dict[str, Any], now: float) -> None:
-    """Written in the caller's transaction, so a change and its record land together."""
-    con.execute(org_audit.insert().values(org_id=org_id, ts=now, actor=actor,
-                                          action=action, detail=json.dumps(detail, sort_keys=True)))
+    """Written in the caller's transaction, so a change and its record land together.
+
+    Two writers must not read the same last hash, or the chain forks. On Postgres
+    that takes a lock on the org's chain. On SQLite the insert already holds the
+    one write lock.
+    """
+    if con.dialect.name == "postgresql":
+        con.execute(sa.select(sa.func.pg_advisory_xact_lock(sa.func.hashtext(org_id))))
+    text = json.dumps(detail, sort_keys=True)
+    seq = con.execute(org_audit.insert().values(org_id=org_id, ts=now, actor=actor, action=action,
+                                                detail=text)).inserted_primary_key[0]
+    prev = con.execute(sa.select(org_audit_chain.c.hash).where(org_audit_chain.c.org_id == org_id)
+                       .order_by(org_audit_chain.c.seq.desc()).limit(1)).scalar() or ""
+    con.execute(org_audit_chain.insert().values(seq=seq, org_id=org_id, prev_hash=prev,
+                                                hash=_link(org_id, seq, now, actor, action, text, prev)))
 
 
 def audit_log(org_id: str, limit: int = 200) -> list[dict[str, Any]]:
@@ -128,6 +154,62 @@ def audit_log(org_id: str, limit: int = 200) -> list[dict[str, Any]]:
                            .order_by(org_audit.c.seq.desc()).limit(limit)).mappings().all()
     return [{"ts": r["ts"], "actor": r["actor"], "action": r["action"], "detail": json.loads(r["detail"])}
             for r in reversed(rows)]
+
+
+def _chain_rows(org_id: str) -> tuple[list[Any], dict[int, Any]]:
+    with engine().connect() as con:
+        rows = con.execute(sa.select(org_audit).where(org_audit.c.org_id == org_id)
+                           .order_by(org_audit.c.seq)).mappings().all()
+        links = con.execute(sa.select(org_audit_chain)
+                            .where(org_audit_chain.c.org_id == org_id)).mappings().all()
+    return rows, {link["seq"]: link for link in links}
+
+
+def _judge(org_id: str, rows: list[Any], links: dict[int, Any]) -> dict[str, Any]:
+    """Recompute every link. A link left with no row means a row was taken away, so that
+    holds for the newest row too, unless its link was taken as well. Nothing here can
+    see the newest rows and their links removed together: this chain has no outside anchor."""
+    prev, unchained, broken_at = "", 0, None
+    for r in rows:
+        link = links.get(r["seq"])
+        if link is None:
+            if prev:
+                broken_at = r["seq"]
+                break
+            unchained += 1
+            continue
+        want = _link(org_id, r["seq"], r["ts"], r["actor"], r["action"], r["detail"], prev)
+        if link["prev_hash"] != prev or link["hash"] != want:
+            broken_at = r["seq"]
+            break
+        prev = link["hash"]
+    if broken_at is None:
+        orphans = sorted(set(links) - {r["seq"] for r in rows})
+        broken_at = orphans[0] if orphans else None
+    return {"verified": broken_at is None, "broken_at": broken_at, "total": len(rows), "unchained": unchained}
+
+
+def verify_chain(org_id: str) -> dict[str, Any]:
+    return _judge(org_id, *_chain_rows(org_id))
+
+
+def audit_chain(org_id: str, actor: str | None = None, action: str | None = None, limit: int = 500) -> dict[str, Any]:
+    """The verdict always covers the whole chain. Filters narrow what is listed, nothing else."""
+    rows, links = _chain_rows(org_id)
+    listed = [r for r in rows if actor in (None, r["actor"]) and action in (None, r["action"])][-limit:]
+    return {**_judge(org_id, rows, links),
+            "actors": sorted({r["actor"] for r in rows}), "actions": sorted({r["action"] for r in rows}),
+            "rows": [{"seq": r["seq"], "ts": r["ts"], "actor": r["actor"], "action": r["action"],
+                      "detail": _detail(r["detail"]), "hash": links[r["seq"]]["hash"] if r["seq"] in links else None}
+                     for r in listed]}
+
+
+def _detail(text: str) -> Any:
+    """A row can be tampered into anything. The page that reports that must still load."""
+    try:
+        return json.loads(text)
+    except ValueError:
+        return text
 
 
 class MeteredLLM:

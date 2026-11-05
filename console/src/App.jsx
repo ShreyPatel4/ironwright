@@ -22,6 +22,7 @@ import BIEmbed from "./views/BIEmbed.jsx";
 import Onboarding from "./views/Onboarding.jsx";
 import Login from "./views/Login.jsx";
 import Join from "./views/onboarding/Join.jsx";
+import Settings from "./views/settings/Settings.jsx";
 import { setPrincipal, getPrincipal } from "./api.js";
 
 const VIEWS = [
@@ -169,6 +170,16 @@ export default function App() {
     setSession(null); setWsName(null); setView(null); setWelcome(true);
   }
 
+  // The org is gone and so is the session, so there is no one to tell the server about.
+  function orgGone() {
+    try {
+      localStorage.removeItem("iw.session");
+      localStorage.removeItem("iw.last");
+      localStorage.removeItem("iw.onboarded");
+    } catch { /* fine */ }
+    setSession(null); setWsName(null); setView(null); setWelcome(true);
+  }
+
   // Sessions live in the server process; after a restart a stored token is
   // dead and the door must ask again instead of trusting localStorage.
   useEffect(() => {
@@ -261,6 +272,10 @@ export default function App() {
                 onClick={() => { setView(null); setWsName(null); refresh(); }}>
           Workspaces
         </button>
+        <button aria-current={view === "settings"}
+                onClick={() => { setWsName(null); setView("settings"); }}>
+          Settings
+        </button>
         {ws && groups.map(([g, keys]) => (
           <div key={g}>
             <div className="railgroup">{g}</div>
@@ -295,7 +310,8 @@ export default function App() {
       </nav>
       <main>
         <Err e={err} />
-        {!ws && workspaces && (
+        {view === "settings" && <Settings onGone={orgGone} />}
+        {!ws && view !== "settings" && workspaces && (
           <>
             <h2>Workspaces</h2>
             <p className="sub">Each workspace is one company's whole migration: its legacy systems,

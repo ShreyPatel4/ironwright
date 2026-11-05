@@ -20,6 +20,7 @@ from ..config import UnsafePath
 from ..ingest import profiler
 from ..packs import list_packs, load_pack
 from ..tenancy import DEV_ORG_ID, quotas
+from ..tenancy import service as tenancy
 from ..tracing import Tracer
 
 STAGE_ORDER = ["generate", "migrate", "reconcile", "ontology", "agents", "evals", "export"]
@@ -197,3 +198,16 @@ def ontology_propose(ctx: JobCtx, workspace: str, params: dict[str, Any], log: C
     log(f"[{workspace}] proposed {len(made['objects'])} objects, {len(made['links'])} links")
     return {"workspace": workspace, "objects": len(made["objects"]), "links": len(made["links"]),
             "functions": len(made["functions"])}
+
+
+@job("org_export")
+def org_export(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[str], None]) -> Any:
+    """Owner only. /jobs takes any registered kind from a member, so the service reads the role."""
+    return tenancy.export_org(ctx.org_id, ctx.principal, ctx.job_id, ctx.check_cancel, log, auth._now())
+
+
+@job("org_delete")
+def org_delete(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[str], None]) -> Any:
+    """Does nothing unless the owner route marked the org. No cancel check and no log
+    line once it starts: nobody is left to cancel it, and the log folder goes with the org."""
+    return tenancy.delete_org_data(ctx.org_id, auth._now())

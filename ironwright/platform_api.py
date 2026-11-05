@@ -53,6 +53,7 @@ from .scenario.spec import SpecError
 from .tenancy import DEV_ORG_ID, ROLES, Ctx, byokey, quotas
 from .tenancy import service as tenancy
 from .tenancy.models import at_least
+from .tenancy.routes_admin import router as admin_router
 from .tenancy.routes_settings import router as settings_router
 from .tracing import Tracer
 
@@ -174,6 +175,7 @@ WRITE_ROLES = {
     "/workspaces/{name}/bi": "admin",
     "/orgs/{slug}/invites": "admin",
     "/orgs/{slug}/llm-key": "admin",
+    "/orgs/{slug}/members/{user_id}": "admin",  # the service keeps admins off owners
     "/orgs/{slug}/switch": "viewer",
     "/auth/logout": "viewer",
 }
@@ -466,7 +468,7 @@ def create_platform_app() -> FastAPI:
             raise HTTPException(403, "you cannot invite someone above your own role")
         quotas.check_seat(slug, body.email, auth_mod._now())
         try:
-            return {"token": tenancy.invite(slug, body.email, body.role, auth_mod._now()),
+            return {"token": tenancy.invite(slug, body.email, body.role, auth_mod._now(), c.principal),
                     "email": body.email.strip().lower(), "role": body.role, "org_slug": slug}
         except tenancy.Invalid as e:
             raise HTTPException(422, str(e)) from e
@@ -782,6 +784,7 @@ def create_platform_app() -> FastAPI:
     app.include_router(ontology_router)
     app.include_router(settings_router)
     app.include_router(journey_routes.router)
+    app.include_router(admin_router)
 
     # The console is a committed build (console/dist), so a git clone needs
     # uv and nothing else at runtime. Absent (e.g. a bare pip install of the

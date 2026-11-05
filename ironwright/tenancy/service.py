@@ -7,19 +7,38 @@ holds no usable credential.
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import re
 import secrets
+import shutil
+import stat
+import time
 import uuid
+import zipfile
+from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import sqlalchemy as sa
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 
-from ..config import UnsafePath, data_root, safe_child
+from ..config import (
+    ORG_ID,
+    UnsafePath,
+    data_root,
+    lake_uri,
+    private_dir,
+    safe_child,
+    tenant_dir,
+    workspaces_root,
+)
 from ..packs import list_packs
-from . import db
-from .models import DEV_ORG_ID, DEV_ORG_SLUG, ROLES, Ctx, principal_of
+from . import db, usage
+from .models import DEV_ORG_ID, DEV_ORG_SLUG, ROLES, Ctx, at_least, principal_of
 
 IDLE_SECONDS = 8 * 3600
 INVITE_SECONDS = 7 * 24 * 3600
@@ -31,6 +50,21 @@ OWNER_FILE = ".ironwright-owner"
 _ITERATIONS = 200_000
 _SLUG = re.compile(r"[a-z][a-z0-9-]{2,39}")
 _RESERVED_SLUGS = frozenset({DEV_ORG_SLUG})
+# jobs.workspace cannot be null, and an org job has no workspace. Not a safe name, so
+# it cannot be a real workspace or come in through POST /jobs.
+ORG_JOBS = "(org)"
+_RETRY_WAITS = (1, 4)  # the object store client tries once, with a short timeout
+
+# Contract 1's orgs table stays as written, so "being deleted" lives here. Nothing
+# but the owner route writes a row, and the delete job does nothing without one.
+org_lifecycle = sa.Table(
+    "org_lifecycle", usage.metadata,
+    sa.Column("org_id", sa.String(32), primary_key=True),
+    sa.Column("state", sa.String(16), nullable=False),
+    sa.Column("requested_by", sa.String(256), nullable=False),
+    sa.Column("requested_at", sa.Float, nullable=False),
+    sa.Column("member_ids", sa.Text, nullable=False),  # memberships go first, and the job still needs them
+)
 
 
 class Invalid(ValueError):
@@ -47,6 +81,22 @@ class BadCredentials(Exception):
 
 class NoSuchInvite(Exception):
     pass
+
+
+class NoSuchMember(Exception):
+    pass
+
+
+class LastOwner(Exception):
+    pass
+
+
+class Forbidden(Exception):
+    """The caller's role does not allow this."""
+
+
+class NotDeleting(Exception):
+    """Nobody asked for this org to be deleted."""
 
 
 def _id() -> str:
@@ -249,26 +299,33 @@ def switch(ctx: Ctx, slug: str, now: float) -> dict[str, Any] | None:
                                ctx.user_id, org_id)
 
 
-def invite(slug: str, email: str, role: str, now: float) -> str:
+def invite(slug: str, email: str, role: str, now: float, actor: str = "system") -> str:
     """Returns the one copy of the token. A new invite replaces an older one."""
     email = clean_email(email)
     if role not in ROLES:
         raise Invalid(f"role must be one of {', '.join(ROLES)}")
     token = secrets.token_urlsafe(32)
-    with db.engine().begin() as con:
+    with usage.engine().begin() as con:
         org_id = con.execute(sa.select(db.orgs.c.id).where(db.orgs.c.slug == slug)).scalar_one()
         con.execute(db.invites.delete().where(db.invites.c.org_id == org_id,
                                               db.invites.c.email == email))
         con.execute(db.invites.insert().values(token_hash=_token_hash(token), org_id=org_id,
                                                email=email, role=role,
                                                expires_at=now + INVITE_SECONDS))
+        usage.audit(con, org_id, actor, "member.invite", {"role": role}, now)
     return token
 
 
 def accept_invite(token: str, password: str, now: float) -> dict[str, Any]:
     """A new email sets its password here. A known email must prove the one it has."""
     hashed = _token_hash(token)
-    with db.engine().begin() as con:
+    with usage.engine().begin() as con:
+        row = con.execute(sa.select(db.invites).where(db.invites.c.token_hash == hashed)).mappings().first()
+        if row is None:
+            raise NoSuchInvite
+        # Then look again under the org's lock. Marking an org for deletion deletes its
+        # invites, and nobody may join once that has committed.
+        _lock_org(con, row["org_id"])
         row = con.execute(sa.select(db.invites).where(db.invites.c.token_hash == hashed)).mappings().first()
         if row is None or row["expires_at"] <= now:
             raise NoSuchInvite
@@ -292,6 +349,7 @@ def accept_invite(token: str, password: str, now: float) -> dict[str, Any]:
                 db.memberships.c.org_id == row["org_id"], db.memberships.c.user_id == user_id
             ).values(role=row["role"]))
         con.execute(db.invites.delete().where(db.invites.c.token_hash == hashed))
+        usage.audit(con, row["org_id"], principal_of(user_id), "member.join", {"user_id": user_id, "role": row["role"]}, now)
         return _session_answer(con, _open_session(con, user_id, row["org_id"], now),
                                user_id, row["org_id"])
 
@@ -344,3 +402,314 @@ def can_see_workspace(ctx: Ctx, name: str) -> bool:
 def any_users() -> bool:
     with db.engine().connect() as con:
         return con.execute(sa.select(db.users.c.id).limit(1)).first() is not None
+
+
+# ---------------------------------------------------------------- members
+
+def list_members(org_id: str, now: float) -> dict[str, Any]:
+    with usage.engine().connect() as con:
+        people = con.execute(
+            sa.select(db.users.c.id, db.users.c.email, db.memberships.c.role)
+            .join(db.memberships, db.memberships.c.user_id == db.users.c.id)
+            .where(db.memberships.c.org_id == org_id).order_by(db.users.c.email)).all()
+        invites = con.execute(
+            sa.select(db.invites.c.email, db.invites.c.role, db.invites.c.expires_at)
+            .where(db.invites.c.org_id == org_id, db.invites.c.expires_at > now)
+            .order_by(db.invites.c.email)).all()
+    return {"members": [{"user_id": i, "email": e, "role": r} for i, e, r in people],
+            "invites": [{"email": e, "role": r, "expires_at": x} for e, r, x in invites]}
+
+
+def _lock_org(con: Connection, org_id: str) -> None:
+    """A write that changes nothing, first in the transaction: the org's row on Postgres,
+    the one write lock on SQLite. So "how many owners" and the change are a single step,
+    and two owners demoting each other cannot both read two."""
+    con.execute(db.orgs.update().where(db.orgs.c.id == org_id).values(name=db.orgs.c.name))
+
+
+def _role_there(con: Connection, org_id: str, user_id: str) -> str | None:
+    return con.execute(sa.select(db.memberships.c.role).where(
+        db.memberships.c.org_id == org_id, db.memberships.c.user_id == user_id)).scalar()
+
+
+def _owners(con: Connection, org_id: str) -> int:
+    return con.execute(sa.select(sa.func.count()).select_from(db.memberships).where(
+        db.memberships.c.org_id == org_id, db.memberships.c.role == "owner")).scalar_one()
+
+
+def _may_manage(con: Connection, org_id: str, target: str, actor_id: str) -> str:
+    """The target's role, once the actor's own role is read under the lock. An admin can
+    run the org's people and has no say over an owner."""
+    mine = _role_there(con, org_id, actor_id)
+    if mine is None or not at_least(mine, "admin"):
+        raise Forbidden("only an org admin can do this")
+    held = _role_there(con, org_id, target)
+    if held is None:
+        raise NoSuchMember
+    if held == "owner" and mine != "owner":
+        raise Forbidden("only an owner can change an owner")
+    return held
+
+
+def set_role(org_id: str, target: str, role: str, actor_id: str, actor: str, now: float) -> None:
+    if role not in ROLES:
+        raise Invalid(f"role must be one of {', '.join(ROLES)}")
+    with usage.engine().begin() as con:
+        _lock_org(con, org_id)
+        held = _may_manage(con, org_id, target, actor_id)
+        if role == "owner" and _role_there(con, org_id, actor_id) != "owner":
+            raise Forbidden("only an owner can make an owner")
+        if role == held:
+            return
+        if held == "owner" and _owners(con, org_id) == 1:
+            raise LastOwner
+        con.execute(db.memberships.update().where(db.memberships.c.org_id == org_id,
+                                                  db.memberships.c.user_id == target).values(role=role))
+        usage.audit(con, org_id, actor, "member.role", {"user_id": target, "from": held, "to": role}, now)
+
+
+def _drop_if_no_org_left(con: Connection, user_id: str) -> None:
+    """Nobody with no org can log in, and the email would stay taken for good."""
+    if con.execute(sa.select(db.memberships.c.org_id).where(db.memberships.c.user_id == user_id).limit(1)).first() is None:
+        con.execute(db.sessions.delete().where(db.sessions.c.user_id == user_id))
+        con.execute(db.users.delete().where(db.users.c.id == user_id))
+
+
+def remove_member(org_id: str, target: str, actor_id: str, actor: str, now: float) -> None:
+    with usage.engine().begin() as con:
+        _lock_org(con, org_id)
+        held = _may_manage(con, org_id, target, actor_id)
+        if held == "owner" and _owners(con, org_id) == 1:
+            raise LastOwner
+        con.execute(db.memberships.delete().where(db.memberships.c.org_id == org_id,
+                                                  db.memberships.c.user_id == target))
+        con.execute(db.sessions.delete().where(db.sessions.c.org_id == org_id, db.sessions.c.user_id == target))
+        _drop_if_no_org_left(con, target)
+        usage.audit(con, org_id, actor, "member.remove", {"user_id": target, "role": held}, now)
+
+
+# ---------------------------------------------------------------- export
+
+def _scenario_folders(org_id: str) -> list[Path]:
+    """Scenario workspaces live under the data root as o<8 of the org id>-<name>. Eight
+    characters can collide, so the owner file decides. Nothing here follows a link."""
+    found = []
+    for d in sorted(data_root().glob(f"o{org_id[:8]}-*")):
+        marker = d / OWNER_FILE
+        if (not d.is_symlink() and d.is_dir() and marker.is_file() and not marker.is_symlink()
+                and marker.read_text().strip() == org_id):
+            found.append(d)
+    return found
+
+
+def _add_file(z: zipfile.ZipFile, path: Path, name: str) -> None:
+    """Regular files only. O_NOFOLLOW, so a link planted in a folder cannot pull a file
+    from outside the org into the download."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return
+    with os.fdopen(fd, "rb") as fh:
+        if stat.S_ISREG(os.fstat(fh.fileno()).st_mode):
+            z.writestr(name, fh.read())
+
+
+def _add_workspace(z: zipfile.ZipFile, org_id: str, d: Path) -> dict[str, Any]:
+    from .. import workspaces_tenant as wt
+    from ..lake import Lakehouse
+
+    base = f"workspaces/{d.name}"
+    for name in ("workspace.yaml", "ontology.yaml", "policies.yaml"):
+        _add_file(z, d / name, f"{base}/{name}")
+    for sub in ("models/silver", "models/gold", "ontology_versions"):
+        folder = d / sub
+        if folder.is_dir() and not folder.is_symlink():
+            for f in sorted(folder.iterdir()):
+                _add_file(z, f, f"{base}/{sub}/{f.name}")
+    try:
+        lake = Lakehouse(wt.load_workspace(org_id, d.name))
+    except wt.WorkspaceError as e:
+        return {"gold": [], "skipped": str(e)}
+    gold = []
+    for ident in lake.tables():
+        layer, table = ident.split(".")
+        if layer == "gold":
+            buf = pa.BufferOutputStream()
+            pq.write_table(lake.read(ident), buf)
+            z.writestr(f"{base}/gold/{table}.parquet", buf.getvalue().to_pybytes())
+            gold.append(table)
+    return {"gold": gold, "skipped": None}
+
+
+def export_org(org_id: str, principal: str, job_id: str, check_cancel: Callable[[], None],
+               log: Callable[[str], None], now: float) -> dict[str, Any]:
+    """Specs, accepted ontologies and gold tables, as one zip inside the org's own folder.
+    Raw uploads and bronze stay out: the owner has those already. The role is read here
+    because /jobs is member level and takes any registered kind."""
+    from .. import workspaces_tenant as wt
+
+    user_id = principal.removeprefix("user:")
+    with usage.engine().connect() as con:
+        if org_id == DEV_ORG_ID or _role_there(con, org_id, user_id) != "owner":
+            raise Forbidden("only an org owner can export")
+    folder = private_dir(tenant_dir(org_id) / "exports")
+    target = safe_child(folder, f"{job_id}.zip")
+    partial = safe_child(folder, f"{job_id}.part")
+    root = workspaces_root(org_id)
+    manifest: dict[str, Any] = {"exported_at": now, "exported_by": principal, "workspaces": [], "scenarios": [],
+                                "gold": {}, "skipped": {}}
+    fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    try:
+        with os.fdopen(fd, "wb") as raw, zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as z:
+            for d in sorted(root.iterdir()) if root.is_dir() else []:
+                if d.is_symlink() or not wt._created_here(d, org_id, d.name):
+                    continue
+                check_cancel()
+                log(f"[{d.name}] exporting")
+                got = _add_workspace(z, org_id, d)
+                manifest["workspaces"].append(d.name)
+                manifest["gold"][d.name] = got["gold"]
+                if got["skipped"]:
+                    manifest["skipped"][d.name] = got["skipped"]
+            for d in _scenario_folders(org_id):
+                name = d.name.split("-", 1)[1]
+                _add_file(z, d / "scenario.yaml", f"scenarios/{name}/scenario.yaml")
+                manifest["scenarios"].append(name)
+            z.writestr("manifest.json", json.dumps(manifest, indent=2, sort_keys=True))
+        os.replace(partial, target)
+    finally:
+        partial.unlink(missing_ok=True)
+    for old in folder.glob("*.zip"):  # one copy of everything is enough to look after
+        if old != target:
+            old.unlink(missing_ok=True)
+    return {**manifest, "bytes": target.stat().st_size}
+
+
+def export_file(org_id: str, job_id: str) -> Path | None:
+    try:
+        path = safe_child(tenant_dir(org_id) / "exports", f"{job_id}.zip")
+    except UnsafePath:
+        return None
+    return path if path.is_file() and not path.is_symlink() else None
+
+
+# ---------------------------------------------------------------- delete
+
+def mark_deleting(org_id: str, principal: str, now: float) -> bool:
+    """The point of no return, in one transaction. Nobody can sign in to this org from
+    the moment it commits, and no new work can start. False means someone got here first."""
+    from ..jobs.store import JobStore, _now, job_runtime, jobs
+
+    if org_id == DEV_ORG_ID:
+        raise Forbidden("the dev org cannot be deleted")
+    JobStore()  # its tables exist before this transaction needs them
+    with usage.engine().begin() as con:
+        _lock_org(con, org_id)
+        if con.execute(sa.select(org_lifecycle.c.org_id).where(org_lifecycle.c.org_id == org_id)).first():
+            return False
+        ids = con.execute(sa.select(db.memberships.c.user_id).where(db.memberships.c.org_id == org_id)).scalars().all()
+        con.execute(org_lifecycle.insert().values(org_id=org_id, state="deleting", requested_by=principal,
+                                                  requested_at=now, member_ids=json.dumps(sorted(ids))))
+        for table in (db.sessions, db.invites, db.memberships):
+            con.execute(table.delete().where(table.c.org_id == org_id))
+        con.execute(jobs.update().where(jobs.c.org_id == org_id, jobs.c.state == "queued")
+                    .values(state="cancelled", finished_at=_now()))
+        running = sa.select(jobs.c.id).where(jobs.c.org_id == org_id, jobs.c.state == "running")
+        con.execute(job_runtime.update().where(job_runtime.c.job_id.in_(running)).values(cancel_requested=True))
+    return True
+
+
+def enqueue_deletion(org_id: str, principal: str, store: Any) -> str:
+    return store.enqueue(org_id, ORG_JOBS, "org_delete", principal, {})
+
+
+def pending_deletions() -> list[str]:
+    """For an operator: orgs still marked, because the job is waiting or it failed."""
+    with usage.engine().connect() as con:
+        return list(con.execute(sa.select(org_lifecycle.c.org_id).order_by(org_lifecycle.c.requested_at)).scalars())
+
+
+def resume_deletion(org_id: str, store: Any) -> str:
+    """Nobody is left in the org to retry, so a failed delete comes back through here."""
+    with usage.engine().connect() as con:
+        by = con.execute(sa.select(org_lifecycle.c.requested_by).where(org_lifecycle.c.org_id == org_id)).scalar()
+    if by is None:
+        raise NotDeleting(org_id)
+    return enqueue_deletion(org_id, by, store)
+
+
+def _remove_lake_prefix(org_id: str) -> None:
+    uri = lake_uri()
+    if uri is None:
+        return
+    from .. import hosted
+
+    try:
+        hosted.object_store().delete_dir(f"{uri.removeprefix('s3://')}/tenants/{org_id}")
+    except FileNotFoundError:
+        pass
+
+
+def _remove_files(org_id: str) -> None:
+    """tenant_dir refuses anything but a full org id, so this cannot name a parent."""
+    org_root = tenant_dir(org_id)
+    if org_root.exists():
+        shutil.rmtree(org_root)
+    for d in _scenario_folders(org_id):
+        shutil.rmtree(d)
+
+
+def _forget_org(org_id: str, request: Any, now: float) -> None:
+    """Every row, in one transaction, then the tombstone. The tables come from the live
+    database and not from a list, so one added later is cleared too. A hosted lake's
+    catalog is in here as well, in pyiceberg's tables, keyed by a name that holds the org."""
+    from ..jobs.store import JobStore, job_runtime, jobs
+
+    JobStore()
+    with usage.engine().begin() as con:
+        _lock_org(con, org_id)
+        people = set(json.loads(request["member_ids"]))
+        people |= set(con.execute(sa.select(db.memberships.c.user_id)
+                                  .where(db.memberships.c.org_id == org_id)).scalars())
+        con.execute(job_runtime.delete().where(
+            job_runtime.c.job_id.in_(sa.select(jobs.c.id).where(jobs.c.org_id == org_id))))
+        inspector = sa.inspect(con)
+        for name in inspector.get_table_names():
+            if name == "orgs":
+                continue
+            columns = {c["name"] for c in inspector.get_columns(name)}
+            if "org_id" in columns:
+                t = sa.table(name, sa.column("org_id"))
+                con.execute(t.delete().where(t.c.org_id == org_id))
+            if "catalog_name" in columns:
+                t = sa.table(name, sa.column("catalog_name"))
+                con.execute(t.delete().where(t.c.catalog_name.startswith(f"tenant/{org_id}/", autoescape=True)))
+        for user_id in sorted(people):
+            _drop_if_no_org_left(con, user_id)
+        con.execute(db.orgs.delete().where(db.orgs.c.id == org_id))
+        usage.audit(con, org_id, request["requested_by"], "org.deleted",
+                    {"requested_at": request["requested_at"], "members": len(people)}, now)
+
+
+def delete_org_data(org_id: str, now: float) -> dict[str, str]:
+    """Safe to run twice: a worker can die anywhere in here, and the job comes back.
+    The rows go last, because the mark is what lets a second run happen. The caller
+    must not log after this returns: the job's log folder and its row are gone."""
+    if not ORG_ID.fullmatch(org_id) or org_id == DEV_ORG_ID:
+        raise NotDeleting(org_id)
+    with usage.engine().connect() as con:
+        request = con.execute(sa.select(org_lifecycle).where(org_lifecycle.c.org_id == org_id)).mappings().first()
+    if request is None:
+        raise NotDeleting(org_id)
+    for wait in (*_RETRY_WAITS, None):
+        try:
+            # The lake first. The job's log is in the org's folder, and a failure here must still reach it.
+            _remove_lake_prefix(org_id)
+            _remove_files(org_id)
+            break
+        except OSError:
+            if wait is None:
+                raise
+            time.sleep(wait)
+    _forget_org(org_id, request, now)
+    return {"state": "deleted"}
