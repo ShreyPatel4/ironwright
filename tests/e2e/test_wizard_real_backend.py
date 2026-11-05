@@ -83,6 +83,13 @@ def _wait_until_up(base: str, server: subprocess.Popen, log: Path) -> None:
     raise AssertionError(f"the platform did not come up:\n{log.read_text()}")
 
 
+def _stack_env(root: Path) -> dict[str, str]:
+    env = {k: v for k, v in os.environ.items() if k not in ("IRONWRIGHT_DEV_OPEN", "IRONWRIGHT_DB_URL")}
+    env["IRONWRIGHT_DATA"] = str(root)
+    env["PYTHONPATH"] = str(ROOT)
+    return env
+
+
 def _stack_under_test() -> str | None:
     return os.environ.get(WIZARD_BASE, "").rstrip("/") or None
 
@@ -95,8 +102,7 @@ def live(request, tmp_path_factory) -> Iterator[str]:
         return
     request.getfixturevalue("console_dist")
     root = tmp_path_factory.mktemp("wizard-real")
-    env = {k: v for k, v in os.environ.items() if k not in ("IRONWRIGHT_DEV_OPEN", "IRONWRIGHT_DB_URL")}
-    env["IRONWRIGHT_DATA"] = str(root)
+    env = _stack_env(root)
     port = _free_port()
     base = f"http://127.0.0.1:{port}"
     cli = [sys.executable, "-m", "ironwright.cli"]
@@ -150,6 +156,15 @@ def test_a_given_base_is_walked_and_nothing_is_started(monkeypatch):
     assert _stack_under_test() == "http://127.0.0.1:8000"
     monkeypatch.delenv(WIZARD_BASE)
     assert _stack_under_test() is None
+
+
+def test_the_started_stack_runs_this_checkout(tmp_path):
+    """A worktree can share a venv whose editable install points at another checkout. The
+    server starts outside the repo, so it would import that one and serve that console."""
+    code = "import ironwright; print(ironwright.__file__)"
+    out = subprocess.run([sys.executable, "-c", code], cwd=tmp_path, env=_stack_env(tmp_path),
+                         check=True, capture_output=True, text=True).stdout
+    assert Path(out.strip()).is_relative_to(ROOT)
 
 
 def test_this_file_stubs_nothing():
