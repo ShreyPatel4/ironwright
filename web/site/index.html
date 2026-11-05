@@ -47,6 +47,11 @@ h1{font:500 clamp(40px,6vw,68px)/1.04 var(--sans);letter-spacing:-.035em;margin:
 .film{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#111418}
 .film video{display:block;width:100%;height:auto;aspect-ratio:16/9;max-width:100%}
 .caption{font-size:14px;color:var(--dim);margin-top:10px}
+.try-cta{margin-top:16px}
+.claims-title{font:500 19px/1.2 var(--sans);margin:28px 0 12px}
+.claims{margin:0;padding:0;list-style:none;border:1px solid var(--line);border-radius:6px;background:var(--panel)}
+.claims li{padding:14px 18px;border-bottom:1px solid var(--line);font-size:15px;color:var(--sub)}
+.claims li:last-child{border-bottom:0}
 section{padding-top:84px;scroll-margin-top:20px}
 section>h2{font:500 clamp(28px,3.4vw,38px)/1.1 var(--sans);letter-spacing:-.025em;margin:0 0 10px;text-wrap:balance}
 section>p.sub{color:var(--sub);margin:0 0 28px;max-width:66ch}
@@ -90,7 +95,7 @@ footer{margin-top:96px;padding-top:24px;border-top:1px solid var(--line);color:v
   <nav class="top" aria-label="Main">
     <a class="brand" href="./"><svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2.4"/><circle cx="11.5" cy="17.6" r="1.7" fill="currentColor"/><circle cx="16" cy="13.6" r="1.7" fill="currentColor"/><circle cx="20.5" cy="17.6" r="1.7" fill="currentColor"/></svg>OntoForge</a>
     <span class="tag">Ideation phase</span>
-    <div class="links"><a href="#film">Film</a><a href="#journey">How it works</a><a href="#use-cases">Use cases</a><a href="demo/">Live demo</a><a href="#status">Status</a></div>
+    <div class="links"><a href="#film">Film</a><a href="#try">Try it</a><a href="#journey">How it works</a><a href="#use-cases">Use cases</a><a href="demo/">Live demo</a><a href="#status">Status</a></div>
   </nav>
 
   <header class="hero">
@@ -101,6 +106,20 @@ footer{margin-top:96px;padding-top:24px;border-top:1px solid var(--line);color:v
 
   <div id="film" class="film"><video controls preload="metadata" playsinline poster="media/intro-poster.jpg" src="media/ontoforge-intro.mp4" aria-label="OntoForge film"></video></div>
   <p class="caption">The OntoForge film, 3:41. One stuck question, the six steps that fix it, the small-business platform in ideation, and governance for regulated work. <a href="film/">Open the interactive version</a>.</p>
+
+  <section id="try">
+    <h2>Try it</h2>
+    <p class="sub">This is the hosted product I am building. A team signs up, uploads messy exports, and ends at a grounded answer, while a second org on the same stack sees none of it. Watch one insurer walk it, then walk it yourself.</p>
+    <div class="film"><video controls preload="none" playsinline poster="media/demo/ironwright-saas-demo.jpg" src="media/demo/ironwright-saas-demo.mp4" aria-label="The hosted product film"></video></div>
+    <div class="cta try-cta"><a class="btn primary" data-try="film" href="media/demo/ironwright-saas-demo.mp4">Watch the walkthrough</a><a class="btn" data-try="signup" href="https://staging.ironwright.invalid/console/">Sign up on staging</a></div>
+    <p class="caption">The staging address is a placeholder. Nothing is deployed there yet.</p>
+    <h3 class="claims-title">Three claims, and the test that proves each one</h3>
+    <ul class="claims">
+      <li>A second org gets the same 404 on everything the first owns as on things that never existed. <a data-claim="test_b_gets_the_same_404_on_everything_a_owns_as_on_nothing" href="https://github.com/ShreyPatel4/ironwright/blob/main/tests/test_isolation_routes.py#test_b_gets_the_same_404_on_everything_a_owns_as_on_nothing">Read the test</a></li>
+      <li>A new org goes from sign-up to an answer that cites evidence it really gathered, in a real browser on a real server. <a data-claim="test_sign_up_to_a_cited_answer_over_clean_csvs" href="https://github.com/ShreyPatel4/ironwright/blob/main/tests/e2e/test_wizard_real_backend.py#test_sign_up_to_a_cited_answer_over_clean_csvs">Read the test</a></li>
+      <li>Model output never reaches a function call. Rules pick what runs, whatever a model says. <a data-claim="test_ask_model_output_never_reaches_a_function_call" href="https://github.com/ShreyPatel4/ironwright/blob/main/tests/test_prompt_boundary.py#test_ask_model_output_never_reaches_a_function_call">Read the test</a></li>
+    </ul>
+  </section>
 
   <section id="journey">
     <h2>From the old estate to answers you can trust</h2>
