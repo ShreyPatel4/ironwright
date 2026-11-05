@@ -296,6 +296,44 @@ def test_messy_files_with_the_draft_as_proposed_reach_objects_and_a_link(browser
     expect()(page.get_by_text("Claim to Policy via policy_ref").first).to_be_visible()
 
 
+def _trailer_file(tmp_path) -> Path:
+    rows = [f"C-{100 + i},P{i},{10 + i}.50" for i in range(9)]
+    f = tmp_path / "claims.csv"
+    f.write_text("\n".join(["claim_id,policy,amount", *rows, "TOTAL ROWS: 9,,"]) + "\n")
+    return f
+
+
+def test_map_proposes_the_trailer_skip_and_the_row_stays_out_of_the_lake(browser, stack, tmp_path):
+    """R1 F-04 in the browser, on the real profiler and the real reader."""
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    upload(page, [_trailer_file(tmp_path)])
+    to_map(page)
+    box = page.get_by_label("skip claims footer")
+    expect()(box).to_be_checked()
+    expect()(page.get_by_text("1 record after the data")).to_be_visible()
+    page.get_by_label("workspace name").fill("acme-trailer")
+    with page.expect_request(lambda r: r.method == "POST" and r.url.endswith("/workspaces")) as made:
+        page.get_by_role("button", name="Create the workspace").click()
+    assert json.loads(made.value.post_data)["records"]["claims"]["skip_footer"] == 1
+    expect()(page.get_by_role("heading", name="Run")).to_be_visible()
+    run_pipeline(page)
+    lake = Lakehouse(wt.load_workspace(session_of(page)["org_id"], "acme-trailer"))
+    assert lake.read("silver.claims").num_rows == 9
+
+
+def test_map_lets_the_human_keep_the_trailer(browser, stack, tmp_path):
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    upload(page, [_trailer_file(tmp_path)])
+    to_map(page)
+    page.get_by_label("skip claims footer").uncheck()
+    page.get_by_label("workspace name").fill("acme-keeps")
+    with page.expect_request(lambda r: r.method == "POST" and r.url.endswith("/workspaces")) as made:
+        page.get_by_role("button", name="Create the workspace").click()
+    assert json.loads(made.value.post_data)["records"]["claims"]["skip_footer"] == 0
+
+
 def test_map_edits_reach_the_real_lake(browser, stack):
     """Rename and drop have to change the silver table, not just the form."""
     page = new_page(browser, stack)

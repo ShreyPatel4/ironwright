@@ -490,6 +490,9 @@ def remove_member(org_id: str, target: str, actor_id: str, actor: str, now: floa
 
 # ---------------------------------------------------------------- export
 
+EXPORT_LAYERS = ("silver", "gold")
+
+
 def _scenario_folders(org_id: str) -> list[Path]:
     """Scenario workspaces live under the data root as o<8 of the org id>-<name>. Eight
     characters can collide, so the owner file decides. Nothing here follows a link."""
@@ -519,7 +522,7 @@ def _add_workspace(z: zipfile.ZipFile, org_id: str, d: Path) -> dict[str, Any]:
     from ..lake import Lakehouse
 
     base = f"workspaces/{d.name}"
-    for name in ("workspace.yaml", "ontology.yaml", "policies.yaml"):
+    for name in ("workspace.yaml", wt.RECORDS_FILE, "ontology.yaml", "policies.yaml"):
         _add_file(z, d / name, f"{base}/{name}")
     for sub in ("models/silver", "models/gold", "ontology_versions"):
         folder = d / sub
@@ -529,22 +532,24 @@ def _add_workspace(z: zipfile.ZipFile, org_id: str, d: Path) -> dict[str, Any]:
     try:
         lake = Lakehouse(wt.load_workspace(org_id, d.name))
     except wt.WorkspaceError as e:
-        return {"gold": [], "skipped": str(e)}
-    gold = []
+        return {"tables": {}, "skipped": str(e)}
+    tables = {}
     for ident in lake.tables():
         layer, table = ident.split(".")
-        if layer == "gold":
+        if layer in EXPORT_LAYERS:
+            data = lake.read(ident)
             buf = pa.BufferOutputStream()
-            pq.write_table(lake.read(ident), buf)
-            z.writestr(f"{base}/gold/{table}.parquet", buf.getvalue().to_pybytes())
-            gold.append(table)
-    return {"gold": gold, "skipped": None}
+            pq.write_table(data, buf)
+            z.writestr(f"{base}/{layer}/{table}.parquet", buf.getvalue().to_pybytes())
+            tables[ident] = data.num_rows
+    return {"tables": tables, "skipped": None}
 
 
 def export_org(org_id: str, principal: str, job_id: str, check_cancel: Callable[[], None],
                log: Callable[[str], None], now: float) -> dict[str, Any]:
-    """Specs, accepted ontologies and gold tables, as one zip inside the org's own folder.
-    Raw uploads and bronze stay out: the owner has those already. The role is read here
+    """Specs, accepted ontologies, and silver and gold tables, as one zip inside the org's own
+    folder. A wizard workspace has silver and no gold, so silver is what makes this hold the
+    data. Raw uploads and bronze stay out: the owner has those already. The role is read here
     because /jobs is member level and takes any registered kind."""
     from .. import workspaces_tenant as wt
 
@@ -557,7 +562,7 @@ def export_org(org_id: str, principal: str, job_id: str, check_cancel: Callable[
     partial = safe_child(folder, f"{job_id}.part")
     root = workspaces_root(org_id)
     manifest: dict[str, Any] = {"exported_at": now, "exported_by": principal, "workspaces": [], "scenarios": [],
-                                "gold": {}, "skipped": {}}
+                                "gold": {}, "tables": {}, "totals": {"tables": 0, "rows": 0}, "skipped": {}}
     fd = os.open(partial, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
     try:
         with os.fdopen(fd, "wb") as raw, zipfile.ZipFile(raw, "w", zipfile.ZIP_DEFLATED) as z:
@@ -568,7 +573,10 @@ def export_org(org_id: str, principal: str, job_id: str, check_cancel: Callable[
                 log(f"[{d.name}] exporting")
                 got = _add_workspace(z, org_id, d)
                 manifest["workspaces"].append(d.name)
-                manifest["gold"][d.name] = got["gold"]
+                manifest["gold"][d.name] = [t.split(".")[1] for t in got["tables"] if t.startswith("gold.")]
+                manifest["tables"][d.name] = got["tables"]
+                manifest["totals"]["tables"] += len(got["tables"])
+                manifest["totals"]["rows"] += sum(got["tables"].values())
                 if got["skipped"]:
                     manifest["skipped"][d.name] = got["skipped"]
             for d in _scenario_folders(org_id):

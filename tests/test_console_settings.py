@@ -307,6 +307,38 @@ def test_an_owner_exports_through_the_worker_and_downloads_the_zip(browser, stac
     assert "manifest.json" in z.namelist()
 
 
+def test_the_screen_says_how_much_data_the_export_holds(browser, stack):
+    """R1 F-07: `Export my data` has to mean the data. Bytes tell the owner nothing."""
+    owner = stack.signup()
+    _tenant_workspace(owner["org_id"])
+    page = open_settings(browser, stack, owner)
+    tab(page, "Your data")
+    page.get_by_role("button", name="Export my data").click()
+    download_button = page.get_by_role("button", name="Download")
+    expect()(download_button).to_be_visible(timeout=60_000)
+    with page.expect_download() as got:
+        download_button.click()
+    totals = json.loads(zipfile.ZipFile(Path(got.value.path())).read("manifest.json"))["totals"]
+    assert totals["rows"] > 0
+    expect()(download_button).to_contain_text(f"{totals['tables']} tables, {totals['rows']} rows")
+    expect()(page.get_by_test_id("export-empty")).to_have_count(0)
+
+
+def test_the_delete_panel_warns_when_the_latest_export_holds_no_tables(browser, stack):
+    owner = stack.signup()
+    page = open_settings(browser, stack, owner)
+    tab(page, "Your data")
+    page.get_by_role("button", name="Export my data").click()
+    expect()(page.get_by_role("button", name="Download")).to_contain_text("0 tables", timeout=60_000)
+    expect()(page.get_by_test_id("export-empty")).to_contain_text("no tables")
+
+
+def test_the_delete_panel_warns_when_there_is_no_export(browser, stack):
+    page = open_settings(browser, stack, stack.signup())
+    tab(page, "Your data")
+    expect()(page.get_by_test_id("export-empty")).to_contain_text("not exported")
+
+
 def test_a_delete_asks_for_the_slug_then_ends_at_the_door_with_nothing_left(browser, stack):
     owner = stack.signup()
     _tenant_workspace(owner["org_id"])

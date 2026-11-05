@@ -15,6 +15,8 @@ export default function OrgData({ slug, onDeleted }) {
 
   const latest = exports?.[0] ?? null;
   const working = latest && WORKING.includes(latest.state);
+  const ready = latest?.state === "succeeded" ? latest : (exports?.find((j) => j.state === "succeeded") ?? null);
+  const totals = ready?.result?.totals;
   // The job runs on a worker, so this screen looks again until it ends.
   useEffect(() => {
     if (!working) return undefined;
@@ -43,13 +45,15 @@ export default function OrgData({ slug, onDeleted }) {
   return (
     <>
       <h3>Export</h3>
-      <p className="sub">One zip with your workspace specs, your accepted ontologies and your gold tables
-        as Parquet. Your raw uploads are not in it. A new export replaces the last one.</p>
+      <p className="sub">One zip with your workspace specs, your accepted ontologies and your silver and
+        gold tables as Parquet. Your raw uploads are not in it. A new export replaces the last one.</p>
       <div className="row">
         <button className="btn" disabled={working} onClick={start}>Export my data</button>
         {working && <span className="badge hold">preparing, {latest.state}</span>}
         {latest?.state === "succeeded" && (
-          <button className="btn ghost" onClick={download}>Download {latest.result?.bytes} bytes</button>
+          <button className="btn ghost" onClick={download}>
+            Download {totals?.tables ?? 0} tables, {totals?.rows ?? 0} rows
+          </button>
         )}
         {latest?.state === "failed" && <span className="badge bad">failed: {latest.error}</span>}
       </div>
@@ -58,6 +62,14 @@ export default function OrgData({ slug, onDeleted }) {
       <p className="sub">This removes every upload, workspace, lake table, job and record of the org, and every
         account that belongs to no other org. Nobody can sign in to it from the moment you confirm.
         It cannot be undone. One line stays in the audit log to say it existed. It holds no names.</p>
+      {exports && !ready && !working && (
+        <div className="err" data-testid="export-empty">You have not exported this org. Once you delete it,
+          your tables are gone. Export first if you want to keep them.</div>
+      )}
+      {ready && !working && !totals?.tables && (
+        <div className="err" data-testid="export-empty">Your latest export holds no tables, so it keeps none of
+          your data. Run your workspaces and export again if you want to keep them.</div>
+      )}
       <div className="row">
         <label className="note" htmlFor="confirm-slug">Type the org slug to confirm: <span className="mono">{slug}</span></label>
         <input autoComplete="off" id="confirm-slug" onChange={(e) => setTyped(e.target.value)}

@@ -30,6 +30,7 @@ from ironwright import workspaces_tenant as wt
 from ironwright.config import data_root, ensure_tenant, tenant_dir
 from ironwright.jobs.store import JobStore
 from ironwright.jobs.worker import Worker
+from ironwright.lake import Lakehouse
 from ironwright.platform_api import NOT_FOUND, create_platform_app
 from ironwright.tenancy import db, service, usage
 from ironwright.tenancy.models import DEV_ORG_ID, DEV_ORG_SLUG
@@ -512,10 +513,115 @@ def test_an_export_holds_no_raw_upload_no_bronze_and_no_server_path(client):
     _tenant_workspace(owner["org_id"])
     _, z = _export(client, owner)
     names = z.namelist()
-    assert not [n for n in names if n.endswith(".csv") or "/bronze" in n or "/silver/" in n.replace("models/silver/", "")]
+    assert not [n for n in names if n.endswith(".csv") or "/bronze" in n]
     for name in names:
         if name.endswith((".yaml", ".json", ".sql")):
             assert str(data_root()).encode() not in z.read(name), name
+
+
+def _bare_spec() -> dict:
+    """The fixture's spec as the wizard makes one: its checks name models it may not have."""
+    return {**yaml.safe_load((FIXTURE / "workspace.yaml").read_text()), "quality": []}
+
+
+def _lake_counts(org_id: str, slug: str = "claims") -> dict[str, int]:
+    lake = Lakehouse(wt.load_workspace(org_id, slug))
+    return {t: lake.read(t).num_rows for t in lake.tables() if not t.startswith("bronze.")}
+
+
+def _zip_counts(z: zipfile.ZipFile, slug: str = "claims") -> dict[str, int]:
+    prefix = f"workspaces/{slug}/"
+    found = {}
+    for name in z.namelist():
+        if name.startswith(prefix) and name.endswith(".parquet"):
+            layer, file = name[len(prefix):].split("/")
+            found[f"{layer}.{file.removesuffix('.parquet')}"] = pq.read_table(io.BytesIO(z.read(name))).num_rows
+    return found
+
+
+def test_an_export_holds_silver_as_well_as_gold(client):
+    owner = signup(client)
+    _tenant_workspace(owner["org_id"])
+    _, z = _export(client, owner)
+    got = _zip_counts(z)
+    assert [t for t in got if t.startswith("silver.")] and [t for t in got if t.startswith("gold.")]
+    assert got == _lake_counts(owner["org_id"])
+
+
+def test_a_workspace_with_no_gold_still_exports_its_rows(client):
+    """R1 F-07: the wizard makes no gold models, so a real org exported 0 rows."""
+    owner = signup(client)
+    root = ensure_tenant(owner["org_id"])
+    shutil.copytree(FIXTURE / "uploads" / "fixture", root / "uploads" / "fixture")
+    silver = {f.name: f.read_text() for f in (FIXTURE / "models" / "silver").glob("*.sql")}
+    wt.create_workspace(owner["org_id"], "wizard", _bare_spec(), models={"silver": silver})
+    wt.run_workspace(owner["org_id"], "wizard")
+    _, z = _export(client, owner)
+    got = _zip_counts(z, "wizard")
+    assert got and all(t.startswith("silver.") for t in got)
+    assert sum(got.values()) > 0
+    assert f"workspaces/wizard/models/silver/{next(iter(silver))}" in z.namelist()
+
+
+def test_the_manifest_counts_the_tables_and_rows_in_the_zip(client):
+    owner = signup(client)
+    _tenant_workspace(owner["org_id"])
+    _, z = _export(client, owner)
+    manifest = json.loads(z.read("manifest.json"))
+    counts = _zip_counts(z)
+    assert manifest["tables"]["claims"] == counts
+    assert manifest["totals"] == {"tables": len(counts), "rows": sum(counts.values())}
+
+
+def test_the_job_result_says_what_is_in_the_zip(client):
+    """The screen reads this. It has to say how much data, not how many bytes."""
+    owner = signup(client)
+    _tenant_workspace(owner["org_id"])
+    job_id, z = _export(client, owner)
+    listed = client.get(f"/orgs/{owner['org_slug']}/exports", headers=bearer(owner)).json()
+    result = next(j for j in listed if j["id"] == job_id)["result"]
+    assert result["totals"] == json.loads(z.read("manifest.json"))["totals"]
+
+
+def test_a_workspace_that_never_ran_exports_no_tables_and_says_so(client):
+    owner = signup(client)
+    root = ensure_tenant(owner["org_id"])
+    shutil.copytree(FIXTURE / "uploads" / "fixture", root / "uploads" / "fixture")
+    wt.create_workspace(owner["org_id"], "idle", _bare_spec())
+    _, z = _export(client, owner)
+    assert json.loads(z.read("manifest.json"))["totals"] == {"tables": 0, "rows": 0}
+
+
+def test_an_export_carries_the_skip_decisions_made_on_map(client):
+    owner = signup(client)
+    root = ensure_tenant(owner["org_id"])
+    shutil.copytree(FIXTURE / "uploads" / "fixture", root / "uploads" / "fixture")
+    spec = _bare_spec()
+    records = {spec["sources"][0]["name"]: {"skip_header": 0, "skip_footer": 1}}
+    wt.create_workspace(owner["org_id"], "skips", spec, records=records)
+    _, z = _export(client, owner)
+    assert yaml.safe_load(z.read("workspaces/skips/records.yaml")) == records
+
+
+def test_export_then_delete_keeps_every_table_with_the_right_row_counts(client):
+    """The promise of the export button: delete the org and the work is still in your hand."""
+    owner = signup(client)
+    org_id = owner["org_id"]
+    _tenant_workspace(org_id)
+    expected = _lake_counts(org_id)
+    assert expected
+    h = bearer(owner)
+    job_id = client.post(f"/orgs/{owner['org_slug']}/exports", headers=h).json()["id"]
+    raw = client.get(f"/orgs/{owner['org_slug']}/exports/{job_id}/download", headers=h).content
+
+    assert delete_org(client, owner).status_code in (200, 202)
+    Worker(JobStore()).run_once()
+    assert not tenant_dir(org_id).exists()
+
+    z = zipfile.ZipFile(io.BytesIO(raw))
+    assert _zip_counts(z) == expected
+    assert {"workspaces/claims/workspace.yaml", "workspaces/claims/ontology.yaml"} <= set(z.namelist())
+    assert [n for n in z.namelist() if n.startswith("workspaces/claims/models/silver/")]
 
 
 def test_an_export_holds_only_this_org(client):
