@@ -15,19 +15,32 @@ What the tenant can write is narrower than what a shipped pack can, on purpose:
 
 The run carries structural and reconciliation checks only. There is no ground
 truth here, so identity and agent evals would pass with nothing to compare.
+
+A source has versions. workspace.yaml stays contract 3 and names the latest upload.
+Older versions live in source_versions/<source>/<NNNN>.json, each with the runs that
+loaded it, so a version maps to its bronze rows through _run_id.
 """
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
+import hashlib
 import json
 import os
 import re
 import shutil
+import time
+import uuid
+from collections.abc import Iterator
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
+import pyarrow as pa
+import pyarrow.compute as pc
 import yaml
+from pyiceberg.exceptions import NoSuchTableError
 
 from .config import (
     UnsafePath,
@@ -38,7 +51,8 @@ from .config import (
     workspaces_root,
     write_private,
 )
-from .legacy import UPLOAD_ENCODINGS
+from .ingest import drift
+from .legacy import UPLOAD_ENCODINGS, read_source
 from .packs import Pack
 from .quality import STRUCTURAL
 from .sqlguard import SqlRejected, guard_select
@@ -46,6 +60,9 @@ from .sqlguard import SqlRejected, guard_select
 MARKER = ".ironwright-tenant-workspace"
 MAX_YAML_BYTES = 1024 * 1024
 MODEL_LAYERS = ("silver", "gold")
+VERSIONS_DIR = "source_versions"
+RUN_MODES = ("append", "full")
+_VERSION_FILE = re.compile(r"\d{4,}\.json")
 
 _IDENT = re.compile(r"[a-z][a-z0-9_]{0,62}")
 _TABLE = re.compile(r"(bronze|silver|gold)\.[a-z][a-z0-9_]{0,62}")
@@ -56,6 +73,14 @@ _VALUE = re.compile(r"[^'\\\x00]{0,200}")
 
 class WorkspaceError(ValueError):
     """The spec is wrong. The message is ours and is safe to show."""
+
+
+class NoSuchSource(WorkspaceError):
+    """The workspace has no source by that name."""
+
+
+class DriftBlocked(WorkspaceError):
+    """The latest version cannot run until the spec or the file changes."""
 
 
 def _bad(msg: str) -> WorkspaceError:
@@ -565,6 +590,360 @@ def delete_workspace(org_id: str, slug: str) -> None:
     shutil.rmtree(_existing(org_id, slug))
 
 
+# ---------------------------------------------------------------- source versions
+
+@contextlib.contextmanager
+def _versions_lock(d: Path) -> Iterator[None]:
+    """One writer at a time: a number and the yaml pointer change together. The exclusive
+    create in _claim is the backstop if a shared volume does not honor flock."""
+    fd = os.open(d / ".source_versions.lock", os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(fd)
+
+
+def _replace(path: Path, text: str) -> None:
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    write_private(tmp, text)
+    os.replace(tmp, path)
+
+
+def _version_path(d: Path, source: str, version: int) -> Path:
+    return d / VERSIONS_DIR / source / f"{version:04d}.json"
+
+
+def _read_versions(d: Path, source: str) -> list[dict[str, Any]]:
+    folder = d / VERSIONS_DIR / source
+    if not folder.is_dir():
+        return []
+    found = [f for f in folder.iterdir() if _VERSION_FILE.fullmatch(f.name)]
+    records = [json.loads(_read_small(f, f"{VERSIONS_DIR}/{source}")) for f in found]
+    return sorted(records, key=lambda r: r["version"])
+
+
+def _claim(d: Path, source: str, record: dict[str, Any]) -> None:
+    private_dir(d / VERSIONS_DIR / source)
+    fd = os.open(_version_path(d, source, record["version"]), os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as fh:
+        json.dump(record, fh, indent=1, sort_keys=True)
+
+
+def _save_version(d: Path, source: str, record: dict[str, Any]) -> None:
+    _replace(_version_path(d, source, record["version"]), json.dumps(record, indent=1, sort_keys=True))
+
+
+def _raw_source(spec: dict[str, Any], source: str) -> dict[str, Any]:
+    for src in spec.get("sources") or []:
+        if src.get("name") == source:
+            return src
+    raise NoSuchSource(f"this workspace has no source {source}")
+
+
+def _source_shape(raw: dict[str, Any]) -> dict[str, Any]:
+    return {"format": raw["format"], "layout": raw.get("layout", {}), "columns": raw["columns"]}
+
+
+def _readable(org_id: str, source: str, record: dict[str, Any]) -> dict[str, Any]:
+    """A version as read_upload and drift want it: its own shape, its own bytes."""
+    shape = record["source"]
+    where = f"sources.{source}"
+    return {"name": source, "kind": "upload", "format": shape["format"], "layout": shape["layout"],
+            "columns": _columns(shape["columns"], where),
+            "upload_path": str(_upload_path(org_id, record["upload"], where))}
+
+
+def _file_facts(org_id: str, ref: str, where: str) -> dict[str, Any]:
+    raw = _upload_path(org_id, ref, where).read_bytes()
+    return {"sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)}
+
+
+def _ensure_first(org_id: str, d: Path, pack_root: Path, raw: dict[str, Any]) -> None:
+    """The upload a workspace was made with is version 1. Nothing wrote a record when
+    it was created, so the first caller does. A workspace that already ran before
+    versions existed keeps that run on v1."""
+    source = raw["name"]
+    if _read_versions(d, source):
+        return
+    record = {"version": 1, "upload": raw["upload"], "created_at": round(time.time(), 3), "created_by": "",
+              "source": _source_shape(raw), "runs": [], "drift": None,
+              **_file_facts(org_id, raw["upload"], f"sources.{source}")}
+    try:
+        report = json.loads((pack_root / "reports" / "migrate.json").read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        report = {}
+    for w in report.get("writes", []):
+        if w["table"] == f"bronze.{source}" and w["published"]:
+            record["runs"] = [{"run_id": report["run_id"], "rows": w["rows"]}]
+    _claim(d, source, record)
+
+
+def _spec_of(d: Path) -> dict[str, Any]:
+    return _mapping(_read_yaml(d / "workspace.yaml", "workspace.yaml"), "workspace.yaml")
+
+
+def _ensure_versions(org_id: str, d: Path) -> None:
+    """Validates first. These files can change on disk, and a source name becomes a path."""
+    spec = _spec_of(d)
+    _normalize(org_id, spec, _read_models(d))
+    with _versions_lock(d):
+        for raw in spec.get("sources") or []:
+            _ensure_first(org_id, d, d / "run", raw)
+
+
+def _impact_inputs(d: Path) -> tuple[dict[str, Any], list[tuple[str, str, str]]]:
+    ontology = _read_optional_yaml(d / "ontology.yaml", "ontology.yaml") or {}
+    models = _read_models(d)
+    return ontology, [(layer, _model_table(name), sql) for layer in MODEL_LAYERS
+                      for name, sql in sorted(models.get(layer, {}).items())]
+
+
+def _baseline(records: list[dict[str, Any]], version: int) -> dict[str, Any] | None:
+    """What this version is judged against: the last one that loaded, else the one
+    before. A blocked version in between never became the accepted shape."""
+    earlier = [r for r in records if r["version"] < version]
+    return next((r for r in reversed(earlier) if r["runs"]), earlier[-1] if earlier else None)
+
+
+def _assess(org_id: str, d: Path, source: str, shape: dict[str, Any], upload: str, version: int,
+            records: list[dict[str, Any]]) -> dict[str, Any]:
+    """Drift for one file against the spec as it stands now, so a spec update can unblock."""
+    where = f"sources.{source}"
+    src = {"name": source, "kind": "upload", "format": shape["format"], "layout": shape["layout"],
+           "columns": _columns(shape["columns"], where), "upload_path": str(_upload_path(org_id, upload, where))}
+    base_record = _baseline(records, version)
+    base = None
+    if base_record is not None:
+        try:
+            base = drift.observe(_readable(org_id, source, base_record))
+        except WorkspaceError:
+            base = None  # the older bytes are gone; only the spec is left to judge by
+        if base is not None and base.error:
+            base = None
+    report = drift.diff(src, drift.observe(src), base, version=version,
+                        against=base_record["version"] if base_record else None,
+                        loaded_before=any(r["runs"] for r in records))
+    ontology, models = _impact_inputs(d)
+    return drift.annotate(report, ontology, models)
+
+
+def source_versions(org_id: str, slug: str, source: str) -> list[dict[str, Any]]:
+    """Every version, oldest first. FileNotFoundError when this org has no such workspace."""
+    d = _existing(org_id, slug)
+    _raw_source(_spec_of(d), source)
+    _ensure_versions(org_id, d)
+    return _read_versions(d, source)
+
+
+def add_source_version(org_id: str, slug: str, source: str, upload: str, created_by: str = "") -> dict[str, Any]:
+    """The next extract. It becomes version N+1 and workspace.yaml points at it, whatever
+    the drift says: the run is what refuses to load blocking drift. Sending the same
+    upload again answers with the version it already is, so a retry adds nothing."""
+    d = _existing(org_id, slug)
+    where = f"sources.{source}"
+    spec = _spec_of(d)
+    _raw_source(spec, source)
+    facts = _file_facts(org_id, upload, where)
+    _ensure_versions(org_id, d)
+    with _versions_lock(d):
+        records = _read_versions(d, source)
+        if records[-1]["upload"] == upload:
+            return records[-1]
+        spec = _spec_of(d)
+        raw = _raw_source(spec, source)
+        version = records[-1]["version"] + 1
+        shape = _source_shape(raw)
+        record = {"version": version, "upload": upload, "created_at": round(time.time(), 3), "created_by": created_by,
+                  "source": shape, "runs": [], **facts,
+                  "drift": _assess(org_id, d, source, shape, upload, version, records)}
+        _claim(d, source, record)
+        raw["upload"] = upload
+        _replace(d / "workspace.yaml", yaml.safe_dump(spec, sort_keys=False))
+    return record
+
+
+def update_source_spec(org_id: str, slug: str, source: str, *, columns: Any = None, layout: Any = None) -> dict[str, Any]:
+    """The answer to blocking drift. The whole spec validates again before anything is
+    written, and the drift is judged again against the new spec."""
+    d = _existing(org_id, slug)
+    _ensure_versions(org_id, d)
+    with _versions_lock(d):
+        spec = _spec_of(d)
+        raw = _raw_source(spec, source)
+        if columns is not None:
+            raw["columns"] = columns
+        if layout is not None:
+            raw["layout"] = layout
+        _normalize(org_id, spec, _read_models(d))
+        records = _read_versions(d, source)
+        latest = records[-1]
+        latest["source"] = _source_shape(raw)
+        latest["drift"] = _assess(org_id, d, source, latest["source"], latest["upload"], latest["version"], records)
+        _replace(d / "workspace.yaml", yaml.safe_dump(spec, sort_keys=False))
+        _save_version(d, source, latest)
+    return latest
+
+
+def drift_overview(org_id: str, slug: str) -> dict[str, Any]:
+    """The latest report per source, and every item that touches the accepted ontology.
+    Impact is worked out on read, because an ontology can be accepted after the upload."""
+    d = _existing(org_id, slug)
+    _ensure_versions(org_id, d)
+    ontology, models = _impact_inputs(d)
+    sources, impact = {}, []
+    for raw in _spec_of(d).get("sources") or []:
+        latest = _read_versions(d, raw["name"])[-1]
+        report = latest["drift"]
+        if report is None:
+            report = _assess(org_id, d, raw["name"], latest["source"], latest["upload"], latest["version"],
+                             _read_versions(d, raw["name"]))
+        report = drift.annotate(report, ontology, models)
+        sources[raw["name"]] = report
+        impact += [{"source": raw["name"], "version": latest["version"], "kind": i["kind"], "column": i["column"],
+                    "severity": i["severity"], "ontology": i["ontology"]} for i in report["items"] if i["ontology"]]
+    return {"sources": sources, "ontology_impact": impact}
+
+
+def read_source_version(org_id: str, slug: str, source: str, version: int) -> pa.Table:
+    """The bronze rows of one version, from its last run."""
+    from .lake import Lakehouse
+
+    records = source_versions(org_id, slug, source)
+    record = next((r for r in records if r["version"] == version), None)
+    if record is None or not record["runs"]:
+        raise _bad(f"version {version} of {source} was never loaded")
+    data = Lakehouse(load_workspace(org_id, slug)).read(f"bronze.{source}")
+    run_id = record["runs"][-1]["run_id"]
+    return data.filter(pc.equal(data.column("_run_id"), run_id))
+
+
+def _loaded_version(records: list[dict[str, Any]], src: dict[str, Any]) -> dict[str, Any]:
+    """The version this pack holds. Newest is not the same thing: the next extract can
+    land while a run is going, and it must not be credited with that run."""
+    return next((r for r in reversed(records) if r["upload"] == src["upload"]), records[-1])
+
+
+def _gate_drift(org_id: str, d: Path, pack: Pack) -> None:
+    """Judge every latest version against the spec as it stands now, then load what is
+    left of a warned file. read_upload refuses a declared column the file does not have,
+    and a warning has to mean the run goes on."""
+    blocked = []
+    for src in pack.spec["sources"]:
+        source = src["name"]
+        # The spec, not the record: a record keeps the narrower shape its last run loaded under.
+        shape = {"format": src["format"], "layout": src["layout"], "columns": src["columns"]}
+        with _versions_lock(d):
+            records = _read_versions(d, source)
+            latest = _loaded_version(records, src)
+            latest["drift"] = _assess(org_id, d, source, shape, latest["upload"], latest["version"], records)
+            _save_version(d, source, latest)
+        if latest["drift"]["blocking"]:
+            blocked.append(drift.blocking_message(latest["drift"]))
+            continue
+        gone = {i["column"] for i in latest["drift"]["items"] if i["kind"] == "missing_column"}
+        src["columns"] = [c for c in src["columns"] if c["name"] not in gone]
+    if blocked:
+        raise DriftBlocked(" ".join(blocked))
+
+
+def _next_run_id(d: Path, pack: Pack) -> str:
+    """Later than any run before it, as text, because bronze_x picks max(_run_id).
+    Two runs in one second would otherwise share an id and read as one."""
+    stamp = time.strftime("%Y%m%d%H%M%S")
+    seen = [_report(pack, "migrate").get("run_id", "")]
+    for src in pack.spec["sources"]:
+        seen += [run["run_id"] for r in _read_versions(d, src["name"]) for run in r["runs"]]
+    last = max(seen)
+    return stamp if stamp > last else f"{last}a"
+
+
+def _rebuild_bronze(org_id: str, d: Path, pack: Pack, tracer: Any, base_id: str) -> None:
+    """Full rebuild without losing history: bronze restarts, then every version that
+    loaded before goes back in order from its kept bytes, read with the shape it loaded
+    under. Everything is read first, so a version that cannot be read leaves bronze as it
+    was. Checks already ran on these rows, and the new spec may not fit an old file.
+    The catalog does the drop because a hosted lake does not live under run/."""
+    from .lake import Lakehouse
+
+    replays: list[tuple[dict[str, Any], dict[str, Any], pa.Table]] = []
+    for src in pack.spec["sources"]:
+        records = _read_versions(d, src["name"])
+        current = _loaded_version(records, src)["version"]
+        for record in records:
+            if record["version"] < current and record["runs"]:
+                readable = _readable(org_id, src["name"], record)
+                replays.append((src, record, read_source(readable, pack.paths.legacy)))
+    lake = Lakehouse(pack)
+    for src in pack.spec["sources"]:
+        with contextlib.suppress(NoSuchTableError):
+            lake.catalog.drop_table(f"bronze.{src['name']}")
+        with _versions_lock(d):
+            latest = _loaded_version(_read_versions(d, src["name"]), src)
+            latest["runs"] = []
+            _save_version(d, src["name"], latest)
+    for k, (src, record, data) in enumerate(replays, 1):
+        run_id = f"{base_id}r{k:03d}"
+        data = data.append_column("_run_id", pa.array([run_id] * data.num_rows, pa.string()))
+        data = data.append_column("_source_system", pa.array([src.get("system", src["name"])] * data.num_rows, pa.string()))
+        lake.write_wap(f"bronze.{src['name']}", data, [], run_id, "append", tracer)
+        with _versions_lock(d):
+            record = next(r for r in _read_versions(d, src["name"]) if r["version"] == record["version"])
+            record["runs"] = [{"run_id": run_id, "rows": data.num_rows}]
+            _save_version(d, src["name"], record)
+
+
+def _record_runs(d: Path, pack: Pack, report: dict[str, Any]) -> None:
+    writes = {w["table"]: w for w in report["writes"]}
+    for src in pack.spec["sources"]:
+        w = writes.get(f"bronze.{src['name']}")
+        if not w or not w["published"]:
+            continue
+        with _versions_lock(d):
+            latest = _loaded_version(_read_versions(d, src["name"]), src)
+            latest["runs"].append({"run_id": report["run_id"], "rows": w["rows"]})
+            latest["source"] = {"format": src["format"], "layout": src["layout"], "columns": src["columns"]}
+            _save_version(d, src["name"], latest)
+
+
+def _version_layer(org_id: str, d: Path, pack: Pack) -> dict[str, Any] | None:
+    """The new version against the last one, for sources that have both. It fails only
+    on what a refresh promises: every run still holds its rows, and the old bytes are
+    still here. A real change between extracts is the point of a refresh, so it is
+    reported, never failed. None when no source has a version to compare."""
+    from .cli import _save
+    from .lake import Lakehouse
+
+    con = None
+    sources, problems = {}, []
+    for src in pack.spec["sources"]:
+        name = src["name"]
+        records = _read_versions(d, name)
+        latest = _loaded_version(records, src)
+        records = [r for r in records if r["version"] <= latest["version"]]
+        last = next((r for r in reversed(records[:-1]) if r["runs"]), None)
+        if last is None or not latest["runs"]:
+            continue
+        con = con or Lakehouse(pack).connect()
+        held = dict(con.execute(f'select _run_id, count(*) from "bronze_{name}_all" group by 1').fetchall())
+        for r in records:
+            problems += [f"{name} v{r['version']}: run {run['run_id']} holds {held.get(run['run_id'], 0)} rows, expected {run['rows']}"
+                         for run in r["runs"] if held.get(run["run_id"], 0) != run["rows"]]
+        try:
+            old, new = (drift.observe(_readable(org_id, name, r)) for r in (last, latest))
+        except WorkspaceError:
+            problems.append(f"{name}: the bytes of an earlier version are gone")
+            continue
+        sources[name] = {"from_version": last["version"], "to_version": latest["version"],
+                         **drift.compare(_readable(org_id, name, latest), old, new)}
+    if not sources and not problems:
+        return None
+    _save(pack, "version_reconcile", sources)
+    return {"layer": "version_reconcile", "passed": not problems,
+            "headline": "; ".join(problems) if problems else f"{len(sources)} sources compared to their last version",
+            "metrics": {"sources": sources, "problems": problems}}
+
+
 # ---------------------------------------------------------------- run
 
 def _structure_layer(pack: Pack) -> dict[str, Any]:
@@ -598,23 +977,42 @@ def _report(pack: Pack, name: str) -> dict[str, Any]:
     return json.loads(p.read_text()) if p.exists() else {}
 
 
-def run_workspace(org_id: str, slug: str) -> dict[str, Any]:
+def run_workspace(org_id: str, slug: str, mode: str = "append") -> dict[str, Any]:
     """bronze, silver, gold, reconcile, ontology, checks, export. There is no
     generate stage and no agents stage. It never wipes run/: bronze keeps every
-    run, as it does for a pack, and the raw bytes live in uploads/."""
+    run, as it does for a pack, and the raw bytes live in uploads/.
+
+    append adds this version to bronze as a new run. full restarts bronze and loads
+    every version again from its kept bytes. Blocking drift stops either one before
+    anything is written."""
     from .cli import STAGES, _save
     from .evals import eval_migration, eval_pipeline
     from .export import export_pack
+    from .lake import migrate
     from .tracing import Tracer
 
+    if mode not in RUN_MODES:
+        raise _bad(f"mode must be one of {', '.join(RUN_MODES)}")
+    d = _existing(org_id, slug)
+    _ensure_versions(org_id, d)
     pack = load_workspace(org_id, slug)
+    _gate_drift(org_id, d, pack)
     tracer = Tracer(pack.paths.ensure().traces)
     args = argparse.Namespace(seed=None, limit=None, web_dir=None)
-    STAGES["migrate"](pack, tracer, args)
+    run_id = _next_run_id(d, pack)
+    if mode == "full":
+        _rebuild_bronze(org_id, d, pack, tracer, run_id)
+        run_id = f"{run_id}z"
+    migrated = migrate(pack, tracer, run_id)
+    _save(pack, "migrate", migrated)
+    _record_runs(d, pack, migrated)
     STAGES["reconcile"](pack, tracer, args)
     if pack.ontology:
         STAGES["ontology"](pack, tracer, args)
     layers = [eval_pipeline(pack), eval_migration(pack), _structure_layer(pack)]
+    versions = _version_layer(org_id, d, pack)
+    if versions:
+        layers.append(versions)
     report = {"pack": pack.name, "passed": all(la["passed"] for la in layers), "layers": layers,
               "planted": []}
     _save(pack, "evals", report)

@@ -451,10 +451,8 @@ def test_ask_follows_the_version_a_human_accepted(orgs):
     assert "get_order" in names
 
 
-@pytest.mark.xfail(strict=True, reason="lake.py: a run id has one second of resolution, so two runs inside a second "
-                                       "read as one and every key counts twice. Cross-ticket ask on this PR.")
 def test_two_runs_inside_one_second_do_not_lose_the_objects(orgs, monkeypatch):
-    """The clock is frozen so this fails every time. Small files really do run this fast."""
+    """The clock is frozen, so both runs ask for the same second. Small files really do run this fast."""
     c, a, _ = orgs
     upload_id, proposal = profiled(c, a)
     assert create(c, a, upload_id, proposal["workspace"]).status_code == 201

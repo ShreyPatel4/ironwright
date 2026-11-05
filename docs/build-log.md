@@ -319,6 +319,22 @@ slices needs a test that crosses it, so walk the whole path early.
 
 **Fix.** `lake.py` is outside my ticket, so a frozen clock pins it with a strict xfail, and the fix is a cross-ticket ask. Lesson: when a test passes in one runner and fails in another, look for a clock before writing down a cause.
 
+## 27. A refresh credited the wrong file with the run
+
+**Symptom.** A new test uploaded the next extract while a run was going. The run loaded v1, and when it finished, v1 had no runs and v2 had one. v2's bytes were never in bronze.
+
+**Cause.** I recorded the run against the newest version once the run ended. A run can take minutes, and the next file does not wait for it. So asking for v2's rows would have handed back v1's, with no error anywhere.
+
+**Fix.** A run belongs to the version whose upload the pack actually loaded, found by its upload ref. The drift gate, the rebuild, the record and the version compare all use that one answer. Lesson: "latest" is a question about a moment, so pin it when the work starts.
+
+## 28. The demo gate fails six hours a day where I sit
+
+**Symptom.** `make demo-check` went BROKEN on "a grant is policy the serving engine consults". Clean main failed the same way on this laptop while main's CI was green.
+
+**Cause.** The script grants until tomorrow by `date.today()`, which is local. A grant dies at the start of that date in UTC. At 20:53 on this laptop, UTC is already on the next day, so the grant was dead the moment it was made. CI runs in UTC and can never see it.
+
+**Fix.** Not mine to make, since `scripts/demo_console_check.py` is outside my ticket. I ran the gate with `TZ=UTC`, and the fix is a cross-ticket ask: take the date from UTC. Lesson: a gate that only passes in CI's timezone is a clock test nobody meant to write.
+
 ## Smaller ones
 
 - A session-scoped Playwright broke four MCP and upload tests in other files. It keeps an event loop running on the main thread, so their `asyncio.run()` refused to start. Each file passed alone. The browser now lives only as long as its own module.
@@ -331,6 +347,9 @@ slices needs a test that crosses it, so walk the whole path early.
 - The first compose run could not pull MinIO. Docker Hub has dropped the repos and `dl.min.io` answers 410: the open-source project is archived with no security updates. The image pin looked fine in review and only a real pull found it. Compose now runs Versity's S3 gateway, and the bucket init uses our own image, so `mc` is gone too.
 - The same CI job piped pytest into `tee` under `bash -e` with no pipefail, so failing tests would have read as green. The job now states `shell: bash`, which adds pipefail.
 - Every real tenant run refused to start on the hosted lake. My guard read `org_id` off the pack, T2's `Pack` has no such field, and my tests used fakes that did. The guard failed closed, so no data went astray. A test now creates a workspace with T2's own code and runs it on the object store. The lake takes the org from the workspace folder, and any other folder shape still refuses.
+- The refresh gate reworded a failure the wizard shows. It stops a run before the loader can say `the file has no column column_6`, and my words were different, so W1's test went red at rebase. The gate now uses the loader's words.
+- X1 and I hit the same bug from two sides, so #26 is fixed for tenant runs. X1's strict xfail went red at rebase because my `_next_run_id` moves past a repeated second. I reverted that line to check, saw it xfail again, and took the marker off. Demo packs still use the one second id.
+- My new drift routes answered "no such resource" past the gate, which is the gate's own words. The isolation sweep stopped it: if a route 404s everyone in those words, a broken gate looks like a working one. They now say why in their own words.
 - My object store tests only passed on a fresh Postgres. Catalog names are fixed, so a second run found rows from the first, pointing at a bucket that no longer existed. CI always starts fresh and would never have shown it. Each test now gets a throwaway schema.
 - My first default deny test crashed on `props->>'status' = 'OPEN'`. DuckDB tried to cast the whole props JSON to a number and raised a conversion error. Writing `(props->>'status') = 'OPEN'` fixed it.
 - The insurance_policy Insured kept `match_key` unmasked, because I had called it a digest and moved on. It is an md5 of a birth date and four digits, which is small enough to brute force, and `agent:coverage-triage` could read it. The masking test went red once it asked for that field. `match_key` is now listed as sensitive with the other two.
