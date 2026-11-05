@@ -269,7 +269,7 @@ function AddDataset({ ws, onAdded }) {
     <section aria-label="add another dataset">
       <h3>Add another dataset</h3>
       <p className="note">New files join this workspace as new sources, and what it already reads stays as
-        it is. Your accepted ontology does not read them until you propose and accept one again.</p>
+        it is. Your accepted ontology does not read them yet, so Ask cannot reach them.</p>
       <Panel>
         <label className="note" htmlFor="dataset-files">Choose files for a new dataset</label><br />
         <input accept={ACCEPT} id="dataset-files" multiple onChange={(e) => setFiles([...e.target.files])}
