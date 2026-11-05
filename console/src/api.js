@@ -103,6 +103,7 @@ export const api = {
   switchOrg: (slug, token) => req(`/orgs/${encodeURIComponent(slug)}/switch`, {
     method: "POST", ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}) }),
   me: () => req("/auth/me"),
+  sessionWorks: (token) => req("/auth/me", { headers: { authorization: `Bearer ${token}` } }).then(() => true, () => false),
   logout: () => req("/auth/logout", { method: "POST" }),
   sources: (ws) => req(`/workspaces/${ws}/sources`),
   loads: (ws) => req(`/workspaces/${ws}/loads`),
