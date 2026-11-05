@@ -848,3 +848,13 @@ def test_a_proposal_nobody_asked_to_narrate_gets_no_model(api, wire, monkeypatch
     monkeypatch.setenv("IRONWRIGHT_LLM", "anthropic")
     _, a, _, _ = api
     assert _narrate_job(a["org_id"], monkeypatch, params={}) == [None]
+
+
+def test_a_refused_upload_gives_its_upload_back(api):
+    """Only a stored upload counts. A wrong extension or an empty file stored nothing."""
+    c, a, _, _ = api
+    for name, raw in (("notes.pdf", b"x"), ("empty.csv", b"")):
+        assert c.post("/uploads", headers=bearer(a), files=[("files", (name, raw))]).status_code in (400, 415)
+    assert usage.used(a["org_id"], "uploads", NOON) == 0
+    assert c.post("/uploads", headers=bearer(a), files=[("files", ("one.csv", b"id\n1\n"))]).status_code == 201
+    assert usage.used(a["org_id"], "uploads", NOON) == 1

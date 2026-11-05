@@ -117,6 +117,12 @@ def start_upload(org_id: str, content_length: str | None, now: float) -> None:
     spend(org_id, "uploads", now)
 
 
+def refund_upload(org_id: str, now: float) -> None:
+    """start_upload spent one and the upload was refused. No limit means nothing was spent."""
+    if limit(org_id, "uploads") is not None:
+        usage.refund(org_id, "uploads", now)
+
+
 def _seats(org_id: str, now: float) -> set[str]:
     """Everyone with a seat: members, and whoever a live invite is holding one for."""
     with usage.engine().connect() as con:

@@ -111,6 +111,13 @@ def charge(org_id: str, metric: str, limit: int, now: float, n: int = 1) -> bool
         return done.rowcount == 1
 
 
+def refund(org_id: str, metric: str, now: float, n: int = 1) -> None:
+    """Give back what a refused request took. Never below zero."""
+    with engine().begin() as con:
+        con.execute(usage.update().where(_this(org_id, day_of(now), metric), usage.c.amount >= n)
+                    .values(amount=usage.c.amount - n))
+
+
 def add(org_id: str, metric: str, now: float, n: int) -> None:
     """Add what was already spent. A model reports its tokens after the call, so this
     can pass the limit. The next request is the one refused."""

@@ -34,11 +34,14 @@ _PART_OVERHEAD = 32 * 1024
 @router.post("/uploads", status_code=201)
 async def post_upload(request: Request, c: CtxDep) -> dict[str, Any]:
     session: uploads.UploadSession | None = None
+    spent_at: float | None = None
     try:
         limit = uploads.max_files() * (uploads.max_file_bytes() + _PART_OVERHEAD)
         if int(request.headers.get("content-length") or 0) > limit:
             raise uploads.UploadRefused(413, "the request is over the upload caps")
-        await run_in_threadpool(quotas.start_upload, c.org_id, request.headers.get("content-length"), auth._now())
+        now = auth._now()
+        await run_in_threadpool(quotas.start_upload, c.org_id, request.headers.get("content-length"), now)
+        spent_at = now
         session = uploads.UploadSession(c.org_id)
         sink = uploads.MultipartSink(session, request.headers.get("content-type", ""))
         async for chunk in request.stream():
@@ -48,6 +51,8 @@ async def post_upload(request: Request, c: CtxDep) -> dict[str, Any]:
         session = None
         return made
     except uploads.UploadRefused as e:
+        if spent_at is not None:  # the door spends before the bytes arrive, and nothing was stored
+            await run_in_threadpool(quotas.refund_upload, c.org_id, spent_at)
         raise HTTPException(e.status, e.detail) from e
     finally:
         if session is not None:
