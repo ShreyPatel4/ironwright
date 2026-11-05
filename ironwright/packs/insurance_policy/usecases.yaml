@@ -1,0 +1,80 @@
+usecases:
+  coverage_triage:
+    title: Coverage triage
+    decision: Was this loss covered on the loss date, or does a person need to review the coverage?
+    agent: agent:coverage-triage
+    on_behalf_of: user:coverage.manager.intake
+    targets_sql: >
+      select ont_id('Claim', 'claims', claim_id) as claim_id, 'claim:' || claim_id as gt_key
+      from gold_coverage_verification order by claim_id
+    target_params: {claim_id: Claim}
+    evidence:
+      verdict: {fn: verify_coverage, args: {claim_id: target.claim_id}}
+      versions: {fn: policy_versions_at_loss, args: {claim_id: target.claim_id}}
+      billing: {fn: billing_at_loss, args: {claim_id: target.claim_id}}
+    diagnoses:
+      - label: review_lapsed
+        when: "evidence.verdict.summary.reason == 'lapsed_on_loss_date'"
+        confidence: 0.9
+        explain: >
+          Billing lapsed policy {evidence.verdict.summary.policy_nbr} on {evidence.billing.summary.lapse_date}, before the
+          loss on {evidence.verdict.summary.loss_ts}. Policy admin still shows it active, and
+          ${evidence.verdict.summary.paid_amount} has been paid. Coverage counsel should review this.
+        cite: [verdict, billing]
+        action: &flag
+          name: flag_coverage_review
+          args: {claim_id: target.claim_id, reason: evidence.verdict.summary.reason}
+      - label: review_retro_cancelled
+        when: "evidence.verdict.summary.reason == 'retro_cancelled'"
+        confidence: 0.9
+        explain: >
+          On the loss date we believed policy {evidence.verdict.summary.policy_nbr} was in force. A cancellation booked later
+          reaches back past the loss on {evidence.verdict.summary.loss_ts}. Coverage counsel should decide which reading holds.
+        cite: [verdict, versions]
+        action: *flag
+      - label: review_cancelled
+        when: "evidence.verdict.summary.reason == 'cancelled'"
+        confidence: 0.9
+        explain: >
+          Policy {evidence.verdict.summary.policy_nbr} was cancelled before the loss on {evidence.verdict.summary.loss_ts},
+          and we knew it at the time. Coverage counsel should confirm.
+        cite: [verdict, versions]
+        action: *flag
+      - label: review_overlap
+        when: "evidence.verdict.summary.reason == 'overlapping_coverage'"
+        confidence: 0.85
+        explain: >
+          {evidence.verdict.summary.matched_coverages} coverage contracts on policy {evidence.verdict.summary.policy_nbr} cover
+          {evidence.verdict.summary.peril} on the loss date. I cannot pick a limit between them, so a person has to.
+        cite: [verdict]
+        action: *flag
+      - label: review_no_coverage
+        when: "evidence.verdict.summary.reason == 'no_coverage_in_force'"
+        confidence: 0.85
+        explain: >
+          No {evidence.verdict.summary.peril} coverage on policy {evidence.verdict.summary.policy_nbr} was in force at
+          {evidence.verdict.summary.loss_ts}. A person has to make this call.
+        cite: [verdict, versions]
+        action: *flag
+      - label: review_over_limit
+        when: "evidence.verdict.summary.reason == 'over_limit'"
+        confidence: 0.85
+        explain: >
+          The estimate of ${evidence.verdict.summary.est_amount} is above the ${evidence.verdict.summary.limit_dollars} limit
+          on coverage {evidence.verdict.summary.cov_id}. A person should review it before anything is paid.
+        cite: [verdict]
+        action: *flag
+      - label: covered
+        when: "evidence.verdict.summary.reason == 'covered'"
+        confidence: 0.9
+        explain: >
+          Coverage {evidence.verdict.summary.cov_id} covered this {evidence.verdict.summary.peril} loss on
+          {evidence.verdict.summary.loss_ts}, with a ${evidence.verdict.summary.limit_dollars} limit and a
+          ${evidence.verdict.summary.deductible} deductible. Nothing to flag.
+        cite: [verdict, versions, billing]
+    review:
+      reviewer: user:coverage.counsel.west
+      approve_when: "diagnosis.confidence >= 0.8"
+    narrative:
+      audience: a coverage manager
+      system: You are a coverage analyst. Plain, short, grounded in the evidence. Never decide coverage yourself.

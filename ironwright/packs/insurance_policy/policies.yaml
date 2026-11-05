@@ -1,0 +1,7 @@
+default: deny
+rules:
+  - {id: triage-agent-reads, effect: permit, principal: "agent:coverage-triage", action: "function:*"}
+  - {id: humans-read, effect: permit, principal: "user:*", action: "function:*"}
+  - {id: agent-may-flag, effect: permit, principal: "agent:coverage-triage", action: "action:flag_coverage_review"}
+  - {id: counsel-may-flag, effect: permit, principal: "user:coverage.counsel*", action: "action:flag_coverage_review"}
+  - {id: counsel-reads-identifiers, effect: permit, principal: "user:coverage.counsel*", action: "read_sensitive:Insured"}

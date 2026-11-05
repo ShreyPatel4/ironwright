@@ -1,0 +1,140 @@
+object_types:
+  Policy:
+    prefix: POL
+    owner: policy-admin
+    description: A policy from the policy admin system, in its current belief.
+    title: label
+    sources:
+      - {system: pas, table: silver.policies_current, key: policy_nbr,
+         fields: {label: "'Policy ' || policy_digits", state: state, status: status, term_from: term_from, term_to: term_to,
+                  retro_cancelled: retro_cancelled}}
+  Coverage:
+    prefix: COV
+    owner: policy-admin
+    description: One coverage contract on a policy, for one peril.
+    title: label
+    sources:
+      - {system: pas, table: silver.coverages_current, key: cov_id,
+         fields: {label: "coverage_code || ' ' || cov_id", cov_ref: cov_id, coverage_code: coverage_code, limit_dollars: limit_dollars,
+                  deductible: deductible, valid_from: valid_from, valid_to: valid_to}}
+  Insured:
+    prefix: INS
+    owner: underwriting
+    description: One person. Policy admin and every agency spell them their own way; they resolve to one Insured.
+    title: name
+    sensitive: [dob, gov_last4, match_key]
+    sources:
+      - {system: pas, table: silver.pas_insureds, key: insured_id,
+         fields: {name: name, dob: dob, gov_last4: gov_last4, match_key: match_key}}
+      - {system: agency, table: silver.agency_clients, key: client_key,
+         fields: {name: client_name, dob: dob, gov_last4: gov_last4, match_key: match_key}}
+    precedence:
+      default: [agency, pas]
+    resolution:
+      exact: [match_key]
+      normalize: {match_key: lower}
+  Claim:
+    prefix: CLM
+    owner: claims-operations
+    description: A claim from the claims feed.
+    title: label
+    sources:
+      - {system: claims, table: silver.claims, key: claim_id,
+         fields: {label: "peril || ' loss ' || claim_id", claim_ref: claim_id, peril: peril, loss_ts: loss_ts,
+                  est_amount: est_amount, paid_amount: paid_amount, status: "'OPEN'"}}
+  Agent:
+    prefix: AGT
+    owner: distribution
+    description: An agent at an agency.
+    title: name
+    sources:
+      - {system: agency, table: silver.agents, key: agent_id,
+         fields: {name: agent_name, agency_code: agency_code}}
+
+created_types:
+  CoverageReviewFlag: {owner: coverage-counsel, description: A claim flagged for a person to review its coverage.}
+
+link_types:
+  coverage_on:
+    from: Coverage
+    to: Policy
+    description: Coverage is part of the policy
+    sql: select 'pas' from_system, cov_id from_key, 'pas' to_system, policy_nbr to_key from silver_coverages_current
+  held_by:
+    from: Policy
+    to: Insured
+    description: Policy is held by the insured
+    sql: select 'pas' from_system, policy_nbr from_key, 'pas' to_system, insured_id to_key from silver_policies_current
+  placed_by:
+    from: Policy
+    to: Agent
+    description: Policy was placed by the agent
+    sql: select 'pas' from_system, policy_nbr from_key, 'agency' to_system, agent_id to_key from silver_agency_clients
+  claim_on:
+    from: Claim
+    to: Policy
+    description: Claim is made against the policy
+    sql: select 'claims' from_system, claim_id from_key, 'pas' to_system, policy_nbr to_key from silver_claims where policy_nbr is not null
+  matched_coverage:
+    from: Claim
+    to: Coverage
+    description: The coverage in force for this peril on the loss date
+    sql: select 'claims' from_system, claim_id from_key, 'pas' to_system, cov_id to_key from gold_coverage_verification where cov_id is not null
+
+functions:
+  verify_coverage:
+    description: Was this loss covered on the loss date, by which coverage, with what limit and deductible?
+    params: {claim_id: Claim}
+    returns: one
+    sql: >
+      select claim_id, policy_nbr, peril, cast(loss_ts as varchar) loss_ts, est_amount, paid_amount, reason, covered,
+             cov_id, matched_coverages, limit_dollars, deductible, net_payable, in_force_known_at_loss, in_force_known_now,
+             lapsed_on_loss
+      from gold_coverage_verification where claim_id = (select props->>'claim_ref' from objects where id = $claim_id)
+  policy_versions_at_loss:
+    description: Every recorded belief about the policy status at the moment of the loss, and when each was booked.
+    params: {claim_id: Claim}
+    returns: many
+    sql: >
+      select v.status, v.seq, v.txn_type, cast(v.tx_from as varchar) tx_from, cast(v.tx_to as varchar) tx_to,
+             cast(v.valid_from as varchar) valid_from, cast(v.valid_to as varchar) valid_to
+      from silver_claims c join silver_policy_versions v on v.policy_nbr = c.policy_nbr
+       and v.valid_from <= c.loss_ts and c.loss_ts < v.valid_to
+      where c.claim_id = (select props->>'claim_ref' from objects where id = $claim_id)
+      order by v.tx_from
+  billing_at_loss:
+    description: The billing lapse window around the loss date, if billing recorded one.
+    params: {claim_id: Claim}
+    returns: one
+    sql: >
+      select cast(w.lapse_date as varchar) lapse_date, cast(w.reinstate_date as varchar) reinstate_date
+      from silver_claims c join silver_lapse_windows w on w.policy_nbr = c.policy_nbr
+       and w.lapse_date <= cast(c.loss_ts as date) and (w.reinstate_date is null or cast(c.loss_ts as date) < w.reinstate_date)
+      where c.claim_id = (select props->>'claim_ref' from objects where id = $claim_id)
+  coverage_history:
+    description: All bitemporal versions of one coverage contract, limit included.
+    params: {coverage_id: Coverage}
+    returns: many
+    sql: >
+      select seq, txn_type, limit_dollars, limit_was_cents, deductible, cast(valid_from as varchar) valid_from,
+             cast(valid_to as varchar) valid_to, cast(tx_from as varchar) tx_from, cast(tx_to as varchar) tx_to
+      from silver_coverage_versions where cov_id = (select props->>'cov_ref' from objects where id = $coverage_id)
+      order by valid_from, tx_from
+
+actions:
+  flag_coverage_review:
+    description: Flag a claim for a person to review its coverage. Needs coverage counsel to approve.
+    params:
+      claim_id: {type: Claim}
+      reason: {type: str}
+    requires_approval: true
+    approver_roles: [coverage_counsel]
+    preconditions:
+      - {when: "claim.status == 'OPEN'", message: claim must be open}
+    edits:
+      - {object: claim_id, set: {status: "'COVERAGE_REVIEW'"}}
+    creates:
+      type: CoverageReviewFlag
+      prefix: CRF
+      title: label
+      props: {label: "'Coverage review: ' + str(params.reason)", claim_id: params.claim_id, reason: params.reason}
