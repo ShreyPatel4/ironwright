@@ -61,3 +61,13 @@ def test_f24_map_copy_does_not_quote_our_contract_at_a_customer():
 
 def test_f21_the_workspaces_page_does_not_count_the_demos():
     assert "four demo companies" not in (ROOT / "console" / "src" / "App.jsx").read_text().replace("\n", " ")
+
+
+def test_f18_a_clone_with_no_console_build_says_how_to_get_one(meta_db, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from ironwright import platform_api
+    monkeypatch.setattr(platform_api, "CONSOLE_DIST", tmp_path / "not-built")
+    with TestClient(platform_api.create_platform_app()) as c:
+        got = c.get("/")
+    assert got.status_code == 200 and "make console" in got.json()["console"]
