@@ -239,6 +239,11 @@ def combined(name: str, now: str | None = None) -> tuple[list[dict[str, Any]], l
     return hand + kept, conflicts
 
 
+def tenant_rules(pack: Any) -> list[dict[str, Any]]:
+    """Every rule that decides on a tenant workspace, in evaluation order."""
+    return [*pack.policies.get("rules", []), _MEMBERS_READ]
+
+
 def live_engine(name: str, now: str | None = None, pack: Any = None):
     """The PolicyEngine every serving surface should use: hand-written rules
     plus the active generated ones and escalation grants. The batch pipeline
@@ -252,7 +257,7 @@ def live_engine(name: str, now: str | None = None, pack: Any = None):
     from .policy import PolicyEngine
 
     if pack is not None and pack.is_tenant:
-        return PolicyEngine({"default": "deny", "rules": [*pack.policies.get("rules", []), _MEMBERS_READ]})
+        return PolicyEngine({"default": "deny", "rules": tenant_rules(pack)})
     return PolicyEngine({"default": "deny", "rules": combined_rules(name, now=now)})
 
 

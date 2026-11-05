@@ -15,14 +15,17 @@ import json
 import os
 import tempfile
 from datetime import datetime, timezone
-from typing import Any
+from typing import Annotated, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from . import auth
 from .ontology.store import OntologyStore
 from .packs import Pack, list_packs, load_pack
 from .policy import PolicyEngine
+from .resolve import is_tenant
+from .tenancy.models import Ctx
 from .workspaces import read_org
 
 LABELS_FILE = "training_labels.jsonl"
@@ -172,11 +175,15 @@ class EvaluateBody(BaseModel):
 
 
 router = APIRouter()
+CtxDep = Annotated[Ctx, Depends(auth.ctx)]
 
 
-def _pack_or_404(name: str) -> Pack:
+def _pack_or_404(name: str, c: Ctx) -> Pack:
     if name in list_packs():
         return load_pack(name)
+    if is_tenant(name, c):
+        raise HTTPException(404, "training labels come from what agents were approved or denied, "
+                                 "and your own workspace has no agents yet")
     try:
         read_org(name)
     except FileNotFoundError:
@@ -186,8 +193,8 @@ def _pack_or_404(name: str) -> Pack:
 
 
 @router.get("/workspaces/{name}/training/labels")
-def training_labels(name: str) -> dict[str, Any]:
-    pack = _pack_or_404(name)
+def training_labels(name: str, c: CtxDep) -> dict[str, Any]:
+    pack = _pack_or_404(name, c)
     labels = derive_labels(pack)
     return {"workspace": name, "labels": labels, "count": len(labels),
             "note": "Every label is a filtered audit query: a human approval, a "
@@ -196,8 +203,8 @@ def training_labels(name: str) -> dict[str, Any]:
 
 
 @router.post("/workspaces/{name}/training/evaluate")
-def training_evaluate(name: str, body: EvaluateBody) -> dict[str, Any]:
-    pack = _pack_or_404(name)
+def training_evaluate(name: str, body: EvaluateBody, c: CtxDep) -> dict[str, Any]:
+    pack = _pack_or_404(name, c)
     try:
         return {"workspace": name, **evaluate(pack, body.rules)}
     except ValueError as e:

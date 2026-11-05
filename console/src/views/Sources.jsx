@@ -23,14 +23,17 @@ function PackSources({ ws }) {
       <p className="sub">The connector registry as declared: every legacy system this workspace
         ingests, with its format and layout. Connectors are declarative specs; the same bronze
         path lands all of them.</p>
-      <p className="note" style={{ marginBottom: 16 }}>
+      {ws.kind === "workspace" ? (
+        <p className="note" style={{ marginBottom: 16 }}>
+          These are the files you uploaded. Each one is a source with its own format and columns.</p>
+      ) : <p className="note" style={{ marginBottom: 16 }}>
         Kinds this build can land, each fixture-proven: fixed_width, csv, jsonl, sqlite, s3
         (object stores; byte-identical to the local reader), adbc (sqlite driver, byte-identical
         to the native kind; postgresql code-present but unclaimed until fixtured), idoc (SAP
         flat files proven by planted round-trips; OData and RFC not claimed), stream_window
         (recorded segments proven against committed fixtures; live Kafka not claimed). The
         byte-identity comparison exists where a local counterpart exists, s3 and adbc. CDC and
-        scheduled pulls remain roadmap.</p>
+        scheduled pulls remain roadmap.</p>}
       <Err e={err} />
       <div className="scroll"><table>
         <thead><tr><th>source</th><th>system</th><th>kind</th><th>where</th><th></th></tr></thead>

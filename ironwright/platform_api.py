@@ -34,7 +34,6 @@ from . import orgpolicy as orgpolicy_mod
 from . import sqlguard, verification
 from . import training as training_mod
 from . import workspaces as org_mod
-from . import workspaces_tenant as wt
 from .asof import router as asof_router
 from .auth import ctx
 from .bi import router as bi_router
@@ -44,11 +43,12 @@ from .ingest import journey_routes
 from .ingest.routes import router as ingest_router
 from .jobs import routes as jobs_routes
 from .lake import Lakehouse
-from .ontology.propose import askable
 from .ontology.routes import router as ontology_router
 from .ontology.runtime import Ontology
 from .otel_export import router as otel_router
 from .packs import list_packs, load_pack
+from .resolve import find as find_workspace
+from .resolve import workspace_pack
 from .scenario.spec import SpecError
 from .tenancy import DEV_ORG_ID, ROLES, Ctx, byokey, quotas
 from .tenancy import service as tenancy
@@ -135,6 +135,7 @@ CtxDep = Annotated[Ctx, Depends(ctx)]
 
 # Everything a tenant cannot see answers this, whether or not it exists.
 NOT_FOUND = "no such resource"
+RUN_HOLDS_STORE = "a run is using this workspace; try again when it is done"
 # A tenant's scenario folder is "o<8 hex of org id>-<name>", at most 40 characters.
 _TENANT_PREFIX_LEN = 10
 _MAX_TENANT_WS_NAME = 40 - _TENANT_PREFIX_LEN
@@ -247,23 +248,14 @@ class ConsoleFiles(StaticFiles):
         return response
 
 
-def _pack(name: str):
-    if name not in list_packs():
-        raise HTTPException(404, f"no workspace named {name}")
-    return load_pack(name)
-
-
-def _ask_pack(name: str, c: Ctx):
-    """The one road from a name to what Ask runs on. Packs first, as at the gate. A tenant
-    workspace comes from this org's folder, with what its accepted ontology.yaml generates."""
-    if name in list_packs():
-        return load_pack(name)
-    try:
-        return askable(wt.load_workspace(c.org_id, name))
-    except FileNotFoundError as e:  # past the gate, so this org may know: not askable
-        raise HTTPException(404, f"no workspace named {name}") from e
-    except wt.WorkspaceError as e:
-        raise HTTPException(422, str(e)) from e
+def _source_view(src: dict[str, Any]) -> dict[str, Any]:
+    """What a reader sees of a tenant source. The loaded spec holds a server path, and
+    the view draws a layout as [field, width] pairs, which only fixed width has."""
+    out = {"name": src["name"], "label": "your upload", "kind": src["kind"], "format": src["format"],
+           "file": src["upload"].rsplit("/", 1)[-1], "upload": src["upload"], "columns": src["columns"]}
+    if src["format"] == "fixed_width":
+        out["layout"] = [[f["name"], f["width"]] for f in src["layout"]["fields"]]
+    return out
 
 
 def _shared_with(pack, c: Ctx) -> bool:
@@ -294,7 +286,7 @@ def _ontology(pack, traced: bool = True) -> Iterator[Ontology]:
     except duckdb.IOException as e:
         if not pack.is_tenant:
             raise
-        raise HTTPException(409, "a run is using this workspace; try again when it is done") from e
+        raise HTTPException(409, RUN_HOLDS_STORE) from e
     # Serving surfaces authorize against the live combined engine: hand-written
     # rules plus applied generated policy and unexpired escalation grants. The
     # batch pipeline and evals keep pack.policies alone, so planted-problem
@@ -403,8 +395,9 @@ def create_platform_app() -> FastAPI:
         return org_mod.archetypes()
 
     @app.get("/workspaces/{name}/discovery")
-    def discovery(name: str) -> dict[str, Any]:
-        if name not in list_packs():
+    def discovery(name: str, c: CtxDep) -> dict[str, Any]:
+        pack = find_workspace(name, c)
+        if pack is None:
             # Sketch 01: an empty class stays empty. A created org has no
             # migration artifacts to discover against, and this endpoint says
             # so instead of inventing findings or answering 404.
@@ -416,38 +409,43 @@ def create_platform_app() -> FastAPI:
                     "note": "A created organization has no migration artifacts yet; "
                             "discovery reads merge logs, reconcile reports and checks, "
                             "none of which exist before a migration runs. Nothing is invented."}
-        return discovery_mod.derive(_pack(name))
+        try:
+            return discovery_mod.derive(pack)
+        except duckdb.IOException as e:
+            if not pack.is_tenant:
+                raise
+            raise HTTPException(409, RUN_HOLDS_STORE) from e
 
     @app.get("/workspaces/{name}/boards")
-    def boards_list(name: str) -> list[dict[str, Any]]:
-        return boards_mod.list_boards(_pack(name))
+    def boards_list(name: str, c: CtxDep) -> list[dict[str, Any]]:
+        return boards_mod.list_boards(workspace_pack(name, c))
 
     @app.get("/workspaces/{name}/boards/{slug}")
-    def board_get(name: str, slug: str) -> dict[str, Any]:
+    def board_get(name: str, slug: str, c: CtxDep) -> dict[str, Any]:
         try:
-            return boards_mod.read(_pack(name), slug)
+            return boards_mod.read(workspace_pack(name, c), slug)
         except FileNotFoundError:
             raise HTTPException(404, f"no board {slug}")
 
     @app.put("/workspaces/{name}/boards/{slug}")
-    def board_put(name: str, slug: str, body: BoardBody) -> dict[str, Any]:
+    def board_put(name: str, slug: str, body: BoardBody, c: CtxDep) -> dict[str, Any]:
         try:
-            return boards_mod.write(_pack(name), slug, body.model_dump())
+            return boards_mod.write(workspace_pack(name, c), slug, body.model_dump())
         except boards_mod.BoardError as e:
             raise HTTPException(422, str(e))
 
     @app.delete("/workspaces/{name}/boards/{slug}")
-    def board_delete(name: str, slug: str) -> dict[str, Any]:
+    def board_delete(name: str, slug: str, c: CtxDep) -> dict[str, Any]:
         try:
-            boards_mod.delete(_pack(name), slug)
+            boards_mod.delete(workspace_pack(name, c), slug)
         except FileNotFoundError:
             raise HTTPException(404, f"no board {slug}")
         return {"deleted": slug}
 
     @app.post("/workspaces/{name}/boards/{slug}/run")
-    def board_run(name: str, slug: str) -> dict[str, Any]:
+    def board_run(name: str, slug: str, c: CtxDep) -> dict[str, Any]:
         try:
-            return boards_mod.run(_pack(name), slug)
+            return boards_mod.run(workspace_pack(name, c), slug)
         except FileNotFoundError:
             raise HTTPException(404, f"no board {slug}")
 
@@ -529,17 +527,17 @@ def create_platform_app() -> FastAPI:
         return jobs_routes.submit_run(c, response, name, body.seed, body.stages, body.wait)
 
     @app.get("/workspaces/{name}/approvals")
-    def approvals(name: str) -> list[dict[str, Any]]:
-        with _ontology(_pack(name)) as ont:
+    def approvals(name: str, c: CtxDep) -> list[dict[str, Any]]:
+        with _ontology(workspace_pack(name, c)) as ont:
             return _pending_approvals(ont)
 
     @app.post("/workspaces/{name}/approvals/{seq}/decide")
-    def decide(name: str, seq: int, body: DecideBody) -> dict[str, Any]:
+    def decide(name: str, seq: int, body: DecideBody, c: CtxDep) -> dict[str, Any]:
         if body.decision not in ("approve", "deny"):
             raise HTTPException(422, "decision must be approve or deny")
         if auth_mod.is_agent(body.approved_by) and not auth_mod.dev_open():
             raise HTTPException(422, "an agent cannot sign a decision")
-        with _ontology(_pack(name)) as ont:
+        with _ontology(workspace_pack(name, c)) as ont:
             row = next((p for p in _pending_approvals(ont) if p["seq"] == seq), None)
             if row is None:
                 raise HTTPException(404, f"no pending approval with seq {seq}")
@@ -563,20 +561,23 @@ def create_platform_app() -> FastAPI:
     def act(name: str, action: str, body: ActionBody,
             c: CtxDep) -> dict[str, Any]:
         actor = body.actor if auth_mod.dev_open() else c.principal
-        with _ontology(_pack(name)) as ont:
+        pack = workspace_pack(name, c)
+        if pack.is_tenant:  # contract 3: objects and links, and no actions yet
+            raise HTTPException(404, f"your own workspace has no actions yet, so it has no {action}")
+        with _ontology(pack) as ont:
             return ont.act(action, body.params, actor=actor,
                            on_behalf_of=body.on_behalf_of,
                            idempotency_key=body.idempotency_key)
 
     @app.get("/workspaces/{name}/audit/verify")
-    def verify(name: str) -> dict[str, Any]:
-        with _ontology(_pack(name)) as ont:
+    def verify(name: str, c: CtxDep) -> dict[str, Any]:
+        with _ontology(workspace_pack(name, c)) as ont:
             rows = ont.store.con.execute("select count(*) from audit_log").fetchone()[0]
             return {"intact": ont.store.verify_audit_chain(), "rows": rows}
 
     @app.get("/workspaces/{name}/audit")
-    def audit(name: str, limit: int = 50) -> list[dict[str, Any]]:
-        with _ontology(_pack(name)) as ont:
+    def audit(name: str, c: CtxDep, limit: int = 50) -> list[dict[str, Any]]:
+        with _ontology(workspace_pack(name, c)) as ont:
             df = ont.store.con.execute(
                 "select seq, ts, actor, on_behalf_of, action, status, approved_by, hash "
                 "from audit_log order by seq desc limit ?", [limit]).fetchdf()
@@ -584,20 +585,20 @@ def create_platform_app() -> FastAPI:
 
     @app.get("/workspaces/{name}/ontology")
     def ontology(name: str, c: CtxDep) -> dict[str, Any]:
-        with _ontology(_ask_pack(name, c)) as ont:
+        with _ontology(workspace_pack(name, c)) as ont:
             return {"describe": ont.describe(), "stats": ont.store.stats()}
 
     @app.get("/workspaces/{name}/objects/{type_}")
     def objects(name: str, type_: str, c: CtxDep,
                 limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
-        with _ontology(_pack(name)) as ont:
+        with _ontology(workspace_pack(name, c)) as ont:
             return [ont.masked({**o, "_type": type_}, c.principal)
                     for o in ont.store.list(type_, limit, offset)]
 
     @app.get("/workspaces/{name}/objects/{type_}/{id_}")
     def obj(name: str, type_: str, id_: str,
             c: CtxDep) -> dict[str, Any]:
-        with _ontology(_pack(name)) as ont:
+        with _ontology(workspace_pack(name, c)) as ont:
             o = ont.masked(ont.store.get(type_, id_), c.principal)
             if not o:
                 raise HTTPException(404, f"no {type_} {id_}")
@@ -615,7 +616,7 @@ def create_platform_app() -> FastAPI:
         the audit trail touching this object, pending approvals on it, and
         per-action permits from the real policy engine for the caller."""
         principal = c.principal
-        pack = _pack(name)
+        pack = workspace_pack(name, c)
         with _ontology(pack) as ont:
             o = ont.masked(ont.store.get(type_, id_), principal)
             if not o:
@@ -646,7 +647,7 @@ def create_platform_app() -> FastAPI:
             # permit it is until it expires. Each action's env carries the id
             # under that action's own object-typed param name, the same shape
             # act() builds.
-            engine = orgpolicy_mod.live_engine(name)
+            engine = orgpolicy_mod.live_engine(name, pack=pack)
             now = _utcnow()
             allowed = []
             for action, adef in (pack.ontology.get("actions", {}) or {}).items():
@@ -662,8 +663,8 @@ def create_platform_app() -> FastAPI:
                     "_as": principal}
 
     @app.get("/workspaces/{name}/lake/tables")
-    def lake_tables(name: str) -> list[dict[str, Any]]:
-        lake = Lakehouse(_pack(name))
+    def lake_tables(name: str, c: CtxDep) -> list[dict[str, Any]]:
+        lake = Lakehouse(workspace_pack(name, c))
         out = []
         for ident in lake.tables():
             layer, tname = ident.split(".")
@@ -673,10 +674,10 @@ def create_platform_app() -> FastAPI:
         return out
 
     @app.post("/workspaces/{name}/lake/query")
-    def lake_query(name: str, body: QueryBody) -> dict[str, Any]:
+    def lake_query(name: str, body: QueryBody, c: CtxDep) -> dict[str, Any]:
         sql = _guard_select_only(body.sql)
         limit = max(1, min(body.limit, sqlguard.MAX_ROWS))
-        con = Lakehouse(_pack(name)).connect(capped=True)
+        con = Lakehouse(workspace_pack(name, c)).connect(capped=True)
         try:
             try:
                 cols, rows = sqlguard.run_capped(con, sql, limit)
@@ -688,10 +689,10 @@ def create_platform_app() -> FastAPI:
             con.close()
 
     @app.get("/workspaces/{name}/reports/{report}")
-    def reports(name: str, report: str) -> Any:
+    def reports(name: str, report: str, c: CtxDep) -> Any:
         if not re.fullmatch(r"[a-z_]+", report):
             raise HTTPException(422, "report names are lowercase words")
-        path = _pack(name).paths.reports / f"{report}.json"
+        path = workspace_pack(name, c).paths.reports / f"{report}.json"
         if not path.exists():
             raise HTTPException(404, f"no report {report}")
         return json.loads(path.read_text())
@@ -699,7 +700,7 @@ def create_platform_app() -> FastAPI:
     @app.post("/workspaces/{name}/ask")
     def ask(name: str, body: AskBody,
             c: CtxDep) -> dict[str, Any]:
-        pack = _ask_pack(name, c)
+        pack = workspace_pack(name, c)
         llm = quotas.start_ask(c.org_id, auth_mod._now())
         log_path = _ask_log(pack, c)
         if log_path is not None:
@@ -710,19 +711,24 @@ def create_platform_app() -> FastAPI:
             return entry
 
     @app.get("/workspaces/{name}/sources")
-    def sources(name: str) -> list[dict[str, Any]]:
+    def sources(name: str, c: CtxDep) -> list[dict[str, Any]]:
         """The connector registry, as declared: every legacy source with its
         system, format and layout. CDC and scheduled pulls are roadmap, and
         this endpoint does not pretend otherwise."""
-        return _pack(name).spec.get("sources", [])
+        pack = workspace_pack(name, c)
+        if pack.is_tenant:
+            return [_source_view(s) for s in pack.spec["sources"]]
+        return pack.spec.get("sources", [])
 
     @app.get("/workspaces/{name}/loads")
-    def loads(name: str) -> dict[str, Any]:
+    def loads(name: str, c: CtxDep) -> dict[str, Any]:
         """Write-audit-publish, shown as it ran: every write with its audit
         branch, its checks, and whether it was published or quarantined."""
-        pack = _pack(name)
+        pack = workspace_pack(name, c)
         path = pack.paths.reports / "migrate.json"
         if not path.exists():
+            if pack.is_tenant:  # a new workspace has loaded nothing, and that is no error
+                return {"run_id": None, "writes": [], "quarantine_tables": []}
             raise HTTPException(404, "no migrate report; run the pipeline first")
         report = json.loads(path.read_text())
         lake = Lakehouse(pack)
@@ -730,14 +736,20 @@ def create_platform_app() -> FastAPI:
         return report
 
     @app.get("/workspaces/{name}/governance")
-    def governance(name: str) -> dict[str, Any]:
-        pack = _pack(name)
+    def governance(name: str, c: CtxDep) -> dict[str, Any]:
+        pack = workspace_pack(name, c)
         actions = {
             a: {"requires_approval": bool(d.get("requires_approval")),
                 "approver_roles": d.get("approver_roles", []),
                 "description": d.get("description", "")}
             for a, d in (pack.ontology.get("actions", {}) or {}).items()
         }
+        if pack.is_tenant:
+            # Generated policy files by bare name across every org, so it is never read here.
+            return {"rules": orgpolicy_mod.tenant_rules(pack), "generated_rules": [], "actions": actions,
+                    "note": "Default deny. These rules are the only ones that decide on this workspace, "
+                            "and the last one is the platform's: people can read. Your session sets "
+                            "who you act as."}
         return {"rules": pack.policies.get("rules", []),
                 "generated_rules": orgpolicy_mod.active_rules(name),
                 "actions": actions,
@@ -747,17 +759,18 @@ def create_platform_app() -> FastAPI:
                         "policy is a correctness control on this local build."}
 
     @app.post("/workspaces/{name}/governance/check")
-    def governance_check(name: str, body: PolicyCheckBody) -> dict[str, Any]:
-        _pack(name)
+    def governance_check(name: str, body: PolicyCheckBody, c: CtxDep) -> dict[str, Any]:
+        pack = workspace_pack(name, c)
         env = {"now": _utcnow(), "principal": body.principal, **body.env}
-        decision = orgpolicy_mod.live_engine(name).authorize(body.principal, body.action, env)
+        decision = orgpolicy_mod.live_engine(name, pack=pack).authorize(body.principal, body.action, env)
         return {"principal": body.principal, "action": body.action,
                 "decision": decision.to_dict()}
 
     @app.get("/workspaces/{name}/principals")
-    def principals(name: str) -> dict[str, Any]:
-        pack = _pack(name)
-        from_rules = sorted({r.get("principal") for r in pack.policies.get("rules", [])
+    def principals(name: str, c: CtxDep) -> dict[str, Any]:
+        pack = workspace_pack(name, c)
+        rules = orgpolicy_mod.tenant_rules(pack) if pack.is_tenant else pack.policies.get("rules", [])
+        from_rules = sorted({r.get("principal") for r in rules
                              if r.get("principal")})
         with _ontology(pack) as ont:
             from_audit = sorted({r[0] for r in ont.store.con.execute(
@@ -770,15 +783,18 @@ def create_platform_app() -> FastAPI:
                         "and the audit log records it."}
 
     @app.get("/workspaces/{name}/agents")
-    def agents(name: str) -> dict[str, Any]:
-        path = _pack(name).paths.reports / "agents.json"
+    def agents(name: str, c: CtxDep) -> dict[str, Any]:
+        pack = workspace_pack(name, c)
+        path = pack.paths.reports / "agents.json"
         if not path.exists():
+            if pack.is_tenant:  # a tenant run has no agents stage (contract 3)
+                return {}
             raise HTTPException(404, "no agents report; run the pipeline first")
         return json.loads(path.read_text())
 
     @app.get("/workspaces/{name}/traces")
-    def traces(name: str) -> list[dict[str, Any]]:
-        tdir = _pack(name).paths.traces
+    def traces(name: str, c: CtxDep) -> list[dict[str, Any]]:
+        tdir = workspace_pack(name, c).paths.traces
         if not tdir.exists():
             return []
         out = []
@@ -788,10 +804,10 @@ def create_platform_app() -> FastAPI:
         return out[:200]
 
     @app.get("/workspaces/{name}/traces/{trace_id}")
-    def trace(name: str, trace_id: str) -> list[dict[str, Any]]:
+    def trace(name: str, trace_id: str, c: CtxDep) -> list[dict[str, Any]]:
         if not re.fullmatch(r"[0-9a-f]+", trace_id):
             raise HTTPException(422, "trace ids are hex")
-        path = _pack(name).paths.traces / f"{trace_id}.jsonl"
+        path = workspace_pack(name, c).paths.traces / f"{trace_id}.jsonl"
         if not path.exists():
             raise HTTPException(404, f"no trace {trace_id}")
         spans = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
@@ -800,23 +816,23 @@ def create_platform_app() -> FastAPI:
     @app.get("/workspaces/{name}/ask/examples")
     def ask_examples(name: str,
                      c: CtxDep) -> list[dict[str, Any]]:
-        pack = _ask_pack(name, c)
+        pack = workspace_pack(name, c)
         with _ontology(pack) as ont:
             return ask_mod.examples(pack, ont, principal=c.principal)
 
     @app.get("/workspaces/{name}/ask/log")
     def ask_log(name: str, c: CtxDep) -> list[dict[str, Any]]:
-        pack = _ask_pack(name, c)
+        pack = workspace_pack(name, c)
         return ask_mod.read_log(pack, _ask_log(pack, c))
 
     @app.get("/workspaces/{name}/ask/metrics")
     def ask_metrics(name: str, c: CtxDep) -> dict[str, Any]:
-        pack = _ask_pack(name, c)
+        pack = workspace_pack(name, c)
         return ask_mod.metrics(pack, _ask_log(pack, c))
 
     @app.post("/workspaces/{name}/ask/replay")
     def ask_replay(name: str, body: ReplayBody, c: CtxDep) -> dict[str, Any]:
-        pack = _ask_pack(name, c)
+        pack = workspace_pack(name, c)
         log_path = _ask_log(pack, c)
         with _ask_ontology(pack, log_path) as ont:
             try:

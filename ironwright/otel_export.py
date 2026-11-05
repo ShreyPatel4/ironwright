@@ -25,16 +25,20 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from . import auth
 from .packs import Pack, list_packs, load_pack
+from .resolve import refuse_outbound
+from .tenancy.models import Ctx
 from .tracing import load_trace
 
 router = APIRouter()
+CtxDep = Annotated[Ctx, Depends(auth.ctx)]
 
 _HEX = set("0123456789abcdef")
 _STATUS_CODES = {"ok": 1, "error": 2}  # OTLP: STATUS_CODE_OK, STATUS_CODE_ERROR
@@ -194,7 +198,8 @@ class ExportBody(BaseModel):
 
 
 @router.post("/workspaces/{name}/otel/export")
-def otel_export(name: str, body: ExportBody) -> dict[str, Any]:
+def otel_export(name: str, body: ExportBody, c: CtxDep) -> dict[str, Any]:
+    refuse_outbound(name, c, "a collector")
     if name not in list_packs():
         raise HTTPException(404, f"no workspace named {name}")
     try:

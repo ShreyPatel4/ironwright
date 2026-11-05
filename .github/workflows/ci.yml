@@ -51,6 +51,10 @@ jobs:
         run: |
           pytest -q -rs tests/e2e/test_refresh_console.py | tee refresh.txt
           ! grep -q SKIPPED refresh.txt
+      - name: Every console view on a wizard-made workspace, against the real backend
+        run: |
+          pytest -q -rs tests/e2e/test_tenant_views.py | tee views.txt
+          ! grep -q SKIPPED views.txt
 
   # The hosted stack from the outside: build the image, boot api + postgres +
   # object store, walk it, then prove where the data landed. The same store also

@@ -1,10 +1,89 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Badge, Err, ReadOnlyNote } from "../components.jsx";
 
 const STAGES = ["generate", "migrate", "reconcile", "ontology", "agents", "evals", "export"];
+const TERMINAL = new Set(["succeeded", "failed", "cancelled"]);
 
-export default function Pipeline({ ws, refresh }) {
+const pause = (ms) => new Promise((resolve) => { setTimeout(resolve, ms); });
+
+// A workspace from your own files runs as one job with no stages to time. The job is the
+// record, so what ran last comes from the server, whichever screen started it.
+function LastRun({ job }) {
+  const evals = job.result?.evals;
+  return (
+    <>
+      <div aria-live="polite" className="row">
+        <span className="mono note">last run {job.state}</span>
+        {job.finished_at && <span className="note">{new Date(job.finished_at).toLocaleString()}</span>}
+        {evals && <span className={`badge ${evals.passed ? "ok" : "bad"}`}>evals {evals.passed ? "green" : "RED"}</span>}
+      </div>
+      {job.error && <p className="note">{job.error}</p>}
+      {job.result?.layers && (
+        <div className="scroll"><table>
+          <thead><tr><th>layer</th><th>result</th><th>what it found</th></tr></thead>
+          <tbody>
+            {job.result.layers.map((l) => (
+              <tr key={l.layer}>
+                <td className="mono">{l.layer}</td>
+                <td><span className={`badge ${l.passed ? "ok" : "bad"}`}>{l.passed ? "pass" : "fail"}</span></td>
+                <td>{l.headline}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table></div>
+      )}
+    </>
+  );
+}
+
+function TenantPipeline({ ws, refresh }) {
+  const [job, setJob] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const load = useCallback(async () => {
+    const jobs = await api.jobs(ws.name);
+    setJob(jobs.find((j) => j.kind === "run") ?? null);
+    setLoaded(true);
+  }, [ws.name]);
+  useEffect(() => { load().catch(setErr); }, [load]);
+
+  async function run() {
+    setBusy(true); setErr(null);
+    try {
+      const started = await api.run(ws.name, {});
+      let state = started.state;
+      while (!TERMINAL.has(state)) {
+        await pause(1000);
+        const now = await api.job(started.id);
+        setJob(now);
+        state = now.state;
+      }
+      await refresh();
+    } catch (e) { setErr(e); }
+    await load().catch(setErr);
+    setBusy(false);
+  }
+
+  return (
+    <>
+      <h2>Pipeline</h2>
+      <p className="sub">Your files through landing with write-audit-publish, reconciliation, the
+        ontology build and the checks. It runs as one job, with no generated data and no agents.</p>
+      <div className="row">
+        <button className="btn" disabled={busy} onClick={run}>{busy ? "Running…" : "Run the pipeline"}</button>
+        <Badge v={ws.verification} />
+      </div>
+      <Err e={err} />
+      {job && <LastRun job={job} />}
+      {loaded && !job && <p className="note">Nothing has run on this workspace yet.</p>}
+    </>
+  );
+}
+
+function PackPipeline({ ws, refresh }) {
   const [report, setReport] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -59,4 +138,8 @@ export default function Pipeline({ ws, refresh }) {
         above is derived from what is actually on disk.</p>}
     </>
   );
+}
+
+export default function Pipeline(props) {
+  return props.ws.kind === "workspace" ? <TenantPipeline {...props} /> : <PackPipeline {...props} />;
 }

@@ -31,16 +31,19 @@ import time
 import uuid
 from decimal import Decimal
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 import pyarrow as pa
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from . import auth
 from .config import data_root
 from .lake import Lakehouse
-from .packs import Pack, list_packs, load_pack
+from .packs import Pack
+from .resolve import find, refuse_outbound
+from .tenancy.models import Ctx
 
 SCHEMA_RE = re.compile(r"^[a-z][a-z0-9_]{0,40}$")
 MIRROR_LAYERS = ("silver", "gold")
@@ -212,6 +215,7 @@ def set_embed(pack: Pack, url: str) -> dict[str, Any]:
 # ----------------------------------------------------------------- router
 
 router = APIRouter()
+CtxDep = Annotated[Ctx, Depends(auth.ctx)]
 
 
 class MirrorBody(BaseModel):
@@ -223,9 +227,10 @@ class EmbedBody(BaseModel):
     url: str
 
 
-def _pack_or_404(name: str) -> Pack:
-    if name in list_packs():
-        return load_pack(name)
+def _pack_or_404(name: str, c: Ctx) -> Pack:
+    pack = find(name, c)
+    if pack is not None:
+        return pack
     if (data_root() / name / "org.json").exists():
         raise HTTPException(404, f"{name} is a created organization and has no "
                                  "lakehouse; the BI mirror reads silver and gold "
@@ -234,8 +239,9 @@ def _pack_or_404(name: str) -> Pack:
 
 
 @router.post("/workspaces/{name}/bi/mirror")
-def bi_mirror(name: str, body: MirrorBody | None = None) -> dict[str, Any]:
-    pack = _pack_or_404(name)
+def bi_mirror(name: str, c: CtxDep, body: MirrorBody | None = None) -> dict[str, Any]:
+    refuse_outbound(name, c, "a shared postgres server")
+    pack = _pack_or_404(name, c)
     uri = os.environ.get("POSTGRES_URI")
     if not uri:
         raise HTTPException(503, "POSTGRES_URI is not set. The mirror copies "
@@ -253,14 +259,14 @@ def bi_mirror(name: str, body: MirrorBody | None = None) -> dict[str, Any]:
 
 
 @router.get("/workspaces/{name}/bi")
-def bi_get(name: str) -> dict[str, Any]:
-    pack = _pack_or_404(name)
+def bi_get(name: str, c: CtxDep) -> dict[str, Any]:
+    pack = _pack_or_404(name, c)
     return {"workspace": name, **get_embed(pack)}
 
 
 @router.put("/workspaces/{name}/bi")
-def bi_put(name: str, body: EmbedBody) -> dict[str, Any]:
-    pack = _pack_or_404(name)
+def bi_put(name: str, body: EmbedBody, c: CtxDep) -> dict[str, Any]:
+    pack = _pack_or_404(name, c)
     try:
         return {"workspace": name, **set_embed(pack, body.url)}
     except BIError as e:

@@ -40,19 +40,23 @@ import os
 import re
 import uuid
 from datetime import timezone
-from typing import Any
+from typing import Annotated, Any
 
 import duckdb
 import pyarrow as pa
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from . import auth
 from .lake import Lakehouse
 from .packs import Pack, list_packs, load_pack
+from .resolve import refuse_outbound
+from .tenancy.models import Ctx
 
 ENGINES = ("duckdb", "postgresql")
 
 router = APIRouter()
+CtxDep = Annotated[Ctx, Depends(auth.ctx)]
 
 _PREFIX = re.compile(r"^[a-z][a-z0-9_]{0,24}$")
 
@@ -254,7 +258,8 @@ class CheckBody(BaseModel):
 
 
 @router.post("/workspaces/{name}/engines/check")
-def engines_check(name: str, body: CheckBody | None = None) -> dict[str, Any]:
+def engines_check(name: str, c: CtxDep, body: CheckBody | None = None) -> dict[str, Any]:
+    refuse_outbound(name, c, "a shared postgres server")
     if name not in list_packs():
         from .workspaces import list_organizations
 

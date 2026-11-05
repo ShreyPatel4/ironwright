@@ -53,6 +53,13 @@ const PACK_GROUPS = [
   ["GOVERN", ["governance", "principals"]],
 ];
 const ORG_GROUPS = [["MAP", ["platform"]], ["ORGANIZATION", ["organization", "orgpolicy"]]];
+// A workspace from your own files has no agents and no actions yet (contract 3), so these
+// three views have nothing to show. The rail says that instead of opening them to an error.
+const TENANT_HIDDEN = new Set(["agents", "training", "approvals"]);
+const TENANT_HIDDEN_REASON = "Agents, Training and Approvals are hidden here. "
+  + "Your own workspace has no agents or actions yet.";
+const TENANT_GROUPS = PACK_GROUPS.map(([g, keys]) => [g, keys.filter((k) => !TENANT_HIDDEN.has(k))]);
+const groupsFor = (kind) => (kind === "organization" ? ORG_GROUPS : kind === "workspace" ? TENANT_GROUPS : PACK_GROUPS);
 
 function NewOrganization({ onCreated, startOpen = false }) {
   const [open, setOpen] = useState(startOpen);
@@ -124,7 +131,7 @@ function NewOrganization({ onCreated, startOpen = false }) {
   );
 }
 
-const KIND_LABEL = { pack: "demo company", organization: "your organization" };
+const KIND_LABEL = { pack: "demo company", organization: "your organization", workspace: "your workspace" };
 
 // An invite link is /console/#invite=<token>. A fragment never reaches a server log.
 function inviteToken() {
@@ -222,8 +229,10 @@ export default function App() {
   }, [workspaces, session, welcome]);
 
   const ws = workspaces?.find((w) => w.name === wsName) ?? null;
-  const groups = ws?.kind === "organization" ? ORG_GROUPS : PACK_GROUPS;
-  const Active = VIEWS.find(([k]) => k === view)?.[2];
+  const groups = groupsFor(ws?.kind);
+  // A stored view, or a link on the platform map, can name a view this workspace hides.
+  const hiddenHere = ws?.kind === "workspace" && TENANT_HIDDEN.has(view);
+  const Active = hiddenHere ? null : VIEWS.find(([k]) => k === view)?.[2];
 
   function openWorkspace(w) {
     setWsName(w.name);
@@ -285,6 +294,9 @@ export default function App() {
             })}
           </div>
         ))}
+        {ws?.kind === "workspace" && (
+          <p aria-label="views hidden here" className="note" style={{ margin: "12px 14px 0" }}>{TENANT_HIDDEN_REASON}</p>
+        )}
         {ws && (
           <div className="ws">
             <div className="note" style={{ marginBottom: 4 }}>workspace</div>
@@ -342,6 +354,7 @@ export default function App() {
             </p>
           </>
         )}
+        {hiddenHere && <p className="note">{TENANT_HIDDEN_REASON}</p>}
         {ws && Active && (
           <Active key={ws.name}
                   onDeleted={async () => { setWsName(null); setView(null); await refresh(); }}
