@@ -1,106 +1,99 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Err } from "../components.jsx";
+import AskStep from "./onboarding/AskStep.jsx";
+import MapStep from "./onboarding/MapStep.jsx";
+import OntologyStep from "./onboarding/OntologyStep.jsx";
+import ProfileStep from "./onboarding/ProfileStep.jsx";
+import RunStep from "./onboarding/RunStep.jsx";
+import { canWrite, furthestStep, Loading, loadJourney, Panel, STEPS } from "./onboarding/shared.jsx";
+import UploadStep from "./onboarding/UploadStep.jsx";
 
-/* First-run funnel. Two screens, then the user's choice templates the boot
-   sequence. The flag lives in localStorage because it is a per-viewer
-   convenience; everything real stays server-derived. The third option is
-   honest about being planned: it routes to the map, not to a fake wizard. */
+/* The way in: from an empty org to a grounded answer over its own files. Which
+   step you land on is worked out from the server's uploads, jobs and workspaces.
+   Nothing about the journey is kept in this browser. */
 
-const CHOICES = [
-  {
-    id: "demo",
-    title: "Explore a proven demo",
-    body: "Brightline Retail: a 16-store chain migrated end to end, with planted defects, "
-          + "green evals and a hash-chained audit. The fastest way to see what the platform does.",
-    cta: "Open Brightline Retail",
-  },
-  {
-    id: "org",
-    title: "Create my own organization",
-    body: "The scenario engine generates a whole org from a name, archetype, size and seed: "
-          + "hierarchy, data owners, approval chains. Byte-identical per spec, badged L2 because "
-          + "generated is not proven.",
-    cta: "Create an organization",
-  },
-  {
-    id: "byod",
-    title: "Bring my own data",
-    body: "Planned, and this card will not pretend otherwise: the migration assistant that "
-          + "profiles your files and helps you author the mapping is on the map with its "
-          + "dependencies. Your bytes will never leave your machine.",
-    cta: "See it on the platform map",
-  },
-  {
-    id: "map",
-    title: "Study the whole platform",
-    body: "Every capability on one canvas: what is live on this machine, what is planned, and "
-          + "what each planned piece depends on. The concept never wears a working button.",
-    cta: "Open the map",
-  },
-];
+function Account({ me }) {
+  return (
+    <>
+      <h2>Account</h2>
+      <Panel>
+        <p style={{ margin: 0 }}>You are <b>{me.email}</b>, with the role <b>{me.role}</b>.</p>
+        <p className="note" style={{ margin: "6px 0 0" }}>
+          Your org's data is visible to your org and nobody else.
+        </p>
+      </Panel>
+    </>
+  );
+}
 
-export default function Onboarding({ onChoose, onSkip }) {
-  const [step, setStep] = useState(0);
+const VIEWS = { upload: UploadStep, profile: ProfileStep, map: MapStep, run: RunStep,
+                ontology: OntologyStep, ask: AskStep };
+
+export default function Onboarding({ onChoose, onSkip, onSignOut }) {
+  const [journey, setJourney] = useState(null);
+  const [viewing, setViewing] = useState(null);
+  const [err, setErr] = useState(null);
+
+  const load = useCallback(async () => {
+    setErr(null);
+    try { setJourney(await loadJourney()); } catch (e) { setErr(e); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  // A finished step asks for the next one, and the server decides which. Upload names
+  // Profile, because a quick worker can finish before you have read the result.
+  const advance = useCallback(async (to = null) => {
+    await load();
+    setViewing(to);
+  }, [load]);
+
+  const furthest = journey ? furthestStep(journey) : null;
+  const reached = STEPS.findIndex(([k]) => k === furthest);
+  const current = viewing ?? furthest;
+  const View = VIEWS[current];
 
   return (
-    <div style={{ margin: "6vh auto 0", maxWidth: 640 }}>
-      <p className="note mono" style={{ letterSpacing: ".08em", textTransform: "uppercase" }}>
-        ironwright · first run
+    <div style={{ "--rad": "6px", margin: "4vh auto 40px", maxWidth: 920, padding: "0 16px" }}>
+      <p className="note mono" style={{ letterSpacing: ".08em", margin: 0, textTransform: "uppercase" }}>
+        ironwright · bring your own data
       </p>
-      {step === 0 && (
-        <>
-          <h2 style={{ fontSize: 24, margin: "10px 0 12px" }}>
-            Legacy systems to an ontology, with agents that are safe to let act.
-          </h2>
-          <p style={{ fontSize: 14.5, lineHeight: 1.7, maxWidth: "62ch" }}>
-            Ironwright takes a company that runs on old systems and walks it, stage by gated
-            stage, onto a lakehouse, an ontology, and governed agents. Three things to know
-            before anything else:
-          </p>
-          <div className="cards" style={{ margin: "14px 0 18px" }}>
-            <div className="card" style={{ cursor: "default", gridTemplateColumns: "1fr" }}>
-              <b>Every number is a real run.</b>
-              <p>Pipelines execute on this machine; nothing on screen is a mockup.</p>
-            </div>
-            <div className="card" style={{ cursor: "default", gridTemplateColumns: "1fr" }}>
-              <b>The badge never lies.</b>
-              <p>L3 means planted ground truth and green evals here. L2 means generated.
-                 L1 means your files, structural checks only. Derived from disk, never declared.</p>
-            </div>
-            <div className="card" style={{ cursor: "default", gridTemplateColumns: "1fr" }}>
-              <b>Rules decide, models narrate.</b>
-              <p>Agents act only through governed functions; anything irreversible stops for a
-                 human, and every step lands in a hash-chained audit log.</p>
-            </div>
-          </div>
-          <div className="row">
-            <button className="btn" onClick={() => setStep(1)}>Choose a starting point</button>
-            <button className="btn ghost" onClick={onSkip}>Skip the tour</button>
-          </div>
-        </>
+      {journey && (
+        <nav aria-label="steps" className="row" style={{ margin: "12px 0 20px" }}>
+          {STEPS.map(([key, label], i) => (
+            <button aria-current={current === key ? "step" : undefined}
+                    className="btn ghost" disabled={i > reached} key={key}
+                    onClick={() => setViewing(key)}
+                    style={{ borderColor: current === key ? "var(--accent)" : undefined,
+                             color: current === key ? "var(--accent)" : undefined,
+                             fontSize: 12.5, padding: "4px 10px" }}
+                    type="button">
+              {i + 1} {label}
+            </button>
+          ))}
+        </nav>
       )}
-      {step === 1 && (
-        <>
-          <h2 style={{ fontSize: 22, margin: "10px 0 12px" }}>What do you want to do first?</h2>
-          <p className="note" style={{ marginBottom: 14 }}>
-            This only picks where you land; every surface stays one click away.
-          </p>
-          <div className="cards">
-            {CHOICES.map((c) => (
-              <button className="card" key={c.id} onClick={() => onChoose(c.id)}
-                      style={{ gridTemplateColumns: "minmax(0,14rem) 1fr" }}>
-                <b>{c.title}</b>
-                <p>{c.body}<br />
-                  <span style={{ color: "var(--accent)", fontWeight: 500 }}>{c.cta} →</span>
-                </p>
-              </button>
-            ))}
-          </div>
-          <div className="row" style={{ marginTop: 12 }}>
-            <button className="btn ghost" onClick={() => setStep(0)}>Back</button>
-            <button className="btn ghost" onClick={onSkip}>Skip</button>
-          </div>
-        </>
+
+      {!journey && !err && <Loading what="your org's progress" />}
+      {err && (
+        <div>
+          <Err e={err} />
+          <button className="btn" onClick={load} type="button">Try again</button>
+        </div>
       )}
+
+      {journey && !canWrite(journey.me.role) && (
+        <p className="note">You have read access here. You can see every step and change nothing.</p>
+      )}
+      {journey && current === "account" && <Account me={journey.me} />}
+      {journey && View && <View advance={advance} journey={journey} key={current} />}
+
+      <div className="row" style={{ marginTop: 22 }}>
+        <button className="btn ghost" onClick={() => onChoose("demo")} type="button">
+          Explore a demo instead
+        </button>
+        <button className="btn ghost" onClick={onSkip} type="button">Go to the console</button>
+        <button className="btn ghost" onClick={onSignOut} type="button">Sign out</button>
+      </div>
     </div>
   );
 }

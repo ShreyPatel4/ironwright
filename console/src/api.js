@@ -95,4 +95,22 @@ export const api = {
   bi: (ws) => req(`/workspaces/${ws}/bi`),
   setBi: (ws, url) => req(`/workspaces/${ws}/bi`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) }),
   biMirror: (ws, schema) => post(`/workspaces/${ws}/bi/mirror`, schema ? { schema } : {}),
+  acceptInvite: (token, password) => post("/auth/accept-invite", { token, password }),
+  // No content-type here: the browser has to write the multipart boundary itself.
+  upload: (files) => {
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    return req("/uploads", { method: "POST", body: form });
+  },
+  uploads: () => req("/uploads"),
+  uploadProfile: (id) => req(`/uploads/${id}/profile`),
+  uploadProposal: (id) => req(`/uploads/${id}/proposal`),
+  createJob: (kind, workspace, params = {}) => post("/jobs", { kind, workspace, params }),
+  jobs: (workspace) => req(`/jobs?workspace=${encodeURIComponent(workspace)}`),
+  job: (id) => req(`/jobs/${id}`),
+  jobLog: (id, offset = 0) => req(`/jobs/${id}/log?offset=${offset}`),
+  cancelJob: (id) => post(`/jobs/${id}/cancel`, {}),
+  createTenantWorkspace: (body) => post("/workspaces", body),
+  ontologyProposal: (ws) => req(`/workspaces/${ws}/ontology/proposal`),
+  ontologyAccept: (ws, proposal_id, edits) => post(`/workspaces/${ws}/ontology/accept`, { proposal_id, edits }),
 };

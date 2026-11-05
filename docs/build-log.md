@@ -270,8 +270,17 @@ smaller miss: `$` with `re.match` lets a trailing newline through.
 shape checks use `fullmatch`. Lesson: "locked" and "hidden" are different promises, and a gate in
 front of a module is not a test of the module.
 
+## 22. A fast worker skipped the step I wanted you to read
+
+**Symptom.** The wizard test uploaded two files and waited for the Profile heading. It got Map. Some runs passed and most failed.
+
+**Cause.** After an upload the wizard asked the server which step comes next. That is the right question on a resume and the wrong one here. When the worker finished the profile before the reload came back, the server's honest answer was Map, so you never saw the types, keys and joins you were meant to check.
+
+**Fix.** Upload now names the step it wants, and every other step still asks the server. Lesson: "the furthest step you could be on" and "the step you should look at now" are different questions. They only look the same when the worker is slow.
+
 ## Smaller ones
 
+- A session-scoped Playwright broke four MCP and upload tests in other files. It keeps an event loop running on the main thread, so their `asyncio.run()` refused to start. Each file passed alone. The browser now lives only as long as its own module.
 - A `month` column broke DuckDB parsing (reserved word). Renamed to `ym`.
 - The ontology build took 7 seconds with row inserts. Arrow bulk inserts brought it to about 2.
 - The audit hash check failed after a type round trip. Hashing a canonical JSON of the values fixed it.
