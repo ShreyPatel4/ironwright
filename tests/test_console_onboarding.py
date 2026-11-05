@@ -326,6 +326,29 @@ def test_profile_says_so_when_it_found_no_keys_or_joins(browser, stack):
     expect()(page.get_by_text("No candidate key in this file.").first).to_be_visible()
 
 
+def test_your_uploads_lists_what_the_server_holds(browser, stack):
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    upload(page)
+    page.get_by_role("button", name="Upload", exact=False).first.click()
+    expect()(page.get_by_text("newest, and the one the next steps use")).to_be_visible()
+    for f in T2_FILES:
+        expect()(page.get_by_text(f.name, exact=True)).to_be_visible()
+
+
+def test_a_new_browser_resumes_at_profile_and_follows_the_same_job(browser, idle_stack):
+    page = new_page(browser, idle_stack)
+    sign_up(page, idle_stack)
+    upload(page)
+    expect()(page.get_by_text("waiting for a worker")).to_be_visible()
+
+    again = new_page(browser, idle_stack)
+    log_in(again, idle_stack)
+    expect()(again.get_by_role("heading", name="Profile")).to_be_visible()
+    expect()(again.get_by_text("waiting for a worker")).to_be_visible()
+    expect()(again.get_by_role("button", name="Profile these files")).to_have_count(0)
+
+
 @pytest.mark.parametrize("stage, heading", [("profiled", "Map"), ("created", "Run"), ("ran", "Ontology")])
 def test_a_new_browser_resumes_at_the_step_the_server_says(browser, stack, stage, heading):
     """A fresh context has no localStorage, so only server state can place it."""
