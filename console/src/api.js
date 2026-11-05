@@ -36,6 +36,29 @@ const post = (path, body) =>
   req(path, { method: "POST", headers: { "content-type": "application/json" },
               body: JSON.stringify(body) });
 
+const put = (path, body) =>
+  req(path, { method: "PUT", headers: { "content-type": "application/json" },
+              body: JSON.stringify(body) });
+const org = (slug) => `/orgs/${encodeURIComponent(slug)}`;
+
+// A link cannot carry the session token, so the zip comes through fetch and then a
+// click on a throwaway link to the bytes.
+async function saveFile(path, name) {
+  const token = sessionToken();
+  const r = await fetch(path, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  if (!r.ok) {
+    let detail = r.statusText;
+    try { detail = (await r.json()).detail ?? detail; } catch { /* keep statusText */ }
+    throw new Error(detail);
+  }
+  const url = URL.createObjectURL(await r.blob());
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.append(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export const api = {
   workspaces: () => req("/workspaces"),
   run: (ws, body = {}) => post(`/workspaces/${ws}/runs`, body),
@@ -113,4 +136,18 @@ export const api = {
   createTenantWorkspace: (body) => post("/workspaces", body),
   ontologyProposal: (ws) => req(`/workspaces/${ws}/ontology/proposal`),
   ontologyAccept: (ws, proposal_id, edits) => post(`/workspaces/${ws}/ontology/accept`, { proposal_id, edits }),
+  members: (slug) => req(`${org(slug)}/members`),
+  invite: (slug, email, role) => post(`${org(slug)}/invites`, { email, role }),
+  setMemberRole: (slug, userId, role) => put(`${org(slug)}/members/${userId}`, { role }),
+  removeMember: (slug, userId) => req(`${org(slug)}/members/${userId}`, { method: "DELETE" }),
+  usage: (slug) => req(`${org(slug)}/usage`),
+  llmKey: (slug) => req(`${org(slug)}/llm-key`),
+  setLlmKey: (slug, provider, key) => put(`${org(slug)}/llm-key`, { provider, key }),
+  removeLlmKey: (slug) => req(`${org(slug)}/llm-key`, { method: "DELETE" }),
+  auditChain: (slug, { actor, action }) => req(`${org(slug)}/audit/chain?${new URLSearchParams({
+    ...(actor ? { actor } : {}), ...(action ? { action } : {}) })}`),
+  exports: (slug) => req(`${org(slug)}/exports`),
+  createExport: (slug) => post(`${org(slug)}/exports`, {}),
+  downloadExport: (slug, id) => saveFile(`${org(slug)}/exports/${id}/download`, `${slug}-export.zip`),
+  deleteOrg: (slug, confirm) => post(`${org(slug)}/delete`, { confirm }),
 };
