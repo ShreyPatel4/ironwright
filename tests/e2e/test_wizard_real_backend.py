@@ -199,6 +199,26 @@ def test_sign_up_to_a_cited_answer_over_clean_csvs(browser, live):
     walk.accept_and_ask()
     walk.assert_nothing_was_swallowed()
     walk.context.close()
+    resume_in_a_new_browser(browser, live, "clean")
+
+
+def resume_in_a_new_browser(browser, base: str, email: str) -> None:
+    """Nothing about the journey lives in the browser, so only the server can place this:
+    the upload list, the label on its job and the tenant ontology read all have to work."""
+    from playwright.sync_api import expect
+    walk = Walk(browser, base, email)
+    page = walk.page
+    page.goto(f"{base}/console/")
+    page.get_by_label("email").fill(f"{email}@acme.test")
+    page.get_by_label("password").fill(PASSWORD)
+    page.get_by_role("button", name="Enter the console").click()
+    expect(page.get_by_role("heading", name="Ask")).to_be_visible()
+    page.get_by_role("button", name="Upload", exact=False).first.click()
+    expect(page.get_by_text("newest, and the one the next steps use")).to_be_visible()
+    for f in CLEAN_CSVS:
+        expect(page.get_by_text(f.name, exact=True)).to_be_visible()
+    walk.assert_nothing_was_swallowed()
+    walk.context.close()
 
 
 def test_the_messy_csvs_reach_the_ontology_step_on_their_first_run(browser, live):

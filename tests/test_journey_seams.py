@@ -69,10 +69,13 @@ def profiled_proposal(client, who, upload_id) -> dict:
 
 # ------------------------------------------------------------------ GET /uploads
 
-def test_uploads_list_newest_first_with_the_status_of_each(client):
+def test_uploads_list_newest_first_with_the_status_of_each(client, tmp_path):
     who = sign_up(client, "owner")
     assert client.get("/uploads", headers=who).json() == []
     older, newer = put_files(client, who), put_files(client, who)
+    # Two uploads inside one clock tick would tie, and nobody uploads that fast.
+    manifest = next(tmp_path.glob(f"tenants/*/uploads/{older}/manifest.json"))
+    os.utime(manifest, (time.time() - 60, time.time() - 60))
 
     listed = client.get("/uploads", headers=who).json()
     assert [u["id"] for u in listed] == [newer, older]
