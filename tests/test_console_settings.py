@@ -198,10 +198,10 @@ def test_each_role_sees_only_the_tabs_it_can_use(browser, stack):
     for role, tabs in expected.items():
         session = stack.join(owner, f"{role}@acme.test", role)
         page = open_settings(browser, stack, session)
-        assert page.get_by_role("tab").all_inner_texts() == tabs, role
+        expect()(page.get_by_role("tab")).to_have_text(tabs)  # waits: the tabs follow /auth/me
         page.context.close()
     page = open_settings(browser, stack, owner)
-    assert page.get_by_role("tab").all_inner_texts() == ["Members", "Usage", "Model key", "Audit", "Your data"]
+    expect()(page.get_by_role("tab")).to_have_text(["Members", "Usage", "Model key", "Audit", "Your data"])
 
 
 def test_the_usage_screen_shows_the_real_counts(browser, stack):
