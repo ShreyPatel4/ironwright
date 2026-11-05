@@ -182,6 +182,19 @@ def profile(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[
         raise JobError("no such upload") from e
 
 
+@job("silver_draft")
+def silver_draft(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[str], None]) -> Any:
+    """Drafts silver again from the latest upload of each source. A member may start this,
+    as any job kind, so it only keeps a draft. An admin route turns a draft into models."""
+    from ..ingest import silver_draft as drafter
+
+    pack = _load(ctx.org_id, workspace)
+    if not pack.is_tenant:
+        raise JobError(f"{workspace} is a demo pack and ships its own models")
+    ctx.check_cancel()
+    return drafter.redraft(ctx.org_id, workspace, log)
+
+
 @job("ontology_propose")
 def ontology_propose(ctx: JobCtx, workspace: str, params: dict[str, Any], log: Callable[[str], None]) -> Any:
     from ..ontology import propose as proposer

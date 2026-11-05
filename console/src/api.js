@@ -27,7 +27,9 @@ async function req(path, opts = {}) {
   if (!r.ok) {
     let detail = r.statusText;
     try { detail = (await r.json()).detail ?? detail; } catch { /* keep statusText */ }
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    const failed = new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
+    failed.status = r.status;
+    throw failed;
   }
   return r.json();
 }
@@ -136,6 +138,8 @@ export const api = {
   jobLog: (id, offset = 0) => req(`/jobs/${id}/log?offset=${offset}`),
   cancelJob: (id) => post(`/jobs/${id}/cancel`, {}),
   createTenantWorkspace: (body) => post("/workspaces", body),
+  silverDraft: (ws) => req(`/workspaces/${ws}/silver/draft`),
+  rewriteSilver: (ws, declined, renames) => post(`/workspaces/${ws}/silver/draft`, { declined, renames }),
   ontologyProposal: (ws) => req(`/workspaces/${ws}/ontology/proposal`),
   ontologyAccept: (ws, proposal_id, edits) => post(`/workspaces/${ws}/ontology/accept`, { proposal_id, edits }),
   members: (slug) => req(`${org(slug)}/members`),

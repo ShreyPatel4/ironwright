@@ -3,15 +3,14 @@ import { api } from "../../api.js";
 import { Err } from "../../components.jsx";
 import { canAdmin, Loading, Panel } from "./shared.jsx";
 
-/* The proposed workspace.yaml, as a form. Contract 3 needs each column to carry the
-   name the file has, because bronze holds the file as received. So a drop or a rename
-   cannot touch the bytes: both land in a silver model, the one place the contract
-   lets a column change its name or its type. */
+/* The proposed workspace.yaml, as a form, beside the silver draft. Contract 3 needs each
+   column to carry the name the file has, because bronze holds the file as received. So a
+   drop or a rename cannot touch the bytes: both land in a silver model, the one place the
+   contract lets a column change its name or its type. The server drafted that model and
+   the server writes it. All this form sends is what the human chose. */
 
 const TYPES = ["string", "int", "bigint", "double", "boolean", "date", "timestamp"];
 const IDENT = /^[a-z][a-z0-9_]{0,62}$/;
-const quoted = (name) => `"${name}"`;
-
 function toDraft(workspace) {
   return workspace.sources.map((s) => ({
     ...s,
@@ -20,26 +19,28 @@ function toDraft(workspace) {
   }));
 }
 
-export function silverSql(source) {
-  const select = source.columns.filter((c) => c.keep).map((c) => (
-    c.type === "string" || c.type === "varchar"
-      ? `${quoted(c.source)} as ${quoted(c.name)}`
-      : `try_cast(${quoted(c.source)} as ${c.type}) as ${quoted(c.name)}`
-  ));
-  return `select ${select.join(",\n       ")}\nfrom bronze_${source.name}\n`;
+export function renamesOf(draft) {
+  const out = {};
+  for (const s of draft) {
+    const moved = s.columns.filter((c) => c.keep && c.name !== c.source);
+    if (moved.length) out[s.name] = Object.fromEntries(moved.map((c) => [c.source, c.name]));
+  }
+  return out;
 }
 
-export function buildWorkspace(slug, uploadId, proposal, draft) {
+export function buildWorkspace(slug, uploadId, proposal, draft, declined) {
   const sources = draft.map(({ columns, ...source }) => ({
     ...source,
     columns: columns.filter((c) => c.keep).map((c) => ({
       name: c.source, type: c.type, ...(c.key ? { key: true } : {}),
     })),
   }));
-  const silver = Object.fromEntries(draft.map((s, i) => (
-    [`${String(i + 1).padStart(2, "0")}_${s.name}.sql`, silverSql(s)]
-  )));
-  return { from_upload: uploadId, slug, spec: { ...proposal.workspace, sources }, models: { silver } };
+  return {
+    from_upload: uploadId,
+    slug,
+    spec: { ...proposal.workspace, sources },
+    silver: { declined: [...declined].sort(), renames: renamesOf(draft) },
+  };
 }
 
 export function problems(draft) {
@@ -97,43 +98,109 @@ function SourceForm({ source, locked, onChange }) {
   );
 }
 
+function Decision({ decision: d, on, locked, onToggle }) {
+  const label = `apply ${d.id}`;
+  const lost = d.lost ? ` ${d.lost} become null.` : "";
+  return (
+    <div data-testid={`decision-${d.id}`} style={{ display: "flex", gap: 8, margin: "8px 0", opacity: on ? 1 : 0.5 }}>
+      <input aria-label={label} checked={on} disabled={locked} onChange={onToggle} type="checkbox" />
+      <span>
+        {d.reason}
+        <span className="note"> {d.rows} of {d.of} rows. {Math.round(d.confidence * 100)}% sure.{lost}</span>
+      </span>
+    </div>
+  );
+}
+
+function SilverPanel({ source, declined, locked, onToggle }) {
+  if (source.error) {
+    return <Panel><b className="mono">silver.{source.name}</b><p className="note">{source.error}</p></Panel>;
+  }
+  return (
+    <Panel>
+      <b className="mono">silver.{source.name}</b>
+      <span className="note"> {source.rows_out} rows come out of {source.rows_in}</span>
+      {!source.key && <p className="note">{source.key_reason}</p>}
+      {source.decisions.map((d) => (
+        <Decision decision={d} key={d.id} locked={locked} on={!declined.has(d.id)} onToggle={() => onToggle(d.id)} />
+      ))}
+      <details>
+        <summary className="note">The SQL, with every decision applied</summary>
+        <pre className="mono" style={{ whiteSpace: "pre-wrap" }}>{source.sql}</pre>
+      </details>
+    </Panel>
+  );
+}
+
 export default function MapStep({ journey, advance }) {
   const { upload, workspace, me } = journey;
   const [proposal, setProposal] = useState(null);
   const [draft, setDraft] = useState(null);
+  const [silver, setSilver] = useState(null);
+  const [declined, setDeclined] = useState(new Set());
+  const [kept, setKept] = useState(null);
+  const [rewritten, setRewritten] = useState(false);
   const [name, setName] = useState("");
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
   const locked = !!workspace || !canAdmin(me.role);
+  const silverLocked = !canAdmin(me.role) || (!!workspace && !kept);
 
   useEffect(() => {
     if (!upload) return;
     api.uploadProposal(upload.id)
-      .then((p) => { setProposal(p); setDraft(toDraft(p.workspace)); })
+      .then((p) => { setProposal(p); setDraft(toDraft(p.workspace)); setSilver(p.silver ?? null); })
       .catch(setErr);
   }, [upload?.id]);
+
+  // Once a workspace exists, its kept draft and choices are the truth, not the first draft.
+  useEffect(() => {
+    if (!workspace) return;
+    api.silverDraft(workspace.name)
+      .then((saved) => { setKept(saved); setSilver(saved.draft); setDeclined(new Set(saved.declined)); })
+      .catch((e) => { if (e.status !== 404) setErr(e); });
+  }, [workspace?.name]);
+
+  function toggle(id) {
+    setRewritten(false);
+    const next = new Set(declined);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setDeclined(next);
+  }
+
+  async function rewrite() {
+    setBusy(true); setErr(null); setRewritten(false);
+    try {
+      await api.rewriteSilver(workspace.name, [...declined].sort(), kept.renames);
+      setRewritten(true);
+    } catch (e) { setErr(e); }
+    setBusy(false);
+  }
 
   const wrong = useMemo(() => (draft ? problems(draft) : []), [draft]);
 
   async function create() {
     setBusy(true); setErr(null);
     try {
-      await api.createTenantWorkspace(buildWorkspace(name, upload.id, proposal, draft));
+      await api.createTenantWorkspace(buildWorkspace(name, upload.id, proposal, draft, declined));
       await advance();
     } catch (e) { setErr(e); setBusy(false); }
   }
 
   const gaps = proposal?.decisions.filter((d) => d.contract_gap || d.value === "left out") ?? [];
+  const silverOf = (name) => silver?.sources.find((s) => s.name === name);
   return (
     <>
       <h2>Map</h2>
       <p className="sub">This is what I propose to build from your files. Change anything: rename a
         column, change its type, mark the keys, drop what you do not need. Your file stays as it was,
-        and these edits shape the silver tables.</p>
+        and these edits shape the silver tables. Beside each file is how I would clean it. Untick
+        anything you do not want.</p>
       {!upload && <p className="note">There is nothing to map until you upload files.</p>}
       {upload && !proposal && !err && <Loading what="the proposal" />}
       {workspace && (
-        <p className="note">You already made {workspace.name} from these files. This is my first draft, not your edits.</p>
+        <p className="note">You already made {workspace.name} from these files. The columns show my first
+          draft, not your edits. The cleaning shows what you chose.</p>
       )}
       {!workspace && !canAdmin(me.role) && me.role !== "viewer" && (
         <p className="note">Creating a workspace needs an admin. You can read the draft.</p>
@@ -141,9 +208,22 @@ export default function MapStep({ journey, advance }) {
       {draft && (
         <>
           {draft.map((s, i) => (
-            <SourceForm key={s.name} locked={locked} source={s}
-                        onChange={(columns) => setDraft(draft.map((x, j) => (j === i ? { ...x, columns } : x)))} />
+            <div key={s.name} style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
+              <SourceForm locked={locked} source={s}
+                          onChange={(columns) => setDraft(draft.map((x, j) => (j === i ? { ...x, columns } : x)))} />
+              {silverOf(s.name) && (
+                <SilverPanel declined={declined} locked={silverLocked} onToggle={toggle} source={silverOf(s.name)} />
+              )}
+            </div>
           ))}
+          {workspace && kept && canAdmin(me.role) && (
+            <div className="row">
+              <button className="btn" disabled={busy} onClick={rewrite} type="button">
+                {busy ? "Rewriting…" : "Rewrite the silver models"}
+              </button>
+              {rewritten && <span className="note">Done. The next run builds them.</span>}
+            </div>
+          )}
           {gaps.length > 0 && (
             <Panel>
               <b>What the draft could not say</b>

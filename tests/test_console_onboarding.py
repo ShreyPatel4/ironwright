@@ -262,18 +262,38 @@ def test_ontology_edits_go_out_as_w2s_ops_in_an_order_it_can_apply(browser, stac
 
 
 def test_ontology_says_why_a_table_became_no_object(browser, stack):
-    """T2's two CSVs have duplicates in every column, so no key and no object.
-    Accept would only be refused, so there is no button to press."""
+    """Untick every dedupe in the draft and T2's two CSVs keep their duplicates, so
+    no key and no object. Accept would only be refused, so there is no button to press."""
     page = new_page(browser, stack)
     sign_up(page, stack)
     upload(page)
     to_map(page)
+    for source in ("claims", "policies"):
+        page.get_by_label(f"apply {source}.collapse_on_key").uncheck()
+        page.get_by_label(f"apply {source}.drop_exact_duplicates").uncheck()
     map_and_create(page)
     run_pipeline(page)
     to_ontology(page)
     page.get_by_role("button", name="Propose an ontology").click()
     expect()(page.get_by_text("no key to build an object on").first).to_be_visible(timeout=SLOW)
     expect()(page.get_by_role("button", name="Accept this ontology")).to_have_count(0)
+
+
+def test_messy_files_with_the_draft_as_proposed_reach_objects_and_a_link(browser, stack):
+    """The walk that dead ended here: two exports with duplicates and no silver SQL."""
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    upload(page)
+    to_map(page)
+    page.get_by_label("workspace name").fill("acme-claims")
+    page.get_by_role("button", name="Create the workspace").click()
+    run_pipeline(page)
+    to_ontology(page)
+    page.get_by_role("button", name="Propose an ontology").click()
+    expect()(page.get_by_role("button", name="Accept this ontology")).to_be_visible(timeout=SLOW)
+    expect()(page.get_by_text("silver.claims").first).to_be_visible()
+    expect()(page.get_by_text("silver.policies").first).to_be_visible()
+    expect()(page.get_by_text("Claim to Policy via policy_ref").first).to_be_visible()
 
 
 def test_map_edits_reach_the_real_lake(browser, stack):
@@ -286,6 +306,8 @@ def test_map_edits_reach_the_real_lake(browser, stack):
 
     by_name = {s["name"]: s for s in body["spec"]["sources"]}
     assert "status" not in [c["name"] for c in by_name["claims"]["columns"]]
+    assert "models" not in body  # the server writes the SQL, from what the human chose
+    assert body["silver"]["renames"] == {"policies": {"holder": "policy_holder"}}
     policy_cols = {c["name"]: c for c in by_name["policies"]["columns"]}
     assert policy_cols["policy_no"]["key"] is True
     assert policy_cols["premium"]["type"] == "double"
@@ -301,6 +323,64 @@ def test_map_edits_reach_the_real_lake(browser, stack):
     assert isinstance(rows[0][0], str)
     assert "holder" not in [d[0] for d in con.execute("select * from silver_policies limit 0").description]
     assert "status" not in [d[0] for d in con.execute("select * from silver_claims limit 0").description]
+
+
+def test_map_shows_the_silver_draft_with_counts_and_an_untick_reaches_the_lake(browser, stack):
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    upload(page)
+    to_map(page)
+    expect()(page.get_by_text("5 rows come out of 6")).to_be_visible()
+    collapse = page.get_by_label("apply claims.collapse_on_key")
+    expect()(collapse).to_be_checked()
+    expect()(page.get_by_test_id("decision-claims.collapse_on_key")).to_contain_text("1 of 6 rows")
+    collapse.uncheck()
+    page.get_by_label("workspace name").fill("acme-claims")
+    with page.expect_request(lambda r: r.method == "POST" and r.url.endswith("/workspaces")) as made:
+        page.get_by_role("button", name="Create the workspace").click()
+    expect()(page.get_by_role("heading", name="Run")).to_be_visible()
+    assert json.loads(made.value.post_data)["silver"]["declined"] == ["claims.collapse_on_key"]
+
+    run_pipeline(page)
+    pack = wt.load_workspace(session_of(page)["org_id"], "acme-claims")
+    con = Lakehouse(pack).connect()
+    assert con.execute("select count(*) from silver_claims where claim_id = 'C-1002'").fetchone()[0] == 2
+
+
+def test_map_can_regenerate_silver_after_the_workspace_exists(browser, stack):
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    upload(page)
+    to_map(page)
+    page.get_by_label("apply claims.collapse_on_key").uncheck()
+    map_and_create(page)
+    run_pipeline(page)
+    org_id = session_of(page)["org_id"]
+
+    page.get_by_role("button", name="Map", exact=False).first.click()
+    expect()(page.get_by_role("heading", name="Map")).to_be_visible()
+    again = page.get_by_label("apply claims.collapse_on_key")
+    expect()(again).not_to_be_checked()
+    again.check()
+    with page.expect_response(lambda r: r.url.endswith("/silver/draft") and r.request.method == "POST") as done:
+        page.get_by_role("button", name="Rewrite the silver models").click()
+    assert done.value.status == 200
+    assert json.loads(done.value.request.post_data)["declined"] == []
+    expect()(page.get_by_text("The next run builds them.")).to_be_visible()
+    sql = (wt.load_workspace(org_id, "acme-claims").dir / "models" / "silver" / "01_claims.sql").read_text()
+    assert "row_number()" in sql
+
+
+def test_a_silver_refusal_reads_as_words_in_the_map_step(browser, stack):
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    upload(page)
+    to_map(page)
+    page.get_by_label("workspace name").fill("acme-claims")
+    page.route("**/workspaces", lambda route: route.fulfill(status=422, json={"detail": "no decision named x"})
+               if route.request.method == "POST" else route.continue_())
+    page.get_by_role("button", name="Create the workspace").click()
+    expect()(page.get_by_text("no decision named x")).to_be_visible()
 
 
 def test_profile_shows_types_nulls_keys_and_joins_with_their_reasons(browser, stack):
@@ -380,6 +460,19 @@ def test_a_job_with_no_worker_says_it_is_queued(browser, idle_stack):
     expect()(page.get_by_text("queued", exact=False).first).to_be_visible()
     expect()(page.get_by_text("waiting for a worker", exact=False)).to_be_visible()
     expect()(page.get_by_role("button", name="Continue to Map")).to_have_count(0)
+
+
+def test_a_draft_taken_as_proposed_runs(browser, stack):
+    """It used to name a column the reader cannot find, so the run failed unless the
+    user dropped it on Map. The profile and the reader spell an empty header differently."""
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    upload(page)
+    to_map(page)
+    page.get_by_label("workspace name").fill("as-proposed")
+    page.get_by_role("button", name="Create the workspace").click()
+    page.get_by_role("button", name="Run the pipeline").click()
+    expect()(page.get_by_role("button", name="Continue to Ontology")).to_be_visible(timeout=SLOW)
 
 
 def test_a_failed_run_shows_why_and_cannot_continue(browser, stack):

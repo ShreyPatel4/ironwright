@@ -444,10 +444,13 @@ def _digest(proposal: dict[str, Any]) -> str:
 
 
 def _entity_tables(all_tables: list[str]) -> tuple[list[str], str]:
-    """Silver holds the entities. A draft with no models has only bronze, and the
-    first run of a T3 draft is exactly that, so bronze stands in."""
+    """Silver holds the entities. A source with no silver model has only bronze, so its
+    bronze table stands in, one source at a time: a model for one file must not hide the
+    other file. The layer reads silver when any table came from there."""
     silver = sorted(t for t in all_tables if t.startswith("silver."))
-    return (silver, "silver") if silver else (sorted(t for t in all_tables if t.startswith("bronze.")), "bronze")
+    built = {t.split(".")[1] for t in silver}
+    bronze = sorted(t for t in all_tables if t.startswith("bronze.") and t.split(".")[1] not in built)
+    return silver + bronze, ("silver" if silver else "bronze")
 
 
 def _narrate(proposal: dict[str, Any], llm: LLM) -> dict[str, str] | None:

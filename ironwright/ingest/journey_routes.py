@@ -11,11 +11,12 @@ what an id nobody has answers, and nothing gets queued or written.
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from .. import auth, verification
 from .. import workspaces_tenant as wt
@@ -23,7 +24,7 @@ from ..config import UnsafePath, data_root, safe_child
 from ..jobs.store import JobStore
 from ..packs import list_packs
 from ..tenancy import Ctx
-from . import uploads
+from . import silver_draft, uploads
 
 router = APIRouter()
 CtxDep = Annotated[Ctx, Depends(auth.ctx)]
@@ -37,6 +38,14 @@ RESERVED = "that name is reserved by the platform; pick another"
 _SCENARIO_FOLDER = re.compile(r"o[0-9a-f]{8}-.*")
 
 
+class SilverChoice(BaseModel):
+    """What a human did to the silver draft. The SQL itself never comes from a client."""
+    model_config = ConfigDict(extra="forbid")
+
+    declined: list[str] = Field(default=[], max_length=silver_draft.MAX_DECLINED)
+    renames: dict[str, dict[str, str]] = {}
+
+
 class CreateFromUpload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -44,6 +53,7 @@ class CreateFromUpload(BaseModel):
     spec: dict[str, Any]
     slug: str
     models: dict[str, dict[str, str]] | None = None
+    silver: SilverChoice | None = None
 
 
 def _require_upload(org_id: str, upload_id: str) -> None:
@@ -77,6 +87,25 @@ def _entry(pack: Any) -> dict[str, Any]:
             "verification": verification.derive(pack)}
 
 
+def _drafted(body: CreateFromUpload, c: Ctx) -> tuple[dict[str, Any] | None, dict[str, dict[str, str]] | None]:
+    """(the draft to keep, the models to write). The draft was made in the profile job, so
+    this only reads what that job wrote and puts the human's choices on it."""
+    if body.silver is None:
+        return None, body.models
+    if (body.models or {}).get("silver"):
+        raise HTTPException(422, "send a silver choice or silver SQL, not both")
+    try:
+        proposal = json.loads((uploads.upload_dir(c.org_id, body.from_upload) / "proposal.json").read_text())
+    except FileNotFoundError as e:
+        raise HTTPException(422, "profile this upload first, so there is a draft to choose from") from e
+    made = proposal.get("silver")
+    if made is None:
+        raise HTTPException(422, "this upload was profiled before silver drafts existed, so profile it again")
+    spec = wt._normalize(c.org_id, body.spec, body.models)
+    files = silver_draft.models(made, spec, body.silver.declined, body.silver.renames)
+    return made, {**(body.models or {}), "silver": files}
+
+
 def create_from_upload(body: CreateFromUpload, c: Ctx) -> dict[str, Any]:
     _require_upload(c.org_id, body.from_upload)
     if _reserved(body.slug):
@@ -84,9 +113,12 @@ def create_from_upload(body: CreateFromUpload, c: Ctx) -> dict[str, Any]:
     if not _inside_upload(body.spec, body.from_upload):
         raise HTTPException(422, "every source has to come from the upload named in from_upload")
     try:
-        wt.create_workspace(c.org_id, body.slug, body.spec, models=body.models)
+        made, models = _drafted(body, c)
+        wt.create_workspace(c.org_id, body.slug, body.spec, models=models)
+        if made is not None:
+            silver_draft.save(c.org_id, body.slug, made, body.silver.declined, body.silver.renames)
         return _entry(wt.load_workspace(c.org_id, body.slug))
-    except wt.WorkspaceError as e:
+    except (wt.WorkspaceError, silver_draft.DraftError) as e:
         raise HTTPException(422, str(e)) from e
 
 
@@ -100,6 +132,37 @@ def listed(org_id: str) -> list[dict[str, Any]]:
         except (wt.WorkspaceError, FileNotFoundError):
             continue
     return out
+
+
+# ---------------------------------------------------------------- regenerate
+# The app-wide gate scopes these. Past it an org may learn its own state, so these answers
+# read differently from the gate's NOT_FOUND, which the isolation sweep holds apart.
+NOT_TENANT = "this is not one of your workspaces, so it has no silver draft"
+NO_DRAFT = "no silver draft yet: queue a silver_draft job"
+
+
+@router.get("/workspaces/{name}/silver/draft")
+def get_silver_draft(name: str, c: CtxDep) -> dict[str, Any]:
+    try:
+        saved = silver_draft.read_saved(c.org_id, name)
+    except FileNotFoundError as e:
+        raise HTTPException(404, NOT_TENANT) from e
+    except wt.WorkspaceError as e:
+        raise HTTPException(422, str(e)) from e
+    if saved is None:
+        raise HTTPException(404, NO_DRAFT)
+    return saved
+
+
+@router.post("/workspaces/{name}/silver/draft")
+def regenerate_silver(name: str, body: SilverChoice, c: CtxDep) -> dict[str, Any]:
+    """The kept draft with these choices becomes models/silver. The next run builds it."""
+    try:
+        return silver_draft.apply_choices(c.org_id, name, body.declined, body.renames)
+    except FileNotFoundError as e:
+        raise HTTPException(404, NOT_TENANT) from e
+    except (wt.WorkspaceError, silver_draft.DraftError) as e:
+        raise HTTPException(422, str(e)) from e
 
 
 @router.post("/uploads/{upload_id}/profile", status_code=status.HTTP_202_ACCEPTED)
