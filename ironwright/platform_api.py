@@ -798,12 +798,17 @@ def create_platform_app() -> FastAPI:
     app.include_router(admin_router)
 
     # console/dist is built (make console) and gitignored, and the hosted image builds its
-    # own. Absent, the API still serves, and `ironwright platform` says what to run.
+    # own. Absent, the API still serves, / says how to get it, and `ironwright platform`
+    # says what to run.
     if CONSOLE_DIST.exists():
         app.mount("/console", ConsoleFiles(directory=CONSOLE_DIST, html=True), name="console")
 
         @app.get("/", include_in_schema=False)
         def home() -> RedirectResponse:
             return RedirectResponse("/console/")
+    else:
+        @app.get("/", include_in_schema=False)
+        def no_console() -> dict[str, str]:
+            return {"console": "not built here. Run make console, then restart this server."}
 
     return app

@@ -8,9 +8,18 @@ const LABELS = [
   ["uploads", "Uploads today"],
   ["ask", "Ask questions today"],
   ["llm_tokens", "Model tokens today"],
-  ["storage_bytes", "Storage in bytes"],
+  ["storage_bytes", "Storage"],
   ["members", "Members and open invites"],
 ];
+
+function size(n) {
+  for (const [unit, scale] of [["GB", 1024 ** 3], ["MB", 1024 ** 2], ["KB", 1024]]) {
+    if (n >= scale) return `${(n / scale).toFixed(1)} ${unit}`;
+  }
+  return `${n} bytes`;
+}
+
+const show = (metric, n) => (metric === "storage_bytes" && n != null ? size(n) : n);
 
 export default function Usage({ slug }) {
   const [got, setGot] = useState(null);
@@ -29,8 +38,8 @@ export default function Usage({ slug }) {
           {LABELS.map(([k, label]) => (
             <tr key={k}>
               <td>{label}</td>
-              <td className="mono">{got.metrics[k].used}</td>
-              <td className="mono">{got.metrics[k].limit ?? "no limit"}</td>
+              <td className="mono">{show(k, got.metrics[k].used)}</td>
+              <td className="mono">{show(k, got.metrics[k].limit) ?? "no limit"}</td>
             </tr>
           ))}
         </tbody>

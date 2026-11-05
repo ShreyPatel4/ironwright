@@ -213,6 +213,7 @@ def test_the_usage_screen_shows_the_real_counts(browser, stack):
     expect()(row(page, "Members")).to_contain_text("2")
     expect()(row(page, "Members")).to_contain_text("5")
     expect()(row(page, "Runs")).to_contain_text("0")
+    expect()(row(page, "Storage")).to_contain_text("1.0 GB")
 
 
 def test_a_saved_model_key_shows_only_its_last_four(browser, stack):
@@ -333,3 +334,14 @@ def test_a_delete_asks_for_the_slug_then_ends_at_the_door_with_nothing_left(brow
 def _org_row(org_id: str):
     with usage.engine().connect() as con:
         return con.execute(sa.select(db.orgs).where(db.orgs.c.id == org_id)).first()
+
+
+def test_the_sidebar_holds_its_badge_and_principal(browser, stack):
+    owner = stack.signup()
+    _tenant_workspace(owner["org_id"])
+    page = open_settings(browser, stack, owner)
+    page.get_by_role("button", name="Workspaces").click()
+    page.locator("button.card", has_text="L1").first.click()
+    expect()(page.locator(".rail .ws .badge")).to_be_visible()
+    box = page.locator(".rail .ws").evaluate("e => ({scroll: e.scrollWidth, client: e.clientWidth})")
+    assert box["scroll"] <= box["client"], f"the sidebar spills: {box}"
