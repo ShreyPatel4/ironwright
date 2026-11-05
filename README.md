@@ -22,10 +22,9 @@ the same gated pipeline over their own files. A second org on the same server ge
 
 ## Quickstart: your own files, from a fresh clone
 
-You need [uv](https://docs.astral.sh/uv/) and node.
+You need [uv](https://docs.astral.sh/uv/) and node. From a fresh clone of this repo:
 
 ```bash
-git clone git@github.com:ShreyPatel4/ironwright.git && cd ironwright
 uv sync
 (cd console && npm ci && npm run build)   # dist/ is not in git, so a clone has no console until now
 
@@ -43,6 +42,9 @@ to a grounded answer in Ask.
 When the next export arrives, open Sources. Upload a new version and I show you what changed. A change
 that would break the run stops it, and Ask keeps serving the last good data until you update the spec
 or upload a corrected file. Add another dataset to the same workspace from the same screen.
+
+If a key column was only renamed, upload a corrected file. Updating the spec clears the block, but your
+silver models keep selecting the old name, so that column reads null from then on. The screen warns you.
 
 ```mermaid
 flowchart LR

@@ -105,17 +105,19 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         chains) in under a second, byte-identical per spec, badged L2
         because generated is not proven and the badge says which is which.
 - 1:55  The beat that sells it: your own files. Signed in as org A, walk the
-        wizard over a messy export: upload, profile, map, run, ontology, then
+        wizard over your export: upload, profile, map, run, ontology, then
         a grounded answer in Ask that cites the evidence it gathered. Org B
         on the same server cannot see any of it. Next month's export arrives:
         Sources, Upload new version. A new column is `info` and the run goes
-        on. A renamed key is `block`, the run stops, and Ask keeps serving
-        the last good data until I update the spec and run again. Add another
-        dataset from the same screen. Settings, delete the org, and nothing
+        on. A missing key is `block`, the run stops, and Ask keeps serving
+        the last good data until I upload a corrected file and run again. Add
+        another dataset from the same screen. Settings, delete the org, and nothing
         is left but the promised audit line.
 - 2:10  Done at the long cut; the 90-second cut stops at 1:30 before the
         console and says "and there is an operator console on top". If
-        asked for depth: `POSTGRES_URI=... uv run pytest -q`, with zero skips
-        (the review gates at the end of test_platform_api.py each pin a fixed
-        defect). CI's `make demo-check` walks the pipeline half AND every console
+        asked for depth: `uv run pytest -q`. The Postgres tests need
+        POSTGRES_URI on a server with wal_level=logical, and the object store
+        tests need IRONWRIGHT_TEST_S3_ENDPOINT. Without them they skip and say
+        so (the review gates at the end of test_platform_api.py each pin a
+        fixed defect). CI's `make demo-check` walks the pipeline half AND every console
         phase above headlessly, bounded at 300 s.
