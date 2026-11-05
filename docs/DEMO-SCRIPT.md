@@ -47,8 +47,8 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         decides the identity on every audit row. Then sign up a second org.
         Org B asks for org A's job id and gets a 404 with the same body as
         an id nobody has: `{"detail": "no such resource"}`.
-        IRONWRIGHT_DEV_OPEN=1 stays for tests and demo-check, and the hosted
-        stack refuses to start with it.
+        IRONWRIGHT_DEV_OPEN=1 stays for tests and demo-check, and staging and
+        prod refuse to start with it.
 - 1:41  The connector kinds: object-store drops, ADBC warehouses (the
         postgres driver proven against a real server in CI), SAP IDoc
         flat files, stream windows from recorded segments, and CDC from
