@@ -1,0 +1,133 @@
+"""The whole journey, in process. Each step not on the hosted stack yet is a strict xfail
+that says who owes it, so it goes red the day the piece lands and someone has to
+take the mark off. Only journey.Broken counts as the expected failure. Anything else is
+a real bug and stays red.
+"""
+from __future__ import annotations
+
+from pathlib import Path
+
+import journey
+import pytest
+
+from ironwright import workspaces_tenant as wt
+from ironwright.ingest import profiler
+from ironwright.lake import lake_location
+
+FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "tenant_ws"
+
+
+X1 = pytest.mark.xfail(strict=True, raises=journey.Broken, reason="X1: journey routes")
+
+
+def _signed_up_with_upload(stack) -> journey.State:
+    state = journey.fresh_state()
+    journey.signup_a(stack, state)
+    journey.upload(stack, state)
+    return state
+
+
+def test_the_walk_reaches_exactly_the_first_blocked_step(stack, capsys):
+    """journey.BLOCKED is what CI runs with. When the piece lands, this goes red."""
+    assert journey.run(stack, blocked=journey.BLOCKED) == 0
+    out = capsys.readouterr().out
+    assert f"JOURNEY incomplete, stopped at {next(iter(journey.BLOCKED))}" in out
+    assert "ISOLATION ok" in out
+
+
+def test_a_blocked_step_that_passes_goes_red(stack, capsys):
+    assert journey.run(stack, blocked={"upload": "pretend this waits on someone"}) == 1
+    assert "still listed in BLOCKED" in capsys.readouterr().out
+
+
+def test_blocked_names_only_real_steps():
+    assert set(journey.BLOCKED) <= {name for name, _ in journey.STEPS}
+
+
+def test_upload_answers_for_its_own_org(stack):
+    state = _signed_up_with_upload(stack)
+    got = journey.expect(stack, "GET", f"/uploads/{state.upload_id}", 200, "upload", token=state.a_token)
+    assert sorted(f["name"] for f in got["files"]) == ["customers.csv", "orders.csv"]
+
+
+# no ticket yet: POST /jobs answers 404 for a workspace that does not exist, and a profile job runs before one can
+@X1
+def test_a_profile_job_runs_through_the_api(stack):
+    state = _signed_up_with_upload(stack)
+    journey.profile_job(stack, state)
+
+
+# nobody yet: no route calls workspaces_tenant.create_workspace. W1's ticket assumes one exists
+@X1
+def test_accepting_the_proposal_makes_a_workspace(stack):
+    state = _signed_up_with_upload(stack)
+    org_id = journey.expect(stack, "GET", "/auth/me", 200, "accept_proposal", token=state.a_token)["org_id"]
+    profiler.profile(org_id, state.upload_id, lambda *_: None)
+    state.proposal = journey.expect(stack, "GET", f"/uploads/{state.upload_id}/proposal", 200,
+                                    "accept_proposal", token=state.a_token)["workspace"]
+    journey.accept_proposal(stack, state)
+
+
+def test_a_proposal_with_a_fixed_width_file_can_become_a_workspace(stack):
+    state = journey.fresh_state()
+    journey.signup_a(stack, state)
+    raw = (FIXTURE.parent / "ingest" / "mainframe" / "ITEMMAST.DAT").read_bytes()
+    made = journey.expect(stack, "POST", "/uploads", 201, "upload", token=state.a_token, files=[("ITEMMAST.DAT", raw)])
+    org_id = journey.expect(stack, "GET", "/auth/me", 200, "setup", token=state.a_token)["org_id"]
+    profiler.profile(org_id, made["id"], lambda *_: None)
+    proposal = journey.expect(stack, "GET", f"/uploads/{made['id']}/proposal", 200, "setup", token=state.a_token)
+    wt.create_workspace(org_id, state.workspace, proposal["workspace"])
+
+
+def test_a_tenant_workspace_can_pick_a_warehouse_on_object_storage(stack, tenant_workspace, monkeypatch):
+    """CI hit this on compose: the walk was green, and the first tenant run had no warehouse."""
+    state = journey.fresh_state()
+    journey.signup_a(stack, state)
+    org_id = tenant_workspace(state)
+    monkeypatch.setenv("IRONWRIGHT_LAKE_URI", "s3://bucket/prefix")
+    loc = lake_location(wt.load_workspace(org_id, state.workspace))
+    assert f"tenants/{org_id}/workspaces/{state.workspace}/lake" in str(loc)
+
+
+def test_a_run_job_on_a_tenant_workspace_succeeds_with_a_real_worker(stack, tenant_workspace):
+    state = journey.fresh_state()
+    journey.signup_a(stack, state)
+    tenant_workspace(state)
+    journey.run_job(stack, state)
+
+
+# T2 or W2: GET /workspaces lists packs and scenario orgs, never a tenant workspace
+@X1
+def test_a_tenant_workspace_shows_up_in_its_own_list(stack, tenant_workspace):
+    state = journey.fresh_state()
+    journey.signup_a(stack, state)
+    tenant_workspace(state)
+    journey.workspace_is_listed(stack, state)
+
+
+# W2: _pack() in platform_api answers 404 for anything that is not a demo pack
+@X1
+def test_ask_reaches_a_tenant_workspace(stack, tenant_workspace):
+    state = journey.fresh_state()
+    journey.signup_a(stack, state)
+    tenant_workspace(state)
+    journey.run_job(stack, state)
+    journey.expect(stack, "POST", f"/workspaces/{state.workspace}/ask", 200, "ask", token=state.a_token,
+                   body={"question": "how many claims are there"})
+
+
+def test_the_ontology_is_proposed_and_accepted(stack, tenant_workspace):
+    state = journey.fresh_state()
+    journey.signup_a(stack, state)
+    tenant_workspace(state)
+    journey.run_job(stack, state)
+    journey.ontology_accept(stack, state)
+
+
+# everything above: this is the acceptance test for the ticket
+@X1
+def test_the_whole_journey_ends_on_a_grounded_answer(stack):
+    state = journey.fresh_state()
+    for _name, step in journey.STEPS:
+        step(stack, state)
+    assert "[ev:" in state.answer["answer"]
