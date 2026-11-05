@@ -53,3 +53,7 @@ def test_f19_rules_still_say_ready(monkeypatch):
     rule = {"counts": {"explained": 2, "unexplained": 0}}
     monkeypatch.setattr(evals, "_load", lambda pack, name: {"rules": [rule], "cutover_ready": True})
     assert "cutover ready" in evals.eval_migration(None)["headline"]
+
+
+def test_f24_map_copy_does_not_quote_our_contract_at_a_customer():
+    assert "Contract 3" not in (ROOT / "ironwright" / "ingest" / "propose.py").read_text()
