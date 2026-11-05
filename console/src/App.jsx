@@ -315,7 +315,7 @@ export default function App() {
           <>
             <h2>Workspaces</h2>
             <p className="sub">Each workspace is one company's whole migration: its legacy systems,
-              lakehouse, ontology, agents and audit trail. The four demo companies are provable
+              lakehouse, ontology, agents and audit trail. The demo companies are provable
               end to end; the organizations are ones you created. The level beside each is
               derived from artifacts on this machine, never declared.</p>
             <div className="cards" style={{ marginBottom: 18 }}>

@@ -57,3 +57,7 @@ def test_f19_rules_still_say_ready(monkeypatch):
 
 def test_f24_map_copy_does_not_quote_our_contract_at_a_customer():
     assert "Contract 3" not in (ROOT / "ironwright" / "ingest" / "propose.py").read_text()
+
+
+def test_f21_the_workspaces_page_does_not_count_the_demos():
+    assert "four demo companies" not in (ROOT / "console" / "src" / "App.jsx").read_text().replace("\n", " ")
