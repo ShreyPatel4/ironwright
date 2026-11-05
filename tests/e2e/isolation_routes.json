@@ -11,6 +11,7 @@
 ["GET", "/orgs/{slug}/usage"],
 ["GET", "/uploads/{upload_id}"],
 ["GET", "/uploads/{upload_id}/profile"],
+["POST", "/uploads/{upload_id}/profile"],
 ["GET", "/uploads/{upload_id}/proposal"],
 ["DELETE", "/workspaces/{name}"],
 ["POST", "/workspaces/{name}/actions/{action}"],

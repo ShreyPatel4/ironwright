@@ -295,6 +295,30 @@ did: T3's fix for the `header` key turned its test red at my rebase. Lesson: a c
 slices needs a test that crosses it, so walk the whole path early.
 
 
+## 24. A slug decided whose rules a tenant's Ask ran on
+
+**Symptom.** W2 reported a `live_engine` hazard on Ask. A test filed rules under a tenant's slug at the data root: a forbid on every read and a permit on every action. The tenant's engine picked them up.
+
+**Cause.** `live_engine(name)` reads generated policy and escalation grants from `data_root/<name>`, one namespace across every org. It was built for packs and scenario orgs, where the name is unique. A tenant slug is unique only inside its org. The caller also swallowed every exception, so a failure left the request on whatever engine it already had.
+
+**Fix.** A tenant passes its pack. It gets the rules in its own folder plus a default read for people, and it never touches the shared namespace. Errors there are no longer swallowed. Lesson: a name is an identifier only inside the scope that made it unique.
+
+## 25. Making a workspace over HTTP would have opened another org's scenario
+
+**Symptom.** Writing `POST /workspaces` for a tenant, I read the gate and tried it with the guard off. Org B took the slug `o<org A's 8 hex>-north`, the spelling of org A's scenario folder. B then read A's organization and deleted it. Both answered 200, and A got a 404 on its own data.
+
+**Cause.** `can_see_workspace` says yes as soon as the org holds a folder with that name, and the scenario routes then read the shared folder by the same name. Nothing could reach this while tenant workspaces were only made behind the API.
+
+**Fix.** The route refuses that spelling, demo pack names and any existing scenario folder, in one answer that does not say whether the folder exists. The gate itself is T1's, so the deeper fix is a cross-ticket ask on the PR. Lesson: a new way to create a name is a new way to collide with every rule that trusts names.
+
+## 26. Two runs inside one second lost every object
+
+**Symptom.** My test re-proposed an ontology after a rebuild and got "no object named Customer". A near copy of that test passed.
+
+**Cause.** A run id is the clock to the second, and a bronze view keeps only the newest id. Two runs inside a second share an id, so the view holds each row twice, no column is unique, and the proposal finds no keys. Small files really do run this fast. I first blamed bronze keeping every run, and my strict xfail on that story passed by chance on its first outing.
+
+**Fix.** `lake.py` is outside my ticket, so a frozen clock pins it with a strict xfail, and the fix is a cross-ticket ask. Lesson: when a test passes in one runner and fails in another, look for a clock before writing down a cause.
+
 ## Smaller ones
 
 - A session-scoped Playwright broke four MCP and upload tests in other files. It keeps an event loop running on the main thread, so their `asyncio.run()` refused to start. Each file passed alone. The browser now lives only as long as its own module.

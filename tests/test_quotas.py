@@ -587,8 +587,8 @@ def test_every_key_and_plan_change_is_audited_without_the_key(api, secret):
 @pytest.fixture()
 def asking(api, monkeypatch, tmp_path):
     """The real Ask route and the real ask(), over a small pack with one object.
-    A tenant cannot yet reach a workspace of its own from this route (the wizard
-    ticket wires that), so only finding the pack is stood in for."""
+    A tenant workspace needs an accepted ontology and a run to answer, and these
+    tests are about the meter, so only finding the pack is stood in for."""
     pack = Pack(name="quota_ws", dir=tmp_path, spec={"title": "Quota fixture"}, ontology=ONTOLOGY, policies=POLICIES,
                 usecases={})
     pack.paths.ensure()
@@ -604,7 +604,7 @@ def asking(api, monkeypatch, tmp_path):
         finally:
             o.store.con.close()
 
-    monkeypatch.setattr(platform_api, "_pack", lambda name: pack)
+    monkeypatch.setattr(platform_api, "_ask_pack", lambda name, c: pack)
     monkeypatch.setattr(platform_api, "_ontology", opened)
     c, a, b, ws = api
     yield c, a, b, ws, pack

@@ -15,10 +15,11 @@ import pathlib
 from collections.abc import Iterator
 from typing import Annotated, Any
 
+import duckdb
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 CONSOLE_DIST = pathlib.Path(__file__).resolve().parents[1] / "console" / "dist"
 
@@ -33,14 +34,17 @@ from . import orgpolicy as orgpolicy_mod
 from . import sqlguard, verification
 from . import training as training_mod
 from . import workspaces as org_mod
+from . import workspaces_tenant as wt
 from .asof import router as asof_router
 from .auth import ctx
 from .bi import router as bi_router
 from .config import data_root, safe_child, write_private
 from .engines import router as engines_router
+from .ingest import journey_routes
 from .ingest.routes import router as ingest_router
 from .jobs import routes as jobs_routes
 from .lake import Lakehouse
+from .ontology.propose import askable
 from .ontology.routes import router as ontology_router
 from .ontology.runtime import Ontology
 from .otel_export import router as otel_router
@@ -117,6 +121,9 @@ class AcceptInviteBody(BaseModel):
 
 
 class CreateOrgBody(BaseModel):
+    # A spec sent under the wrong keys must not come back as a 201 and a fake store chain.
+    model_config = ConfigDict(extra="forbid")
+
     name: str
     archetype: str = "regional_retail_chain"
     size: int = 16
@@ -155,6 +162,7 @@ WRITE_ROLES = {
     "/jobs": "member",
     "/jobs/{job_id}/cancel": "member",
     "/uploads": "member",
+    "/uploads/{upload_id}/profile": "member",
     "/workspaces": "admin",
     "/workspaces/{name}": "admin",
     "/workspaces/{name}/approvals/{seq}/decide": "admin",
@@ -217,15 +225,39 @@ def _pack(name: str):
     return load_pack(name)
 
 
+def _ask_pack(name: str, c: Ctx):
+    """The one road from a name to what Ask runs on. Packs first, as at the gate. A tenant
+    workspace comes from this org's folder, with what its accepted ontology.yaml generates."""
+    if name in list_packs():
+        return load_pack(name)
+    try:
+        return askable(wt.load_workspace(c.org_id, name))
+    except FileNotFoundError as e:  # past the gate, so this org may know: not askable
+        raise HTTPException(404, f"no workspace named {name}") from e
+    except wt.WorkspaceError as e:
+        raise HTTPException(422, str(e)) from e
+
+
 @contextlib.contextmanager
 def _ontology(pack) -> Iterator[Ontology]:
-    ont = Ontology(pack, Tracer(pack.paths.ensure().traces))
+    # A tenant's reads touch only objects and links, so its lake stays closed here. The
+    # worker is another process, and DuckDB holds a file lock while a run builds the store.
+    try:
+        ont = Ontology(pack, Tracer(pack.paths.ensure().traces), attach_lake=not pack.is_tenant)
+    except duckdb.IOException as e:
+        if not pack.is_tenant:
+            raise
+        raise HTTPException(409, "a run is using this workspace; try again when it is done") from e
     # Serving surfaces authorize against the live combined engine: hand-written
     # rules plus applied generated policy and unexpired escalation grants. The
     # batch pipeline and evals keep pack.policies alone, so planted-problem
-    # ground truth stays reproducible.
-    with contextlib.suppress(Exception):
-        ont.policy = orgpolicy_mod.live_engine(pack.name)
+    # ground truth stays reproducible. A tenant's engine fails out loud: staying
+    # on some other engine here would be a policy decision nobody made.
+    if pack.is_tenant:
+        ont.policy = orgpolicy_mod.live_engine(pack.name, pack=pack)
+    else:
+        with contextlib.suppress(Exception):
+            ont.policy = orgpolicy_mod.live_engine(pack.name)
     try:
         yield ont
     finally:
@@ -278,10 +310,12 @@ def create_platform_app() -> FastAPI:
                         "decision": f"{org['stores']} stores, {org['roles']} roles · "
                                     f"{org['archetype']} · seed {org['seed']}",
                         "verification": verification.derive_organization(None)})
-        return out
+        return out + journey_routes.listed(c.org_id)
 
     @app.post("/workspaces", status_code=201)
-    def create_workspace(body: CreateOrgBody, c: CtxDep) -> dict[str, Any]:
+    def create_workspace(body: CreateOrgBody | journey_routes.CreateFromUpload, c: CtxDep) -> dict[str, Any]:
+        if isinstance(body, journey_routes.CreateFromUpload):
+            return journey_routes.create_from_upload(body, c)
         # Scenario folders share one namespace under the data root. A tenant's
         # get a prefix, or "name taken" would tell it another org used that name.
         if body.name in _TENANT_TREE:
@@ -617,7 +651,7 @@ def create_platform_app() -> FastAPI:
     @app.post("/workspaces/{name}/ask")
     def ask(name: str, body: AskBody,
             c: CtxDep) -> dict[str, Any]:
-        pack = _pack(name)
+        pack = _ask_pack(name, c)
         llm = quotas.start_ask(c.org_id, auth_mod._now())
         with _ontology(pack) as ont:
             entry = ask_mod.ask(pack, ont, body.question, principal=c.principal, llm=llm)
@@ -715,21 +749,21 @@ def create_platform_app() -> FastAPI:
     @app.get("/workspaces/{name}/ask/examples")
     def ask_examples(name: str,
                      c: CtxDep) -> list[dict[str, Any]]:
-        pack = _pack(name)
+        pack = _ask_pack(name, c)
         with _ontology(pack) as ont:
             return ask_mod.examples(pack, ont, principal=c.principal)
 
     @app.get("/workspaces/{name}/ask/log")
-    def ask_log(name: str) -> list[dict[str, Any]]:
-        return ask_mod.read_log(_pack(name))
+    def ask_log(name: str, c: CtxDep) -> list[dict[str, Any]]:
+        return ask_mod.read_log(_ask_pack(name, c))
 
     @app.get("/workspaces/{name}/ask/metrics")
-    def ask_metrics(name: str) -> dict[str, Any]:
-        return ask_mod.metrics(_pack(name))
+    def ask_metrics(name: str, c: CtxDep) -> dict[str, Any]:
+        return ask_mod.metrics(_ask_pack(name, c))
 
     @app.post("/workspaces/{name}/ask/replay")
-    def ask_replay(name: str, body: ReplayBody) -> dict[str, Any]:
-        pack = _pack(name)
+    def ask_replay(name: str, body: ReplayBody, c: CtxDep) -> dict[str, Any]:
+        pack = _ask_pack(name, c)
         with _ontology(pack) as ont:
             try:
                 return ask_mod.replay(pack, ont, body.index)
@@ -747,6 +781,7 @@ def create_platform_app() -> FastAPI:
     app.include_router(ingest_router)
     app.include_router(ontology_router)
     app.include_router(settings_router)
+    app.include_router(journey_routes.router)
 
     # The console is a committed build (console/dist), so a git clone needs
     # uv and nothing else at runtime. Absent (e.g. a bare pip install of the
