@@ -1,7 +1,7 @@
 PACK ?= all
 export IRONWRIGHT_DATA ?= $(CURDIR)/data
 
-.PHONY: install run test demo bundle serve mcp clean films intro media site deploy preview
+.PHONY: install run test demo demo-check bundle serve mcp clean films intro media site deploy preview console
 
 install:
 	pip install -e ".[dev]"
@@ -66,7 +66,7 @@ preview: site
 deploy: site
 	npx wrangler pages deploy site --project-name ironwright --branch main
 
-# Rebuild the console bundle (requires node; the BUILT dist/ is committed so
-# runtime needs uv only).
+# Build the console bundle (requires node). dist/ is gitignored, so a checkout needs this
+# once, and again after console/src changes. `ironwright platform` warns when it is stale.
 console:
 	cd console && npm install --no-fund --no-audit && npm run build

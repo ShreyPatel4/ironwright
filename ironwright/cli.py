@@ -26,6 +26,8 @@ from typing import Any
 from .packs import list_packs, load_pack
 from .tracing import Tracer, load_trace, render_tree
 
+CONSOLE = Path(__file__).resolve().parents[1] / "console"
+
 
 def _save(pack, name: str, data: Any) -> Path:
     p = pack.paths.ensure().reports / f"{name}.json"
@@ -121,6 +123,28 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+def console_build_problem(console: Path) -> str | None:
+    """What is wrong with the local console build, if anything. console/dist is gitignored,
+    so a checkout can serve an old one without a word. No source means a built image."""
+    src = console / "src"
+    if not src.is_dir():
+        return None
+    index = console / "dist" / "index.html"
+    if not index.is_file():
+        return "console/dist is missing, so there is no console to serve."
+    inputs = [*(f for f in src.rglob("*") if f.is_file()), console / "index.html", console / "package.json"]
+    newest = max(f.stat().st_mtime for f in inputs if f.exists())
+    if newest > index.stat().st_mtime:
+        return "console/dist is older than console/src, so this serves an old console."
+    return None
+
+
+def _warn_about_console() -> None:
+    problem = console_build_problem(CONSOLE)
+    if problem:
+        print(f"\n{'!' * 72}\n!! {problem}\n!! Run: make console\n{'!' * 72}\n", file=sys.stderr)
+
+
 def _serve(app: Any, args: argparse.Namespace) -> None:
     import uvicorn
 
@@ -209,6 +233,7 @@ def main(argv: list[str] | None = None) -> None:
             print(f"account set for {email}; hashes live under IRONWRIGHT_DATA/auth/")
         elif args.command == "platform":
             from .platform_api import create_platform_app
+            _warn_about_console()
             _serve(create_platform_app(), args)
         elif args.command == "mcp":
             from .mcp_server import build_server

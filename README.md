@@ -94,6 +94,17 @@ ironwright mcp --pack retail          # MCP server: tools are generated from ont
 pytest -q                         # every pack must pass every eval layer
 ```
 
+To walk the product itself, from sign-up to an answer over your own files:
+
+```bash
+make console                      # build the console (needs node, and again after console/src changes)
+ironwright platform               # the API and console on http://127.0.0.1:8000/console/
+ironwright worker                 # in a second terminal: runs the profile, run and ontology jobs
+```
+
+`console/dist` is gitignored, so a checkout has no console until you build one. `ironwright platform`
+warns loudly when the build is missing or older than `console/src`, and serves anyway.
+
 `ironwright serve` and `ironwright platform` bind 127.0.0.1. Anything else needs `--host` plus
 `--i-know-this-is-exposed`. `IRONWRIGHT_KILL_SWITCH=1` turns off Ask and actions and leaves reads up.
 `ironwright platform` needs a sign-in, so seed one with `ironwright auth-set`. `ironwright serve` still trusts `X-Principal`, so keep it on loopback. What I protect, from whom, and

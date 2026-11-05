@@ -29,7 +29,7 @@ export function silverSql(source) {
   return `select ${select.join(",\n       ")}\nfrom bronze_${source.name}\n`;
 }
 
-export function buildWorkspace(name, proposal, draft) {
+export function buildWorkspace(slug, uploadId, proposal, draft) {
   const sources = draft.map(({ columns, ...source }) => ({
     ...source,
     columns: columns.filter((c) => c.keep).map((c) => ({
@@ -39,7 +39,7 @@ export function buildWorkspace(name, proposal, draft) {
   const silver = Object.fromEntries(draft.map((s, i) => (
     [`${String(i + 1).padStart(2, "0")}_${s.name}.sql`, silverSql(s)]
   )));
-  return { name, spec: { ...proposal.workspace, sources }, models: { silver } };
+  return { from_upload: uploadId, slug, spec: { ...proposal.workspace, sources }, models: { silver } };
 }
 
 export function problems(draft) {
@@ -118,7 +118,7 @@ export default function MapStep({ journey, advance }) {
   async function create() {
     setBusy(true); setErr(null);
     try {
-      await api.createTenantWorkspace(buildWorkspace(name, proposal, draft));
+      await api.createTenantWorkspace(buildWorkspace(name, upload.id, proposal, draft));
       await advance();
     } catch (e) { setErr(e); setBusy(false); }
   }

@@ -104,8 +104,6 @@ def listed(org_id: str) -> list[dict[str, Any]]:
 
 @router.post("/uploads/{upload_id}/profile", status_code=status.HTTP_202_ACCEPTED)
 def post_profile(upload_id: str, c: CtxDep) -> dict[str, str]:
-    """A job row needs a workspace name and the handler never reads this one. The label
-    keeps it apart from real workspaces in GET /jobs?workspace=."""
     _require_upload(c.org_id, upload_id)
-    return {"id": JobStore().enqueue(c.org_id, f"upload-{upload_id}", "profile", c.principal,
+    return {"id": JobStore().enqueue(c.org_id, uploads.profile_job_label(upload_id), "profile", c.principal,
                                      {"upload_id": upload_id})}

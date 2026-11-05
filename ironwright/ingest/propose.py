@@ -81,6 +81,10 @@ def _source(f: dict[str, Any], i: int, upload_id: str, used: set[str]) -> tuple[
             ("skip_footer", f["trailer_rows"], "Rows after the data look like a trailer. Contract 3 cannot skip them yet, so bronze will carry them until it can."),
             ("bad_rows", f["bad_rows"]["count"], "Rows with the wrong shape were left out of the profile. Contract 3 cannot say what to do with them yet."))
     decisions += [_decision(f"{at}.layout.{name}", n, 0.9, why, gap=True) for name, n, why in gaps if n]
+    decisions += [_decision(f"{at}.columns.position_{n}", "left out", 1.0,
+                            f"Column {n} has no name in the header and no value in any row. A trailing "
+                            "delimiter makes that shape, so I left it out, and bronze does too.")
+                  for n in f.get("empty_trailing_columns", [])]
     if f["truncated"]:
         decisions.append(_decision(f"{at}.rows", f["rows"], 0.5, "The file is over the profiling cap, so this reads only the first part of it."))
     columns = []

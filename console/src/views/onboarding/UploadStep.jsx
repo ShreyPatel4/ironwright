@@ -15,7 +15,7 @@ export default function UploadStep({ journey, advance }) {
     setBusy(true); setErr(null);
     try {
       const made = await api.upload(files);
-      await api.createJob("profile", made.id, { upload_id: made.id });
+      await api.startProfile(made.id);
       await advance("profile");
     } catch (e) { setErr(e); setBusy(false); }
   }

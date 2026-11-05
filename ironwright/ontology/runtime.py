@@ -79,7 +79,7 @@ class Ontology:
         return {
             "object_types": {k: {"description": v.get("description", ""), "owner": v.get("owner"),
                                  "sources": [s["system"] for s in v["sources"]]}
-                             for k, v in self.spec["object_types"].items()},
+                             for k, v in self.spec.get("object_types", {}).items()},
             "link_types": {k: {"from": v["from"], "to": v["to"], "description": v.get("description", "")}
                            for k, v in self.spec.get("link_types", {}).items()},
             "functions": {k: {"description": v.get("description", ""), "params": v.get("params", {})}

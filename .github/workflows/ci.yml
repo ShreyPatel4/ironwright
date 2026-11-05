@@ -31,12 +31,22 @@ jobs:
   demo:
     needs: test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash   # stated, so GitHub adds pipefail: a pipe into tee must not hide a failure
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install -e ".[dev]"
       - run: make demo-check
+      # The test job has no browser, so the wizard is proved here. A skip is a failure: a
+      # walk that did not run proves nothing, and that is how the wizard drifted off its routes.
+      - run: python -m playwright install --with-deps chromium
+      - name: The wizard, in a browser, against the real backend
+        run: |
+          pytest -q -rs tests/e2e/test_wizard_real_backend.py | tee wizard.txt
+          ! grep -q SKIPPED wizard.txt
 
   # The hosted stack from the outside: build the image, boot api + postgres +
   # object store, walk it, then prove where the data landed. The same store also

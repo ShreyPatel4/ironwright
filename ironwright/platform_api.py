@@ -221,6 +221,17 @@ def _guard_select_only(sql: str) -> str:
         raise HTTPException(422, str(e)) from e
 
 
+class ConsoleFiles(StaticFiles):
+    """The page names hashed assets, so a browser has to check the page each time or it
+    keeps asking for an old build. The assets themselves can stay cached."""
+
+    async def get_response(self, path: str, scope: Any) -> Any:
+        response = await super().get_response(path, scope)
+        if pathlib.PurePath(path).name in ("", "index.html"):
+            response.headers["cache-control"] = "no-cache"
+        return response
+
+
 def _pack(name: str):
     if name not in list_packs():
         raise HTTPException(404, f"no workspace named {name}")
@@ -537,8 +548,8 @@ def create_platform_app() -> FastAPI:
             return json.loads(df.to_json(orient="records"))
 
     @app.get("/workspaces/{name}/ontology")
-    def ontology(name: str) -> dict[str, Any]:
-        with _ontology(_pack(name)) as ont:
+    def ontology(name: str, c: CtxDep) -> dict[str, Any]:
+        with _ontology(_ask_pack(name, c)) as ont:
             return {"describe": ont.describe(), "stats": ont.store.stats()}
 
     @app.get("/workspaces/{name}/objects/{type_}")
@@ -786,11 +797,10 @@ def create_platform_app() -> FastAPI:
     app.include_router(journey_routes.router)
     app.include_router(admin_router)
 
-    # The console is a committed build (console/dist), so a git clone needs
-    # uv and nothing else at runtime. Absent (e.g. a bare pip install of the
-    # package), the API still serves and / says where the console lives.
+    # console/dist is built (make console) and gitignored, and the hosted image builds its
+    # own. Absent, the API still serves, and `ironwright platform` says what to run.
     if CONSOLE_DIST.exists():
-        app.mount("/console", StaticFiles(directory=CONSOLE_DIST, html=True), name="console")
+        app.mount("/console", ConsoleFiles(directory=CONSOLE_DIST, html=True), name="console")
 
         @app.get("/", include_in_schema=False)
         def home() -> RedirectResponse:

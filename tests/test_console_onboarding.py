@@ -1,19 +1,10 @@
 """The onboarding wizard, in a real headless browser, against a real platform app.
 
-Real here: the built console, signup, login, invites, roles, the app gate, uploads,
-the profiler and its proposal, the job queue, the worker, the log tail, T2's spec
-validation and T2's run, down to the silver tables in the lake.
-
-Not real yet: the routes in the GAP table below. They do not exist on main, so an
-adapter stands in for each and names the ticket that owes the real one. An adapter
-drops out by itself once a real route of that method and path exists, except those
-marked `replaces`, which change a route that already exists.
-
-W2 is one switch. Until its routes exist, the proposal and every Ask answer are hand
-written stubs of its contract, read from its branch at e988c92, so the suite proves the
-wizard and not a grounded answer. Once they exist, the proposal, the accept and the
-propose job are W2's own, and Ask runs the real engine through a thin adapter, because
-the serving routes still 404 a tenant workspace. Nothing else here has to change.
+Everything behind the page is real: the built console, signup, login, invites, roles,
+the app gate, uploads, the profiler and its proposal, the job queue, the worker, the log
+tail, the run, the ontology proposer and Ask. This suite used to stand adapters in for
+routes that did not exist yet, and they outlived those routes and hid every mismatch a
+live walk then found. A test here may fake a failure with page.route. Nothing else.
 
 Each test states the break it catches in its name.
 """
@@ -25,29 +16,17 @@ import subprocess
 import threading
 import time
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Any
 
 import pytest
 import uvicorn
-from fastapi import Depends, HTTPException, Request
 
-from ironwright import ask as ask_mod
-from ironwright import auth, verification
-from ironwright import config as cfg
 from ironwright import workspaces_tenant as wt
 from ironwright.api import harden
-from ironwright.jobs import handlers
-from ironwright.jobs import routes as job_routes
-from ironwright.jobs.store import JobStore
 from ironwright.jobs.worker import Worker
 from ironwright.lake import Lakehouse
-from ironwright.platform_api import _ontology as serving_ontology
 from ironwright.platform_api import create_platform_app
-from ironwright.tenancy import Ctx, db
-
-# Module level, because FastAPI resolves these string annotations from here.
-CtxDep = Annotated[Ctx, Depends(auth.ctx)]
-JobBody = job_routes.JobBody
+from ironwright.tenancy import db
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures"
@@ -84,10 +63,9 @@ def browser():
 
 
 class Stack:
-    """One platform app on a real socket, plus what the W2 stubs were sent."""
+    """One platform app on a real socket, and its worker."""
 
     def __init__(self) -> None:
-        self.accepted: dict[str, dict[str, Any]] = {}
         self.base = ""
         self.stop_worker = threading.Event()
         self.worker_thread: threading.Thread | None = None
@@ -104,182 +82,14 @@ class Stack:
         self.worker_thread.start()
 
 
-def _uploads_root(org_id: str) -> Path:
-    return cfg.uploads_root(org_id)
-
-
-def _stub_property(name: str, type_: str = "varchar", unique: bool = False) -> dict[str, Any]:
-    return {"name": name, "type": type_, "unique": unique, "confidence": 0.8,
-            "reason": f"Stored as {type_}."}
-
-
-def _proposal_stub(workspace: str, source_names: set[str]) -> dict[str, Any]:
-    """W2's shape. Files with no unique column get what W2 gives them: no objects."""
-    base = {"id": f"proposal-{workspace}", "source_layer": "silver", "identity_hints": [], "functions": []}
-    if "customers" not in source_names:
-        return {**base, "objects": [], "links": [],
-                "skipped": [{"table": "silver.claims", "reason": "No column in its 5 rows is unique and never empty, "
-                                                                 "so it has no key to build an object on."}]}
-    return {
-        **base,
-        "objects": [
-            {"name": "Customer", "table": "silver.customers", "key": "customer_id",
-             "properties": [_stub_property("customer_id", "integer", True), _stub_property("name", unique=True),
-                            _stub_property("region")],
-             "confidence": 0.9, "reason": "silver.customers has 6 rows and customer_id is unique and never empty."},
-            {"name": "Order", "table": "silver.orders", "key": "order_id",
-             "properties": [_stub_property("order_id", "integer", True), _stub_property("cust_no")],
-             "confidence": 0.9, "reason": "silver.orders has 7 rows and order_id is unique and never empty."},
-        ],
-        "links": [{"name": "order_to_customer", "from": "Order", "to": "Customer", "via": "cust_no",
-                   "cardinality": "many_to_one", "confidence": 0.8, "reason": "Values repeat, so many orders share one Customer.",
-                   "to_column": "customer_id", "normalize": True, "orphans": 1}],
-        "skipped": [],
-    }
-
-
-def _walk(routes: Any, prefix: str = "") -> Any:
-    """Included routers nest in this FastAPI, as tests/test_isolation_routes.py knows."""
-    for route in routes:
-        included = getattr(route, "original_router", None)
-        if included is not None:
-            yield from _walk(included.routes, prefix + route.include_context.prefix)
-        elif hasattr(route, "methods") and route.methods:
-            yield prefix + route.path, route.methods, route.endpoint
-
-
-def _install_gaps(app: Any, stack: Stack) -> None:
-    """The GAP table: method, path, who owes the real route, and the stand-in."""
-    real = {(m, path): endpoint for path, methods, endpoint in _walk(app.routes) for m in methods}
-    list_real, create_job_real = real[("GET", "/workspaces")], real[("POST", "/jobs")]
-
-    def missing() -> HTTPException:
-        return HTTPException(404, "no such resource")
-
-    def list_uploads(c: CtxDep) -> list[dict[str, Any]]:
-        root = _uploads_root(c.org_id)
-        found = sorted(root.glob("*/manifest.json"), key=lambda p: p.stat().st_mtime, reverse=True)
-        return [json.loads(p.read_text()) for p in found]
-
-    def create_job(body: JobBody, c: CtxDep) -> dict[str, str]:
-        # _check_workspace needs a workspace folder, and Profile comes before Map.
-        if body.kind == "profile":
-            return {"id": JobStore().enqueue(c.org_id, body.workspace, "profile", c.principal, body.params)}
-        return create_job_real(body, c)
-
-    def list_workspaces(c: CtxDep) -> list[dict[str, Any]]:
-        own = []
-        for w in wt.list_workspaces(c.org_id):
-            pack = wt.load_workspace(c.org_id, w["slug"])
-            own.append({"name": w["slug"], "kind": "workspace", "title": w["title"], "decision": None,
-                        "verification": verification.derive(pack)})
-        return [*list_real(c), *own]
-
-    async def create_workspace(request: Request, c: CtxDep) -> dict[str, Any]:
-        body = await request.json()
-        try:
-            made = wt.create_workspace(c.org_id, body["name"], body["spec"], models=body.get("models"))
-        except wt.WorkspaceError as e:
-            raise HTTPException(422, str(e)) from e
-        return {"name": made["slug"], "kind": "workspace", "title": made["title"]}
-
-    def ontology_proposal(name: str, c: CtxDep) -> dict[str, Any]:
-        done = [j for j in JobStore().list(c.org_id, name)
-                if j["kind"] == "ontology_propose" and j["state"] == "succeeded"]
-        if not done:
-            raise missing()
-        return _proposal_stub(name, {s["name"] for s in wt.load_workspace(c.org_id, name).spec["sources"]})
-
-    async def ontology_accept(name: str, request: Request, c: CtxDep) -> dict[str, Any]:
-        stack.accepted[name] = await request.json()
-        return {"ontology_version": 1, "job_id": JobStore().enqueue(c.org_id, name, "run", c.principal, {})}
-
-    def stub_ontology_read(name: str, c: CtxDep) -> dict[str, Any]:
-        types = {"Customer": {}, "Order": {}} if name in stack.accepted else {}
-        return {"describe": {"object_types": types, "link_types": {}, "functions": {}, "actions": {}},
-                "stats": {}}
-
-    def stub_ask_examples(name: str, c: CtxDep) -> list[dict[str, Any]]:
-        if name not in stack.accepted:
-            return []
-        return [{"question": "Get one customer for customer 1001", "function": "get_customer"}]
-
-    async def stub_ask(name: str, request: Request, c: CtxDep) -> dict[str, Any]:
-        question = (await request.json())["question"]
-        entry = {"ts": 1.0, "question": question, "principal": c.principal}
-        if "customer" not in question.lower():
-            return {**entry, "status": "refused", "reason_code": "out_of_scope",
-                    "reason": "No registered question matches this."}
-        eid = "get_customer#1a2b3c4d"
-        call = {"call_id": "c1", "function": "get_customer", "args": {"id": "1001"},
-                "evidence_id": eid, "result_digest": "f" * 64}
-        return {**entry, "status": "answered", "answer": f"Customer 1001 is Ann Lee.\n[ev:{eid}]",
-                "narrator": "offline-template", "citations": [eid], "calls": [call],
-                "result": {"id": eid, "function": "get_customer", "args": {"id": "1001"},
-                           "rows": [{"name": "Ann Lee"}], "summary": None},
-                "verification": {"level": "L1", "meaning": "your files, structural checks only"}}
-
-    # The real engine over a tenant workspace, which is all the _pack ask would add.
-    def askable(c: Ctx, name: str) -> Any:
-        from ironwright.ontology.propose import askable as with_reads
-        return with_reads(wt.load_workspace(c.org_id, name))
-
-    def real_ontology_read(name: str, c: CtxDep) -> dict[str, Any]:
-        with serving_ontology(askable(c, name)) as ont:
-            return {"describe": ont.describe(), "stats": ont.store.stats()}
-
-    def real_ask_examples(name: str, c: CtxDep) -> list[dict[str, Any]]:
-        pack = askable(c, name)
-        with serving_ontology(pack) as ont:
-            return ask_mod.examples(pack, ont, principal=c.principal)
-
-    async def real_ask(name: str, request: Request, c: CtxDep) -> dict[str, Any]:
-        question = (await request.json())["question"]
-        pack = askable(c, name)
-        with serving_ontology(pack) as ont:
-            return {**ask_mod.ask(pack, ont, question, principal=c.principal),
-                    "verification": verification.derive(pack)}
-
-    w2_landed = ("POST", "/workspaces/{name}/ontology/accept") in real
-    ontology_read = real_ontology_read if w2_landed else stub_ontology_read
-    ask_examples = real_ask_examples if w2_landed else stub_ask_examples
-    ask = real_ask if w2_landed else stub_ask
-
-    gaps = [
-        ("GET", "/uploads", "ask: no list route", list_uploads, False),
-        ("POST", "/jobs", "ask: profile before a workspace exists", create_job, True),
-        ("GET", "/workspaces", "ask: tenant workspaces are not listed", list_workspaces, True),
-        ("POST", "/workspaces", "ask: wt.create_workspace has no route", create_workspace, True),
-        ("GET", "/workspaces/{name}/ontology/proposal", "W2", ontology_proposal, False),
-        ("POST", "/workspaces/{name}/ontology/accept", "W2", ontology_accept, False),
-        ("GET", "/workspaces/{name}/ontology", "ask: _pack 404s a tenant workspace", ontology_read, True),
-        ("GET", "/workspaces/{name}/ask/examples", "W2 and _pack", ask_examples, True),
-        ("POST", "/workspaces/{name}/ask", "W2 and _pack", ask, True),
-    ]
-    for method, path, _owner, fn, replaces in gaps:
-        if (method, path) in real and not replaces:
-            continue
-        app.add_api_route(path, fn, methods=[method])
-        app.router.routes.insert(0, app.router.routes.pop())
-
-    def propose_handler(ctx: Any, workspace: str, params: dict[str, Any], log: Any) -> dict[str, Any]:
-        log("proposed 2 objects and 1 link")
-        return {"objects": 2, "links": 1}
-
-    if not w2_landed:
-        handlers.HANDLERS["ontology_propose"] = propose_handler
-
-
 @pytest.fixture()
 def stack(console_dist, monkeypatch, tmp_path):
     monkeypatch.delenv("IRONWRIGHT_DEV_OPEN", raising=False)
     monkeypatch.delenv("IRONWRIGHT_DB_URL", raising=False)
     monkeypatch.setenv("IRONWRIGHT_DATA", str(tmp_path))
     monkeypatch.setenv("IRONWRIGHT_RUNS_WAIT", "0")
-    saved = dict(handlers.HANDLERS)
     s = Stack()
     app = create_platform_app()
-    _install_gaps(app, s)
     server = uvicorn.Server(uvicorn.Config(harden(app), host="127.0.0.1", port=0, log_level="error"))
     thread = threading.Thread(target=server.run, daemon=True, name="test-server")
     thread.start()
@@ -296,8 +106,6 @@ def stack(console_dist, monkeypatch, tmp_path):
         s.worker_thread.join(30)
     server.should_exit = True
     thread.join(10)
-    handlers.HANDLERS.clear()
-    handlers.HANDLERS.update(saved)
     db.dispose_current()
 
 
@@ -357,7 +165,7 @@ def to_map(page):
 def map_and_create(page, slug="acme-claims"):
     """The edits the T2 fixture needs and every kind of edit Map offers."""
     page.get_by_label("workspace name").fill(slug)
-    page.get_by_label("keep claims.column_6").uncheck()
+    page.get_by_label("keep claims.status").uncheck()
     page.get_by_label("rename policies.holder").fill("policy_holder")
     page.get_by_label("type policies.premium").select_option("double")
     page.get_by_label("key policies.policy_no").check()
@@ -468,17 +276,6 @@ def test_ontology_says_why_a_table_became_no_object(browser, stack):
     expect()(page.get_by_role("button", name="Accept this ontology")).to_have_count(0)
 
 
-def test_the_first_screen_works_while_uploads_cannot_be_listed(browser, stack):
-    """Main has POST /uploads and no GET, so a list answers 405. A new signup must
-    get the upload form, not a bare Method Not Allowed."""
-    page = new_page(browser, stack)
-    page.route("**/uploads", lambda route: route.fulfill(status=405, json={"detail": "Method Not Allowed"})
-               if route.request.method == "GET" else route.continue_())
-    sign_up(page, stack)
-    expect()(page.get_by_role("heading", name="Upload your files")).to_be_visible()
-    expect()(page.get_by_text("No files yet.")).to_be_visible()
-
-
 def test_map_edits_reach_the_real_lake(browser, stack):
     """Rename and drop have to change the silver table, not just the form."""
     page = new_page(browser, stack)
@@ -488,7 +285,7 @@ def test_map_edits_reach_the_real_lake(browser, stack):
     body = map_and_create(page)
 
     by_name = {s["name"]: s for s in body["spec"]["sources"]}
-    assert "column_6" not in [c["name"] for c in by_name["claims"]["columns"]]
+    assert "status" not in [c["name"] for c in by_name["claims"]["columns"]]
     policy_cols = {c["name"]: c for c in by_name["policies"]["columns"]}
     assert policy_cols["policy_no"]["key"] is True
     assert policy_cols["premium"]["type"] == "double"
@@ -503,7 +300,7 @@ def test_map_edits_reach_the_real_lake(browser, stack):
     assert rows[0][1] == 99.5  # a real number now, cast from the bronze string
     assert isinstance(rows[0][0], str)
     assert "holder" not in [d[0] for d in con.execute("select * from silver_policies limit 0").description]
-    assert "column_6" not in [d[0] for d in con.execute("select * from silver_claims limit 0").description]
+    assert "status" not in [d[0] for d in con.execute("select * from silver_claims limit 0").description]
 
 
 def test_profile_shows_types_nulls_keys_and_joins_with_their_reasons(browser, stack):
@@ -527,6 +324,29 @@ def test_profile_says_so_when_it_found_no_keys_or_joins(browser, stack):
     upload(page)
     expect()(page.get_by_text("No join candidates between these files.")).to_be_visible(timeout=SLOW)
     expect()(page.get_by_text("No candidate key in this file.").first).to_be_visible()
+
+
+def test_your_uploads_lists_what_the_server_holds(browser, stack):
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    upload(page)
+    page.get_by_role("button", name="Upload", exact=False).first.click()
+    expect()(page.get_by_text("newest, and the one the next steps use")).to_be_visible()
+    for f in T2_FILES:
+        expect()(page.get_by_text(f.name, exact=True)).to_be_visible()
+
+
+def test_a_new_browser_resumes_at_profile_and_follows_the_same_job(browser, idle_stack):
+    page = new_page(browser, idle_stack)
+    sign_up(page, idle_stack)
+    upload(page)
+    expect()(page.get_by_text("waiting for a worker")).to_be_visible()
+
+    again = new_page(browser, idle_stack)
+    log_in(again, idle_stack)
+    expect()(again.get_by_role("heading", name="Profile")).to_be_visible()
+    expect()(again.get_by_text("waiting for a worker")).to_be_visible()
+    expect()(again.get_by_role("button", name="Profile these files")).to_have_count(0)
 
 
 @pytest.mark.parametrize("stage, heading", [("profiled", "Map"), ("created", "Run"), ("ran", "Ontology")])
@@ -563,16 +383,24 @@ def test_a_job_with_no_worker_says_it_is_queued(browser, idle_stack):
 
 
 def test_a_failed_run_shows_why_and_cannot_continue(browser, stack):
-    """T3's draft for this fixture names a column the reader cannot find, so the
-    run really fails unless the user drops it on Map. Here the user does not."""
+    """The spec names a column the file does not have, so the run really fails. Map cannot
+    write that spec, so this changes the one request, and the server answers for real."""
     page = new_page(browser, stack)
     sign_up(page, stack)
     upload(page)
     to_map(page)
+
+    def declare_a_column_the_file_lacks(route):
+        body = json.loads(route.request.post_data)
+        body["spec"]["sources"][0]["columns"].append({"name": "never_there", "type": "string"})
+        route.continue_(post_data=json.dumps(body))
+
+    page.route("**/workspaces", lambda route: declare_a_column_the_file_lacks(route)
+               if route.request.method == "POST" else route.continue_())
     page.get_by_label("workspace name").fill("as-proposed")
     page.get_by_role("button", name="Create the workspace").click()
     page.get_by_role("button", name="Run the pipeline").click()
-    expect()(page.get_by_text("the file has no column column_6").first).to_be_visible(timeout=SLOW)
+    expect()(page.get_by_text("the file has no column never_there").first).to_be_visible(timeout=SLOW)
     expect()(page.get_by_role("button", name="Run again")).to_be_visible()
     expect()(page.get_by_role("button", name="Continue to Ontology")).to_have_count(0)
 

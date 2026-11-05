@@ -274,7 +274,7 @@ def isolation(stack: Stack, state: State) -> int:
 
     # What a path cannot show: a listing, and a workspace named in a body.
     secrets = [state.isolation_workspace, state.isolation_job, state.upload_id, state.workspace, state.a_org_slug]
-    for path in ("/workspaces", "/jobs"):
+    for path in ("/workspaces", "/jobs", "/uploads"):
         raw = stack.call("GET", path, token=state.b_token).raw.decode(errors="replace")
         leaks += [f"GET {path} names {s}" for s in secrets if s in raw]
     for workspace in (state.isolation_workspace, state.workspace if state.workspace_made else None):

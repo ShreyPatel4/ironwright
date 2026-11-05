@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sqlite3
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -61,6 +62,19 @@ def _column_name(raw: str, position: int) -> str:
     return f"c_{name}" if name[0].isdigit() else name
 
 
+def empty_trailing_columns(header: list[str], rows: Iterable[list[str]]) -> int:
+    """How many columns at the end of a file have no name and no value in any row. A
+    header that ends in a delimiter makes one. The profiler and the reader both ask
+    this, so a draft never declares a column bronze does not have."""
+    rows = list(rows)
+    count = 0
+    for i in range(len(header) - 1, -1, -1):
+        if header[i].strip() or any(i < len(r) and r[i].strip() for r in rows):
+            break
+        count += 1
+    return count
+
+
 def _upload_text(src: dict[str, Any]) -> str:
     try:
         fd = os.open(src["upload_path"], os.O_RDONLY | os.O_NOFOLLOW)
@@ -84,18 +98,21 @@ def _read_upload_csv(src: dict[str, Any], text: str) -> list[dict[str, Any]]:
     except csv.Error as e:
         raise IngestError(f"source {src['name']}: the file is not readable as csv") from e
     if layout.get("header", True):
-        names = [_column_name(c, i) for i, c in enumerate(table[0])] if table else []
+        header = table[0] if table else []
         table = table[1:]
+        width = len(header)
+        names = [_column_name(c, i) for i, c in enumerate(header[:width - empty_trailing_columns(header, table)])]
     else:
         names = [c["name"] for c in src["columns"]]
+        width = len(names)
     dupes = sorted({n for n in names if names.count(n) > 1})
     if dupes:
         raise IngestError(f"source {src['name']}: more than one column reads as {', '.join(dupes)}")
     rows = []
     for cells in table:
         rec: dict[str, Any] = dict(zip(names, cells))
-        if len(cells) > len(names):  # never drop what the file said
-            rec["_extra"] = delimiter.join(cells[len(names):])
+        if len(cells) > width:  # never drop what the file said
+            rec["_extra"] = delimiter.join(cells[width:])
         rows.append(rec)
     return rows
 
