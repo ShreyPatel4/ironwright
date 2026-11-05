@@ -351,6 +351,35 @@ slices needs a test that crosses it, so walk the whole path early.
 
 **Fix.** The middleware answers the 500 itself, with the request id, and logs the type plus file and line. So does the worker. The formatter also writes any exception passed as a log argument as its type, which covers `sqlguard` logging raw DuckDB errors without touching it. The lesson: a leak test has to prove its canary reached the leak point first, so these tests now assert that before they scan.
 
+## 31. A trailer row became a business object
+
+**Symptom.** A fixed width file ending in `END OF FILE  RECORDS=000006` gave the store an object titled
+`END OF`. A CSV ending in `TOTAL ROWS: 9,,,,,,` gave silver 10 rows from 9 records. The run said
+`0 flagged` and every eval passed.
+
+**Cause.** The profiler saw the trailer and said so on Map, and nothing downstream could act on it.
+Contract 3 has no field for a skip, so the finding stopped at a sentence. No check looked for one either,
+so green only meant the row had landed.
+
+**Fix.** The profiler proposes the skip with the count, and the human can turn it off on Map. The choice
+lives in `records.yaml` beside the spec, so `workspace.yaml` stays contract 3. Quality now flags what was
+skipped, a trailer left in, and a trailer count the file does not meet. The first version I sketched cut the
+last N lines. That would have dropped a real record from every refresh without a trailer, so the reader only
+skips a record that still looks like one, and a test holds it to that.
+
+## 32. Export then delete lost the work
+
+**Symptom.** A wizard workspace with 17 silver rows exported a 2,460 byte zip with no rows in it. Delete is
+thorough, so doing the two in order left nothing.
+
+**Cause.** Export took gold tables, and the wizard makes no gold models. Every test used the fixture
+workspace, which has gold, so they all passed on the one shape a real customer never has.
+
+**Fix.** The zip holds silver and gold as Parquet and the skip decisions, and the manifest counts tables and
+rows. The screen says those numbers instead of bytes, and the delete panel warns when there is no export or
+the latest one holds no tables. A test now exports, deletes the org, and checks every table and row count from
+the zip alone.
+
 ## Smaller ones
 
 - A session-scoped Playwright broke four MCP and upload tests in other files. It keeps an event loop running on the main thread, so their `asyncio.run()` refused to start. Each file passed alone. The browser now lives only as long as its own module.

@@ -28,9 +28,12 @@ import yaml
 
 from ..config import FILE_NAME, safe_child, write_private
 from ..legacy import (
-    RECORD_HEADER as _RECORD_HEADER,
     RECORD_TRAILER as _RECORD_TRAILER,
+)
+from ..legacy import (
     TRAILER_CELL as _TRAILER,
+)
+from ..legacy import (
     _column_name,
     csv_header_record,
     csv_trailer_record,

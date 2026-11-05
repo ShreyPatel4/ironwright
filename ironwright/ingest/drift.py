@@ -28,6 +28,9 @@ import duckdb
 import pyarrow as pa
 
 from ..legacy import (
+    RECORD_HEADER,
+    RECORD_TRAILER,
+    TRAILER_CELL,
     IngestError,
     _fixed_rows,
     _read_upload_csv,
@@ -67,7 +70,7 @@ def _data(rows: list[dict[str, Any]], first_cell: Any, trailer: Any) -> list[dic
 
 def _observe_csv(src: dict[str, Any], text: str) -> Observation:
     rows = _read_upload_csv(src, text)
-    data = _data(rows, lambda r: next(iter(r.values()), ""), profiler._TRAILER.match)
+    data = _data(rows, lambda r: next(iter(r.values()), ""), TRAILER_CELL.match)
     names = list(dict.fromkeys(k for r in rows for k in r))
     return Observation(rows=len(data), rows_read=len(rows), present=names,
                        cells={n: [r[n] for r in data if n in r] for n in names})
@@ -77,9 +80,9 @@ def _observe_fixed(src: dict[str, Any], text: str) -> Observation:
     fields = src["layout"]["fields"]
     lines, _ = fixed_body(src, text)
     start = 0
-    while start < min(len(lines), MAX_TRAILER) and profiler._RECORD_HEADER.match(lines[start]):
+    while start < min(len(lines), MAX_TRAILER) and RECORD_HEADER.match(lines[start]):
         start += 1
-    data = _data([{"line": ln} for ln in lines[start:]], lambda r: r["line"], profiler._RECORD_TRAILER.match)
+    data = _data([{"line": ln} for ln in lines[start:]], lambda r: r["line"], RECORD_TRAILER.match)
     body = [r["line"] for r in data]
     rows = _fixed_rows(src, body)
     end = max(f["start"] + f["width"] for f in fields)
