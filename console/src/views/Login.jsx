@@ -30,6 +30,14 @@ export default function Login({ onEnter }) {
       const s = mode === "signup"
         ? await api.signup(email, password, orgName)
         : await api.login(email, password);
+      // An email with an account gets an answer that looks like a sign up and a session
+      // that does not work. Say what to do before it bounces back here with no word.
+      if (mode === "signup" && !(await api.sessionWorks(s.token))) {
+        setMode("login");
+        setErr(new Error("If this email already has an account, sign in with its password."));
+        setBusy(false);
+        return;
+      }
       if ((s.orgs?.length ?? 0) > 1) setPicking(s);
       else enterAs(s);
     } catch (e2) { setErr(e2); }

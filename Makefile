@@ -23,7 +23,7 @@ PY ?= python
 demo-check:
 	@start=$$(date +%s); \
 	$(IRONWRIGHT) run --pack all || exit 1; \
-	for p in retail supply_chain banking_aml insurance_claims; do \
+	for p in retail supply_chain banking_aml insurance_claims insurance_policy; do \
 	  test -s web/data/$$p.json || { echo "missing export: $$p"; exit 1; }; \
 	  $(PY) -c "import json,sys; d=json.load(open('web/data/$$p.json')); sys.exit(0 if d['evals']['passed'] else 1)" \
 	    || { echo "evals not green in $$p export"; exit 1; }; \

@@ -591,3 +591,14 @@ def test_the_wizard_copy_has_no_em_dashes(browser, stack):
     upload(page, JOIN_FILES)
     to_map(page)
     assert "—" not in page.locator("main").inner_text()
+
+
+def test_a_returning_customer_who_signs_up_is_told_to_sign_in(browser, stack):
+    first = new_page(browser, stack)
+    sign_up(first, stack)
+    expect()(first.get_by_role("heading", name="Upload your files")).to_be_visible()
+    page = new_page(browser, stack)
+    sign_up(page, stack)
+    expect()(page.get_by_text("If this email already has an account, sign in with its password.")).to_be_visible()
+    expect()(page.get_by_role("button", name="Enter the console")).to_be_visible()
+    assert page.evaluate("localStorage.getItem('iw.session')") is None

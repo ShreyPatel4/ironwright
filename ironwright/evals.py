@@ -60,9 +60,12 @@ def eval_migration(pack: Pack) -> dict[str, Any]:
     rep = _load(pack, "reconcile") or {"rules": [], "cutover_ready": False}
     expl = sum(r["counts"]["explained"] for r in rep["rules"])
     unexpl = sum(r["counts"]["unexplained"] for r in rep["rules"])
+    headline = (f"{len(rep['rules'])} reconciliation rules, {expl} explained differences, "
+                f"{unexpl} unexplained, cutover {'ready' if rep['cutover_ready'] else 'blocked'}")
+    if not rep["rules"] and rep["cutover_ready"]:  # all() of nothing is true, and proves nothing
+        headline = "no reconciliation rules declared, so nothing was reconciled"
     return {"layer": "migration", "passed": bool(rep["cutover_ready"]),
-            "headline": f"{len(rep['rules'])} reconciliation rules, {expl} explained differences, "
-                        f"{unexpl} unexplained, cutover {'ready' if rep['cutover_ready'] else 'blocked'}",
+            "headline": headline,
             "metrics": {"rules": len(rep["rules"]), "explained": expl, "unexplained": unexpl}}
 
 
