@@ -23,6 +23,8 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -144,6 +146,47 @@ def export_workspace(pack: Pack, endpoint: str) -> dict[str, Any]:
             counts["traces"] += 1
             counts["spans"] += len(spans)
     return counts
+
+
+def configured_endpoint() -> str | None:
+    """Compose passes every optional setting through, so unset can arrive as empty."""
+    return os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip() or None
+
+
+# What may leave the org's prefix on a job trace. Default deny, like everything else:
+# strings on a stage span are tenant words (table, rule, check condition) and an
+# exception's message can quote a cell. On the org's own disk the span keeps all of it.
+_JOB_TRACE_ATTRIBUTES = frozenset({
+    "job.kind", "org_id", "rows", "checks", "failed", "published", "passed", "candidates",
+    "objects", "merged", "review", "links", "orphans"})
+
+
+def _allowed(attrs: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in attrs.items() if k in _JOB_TRACE_ATTRIBUTES}
+
+
+def _scrubbed(span: dict[str, Any]) -> dict[str, Any]:
+    """A failed span still says it failed and with which exception type."""
+    events = []
+    for e in span.get("events", []):
+        attrs = e.get("attributes", {})
+        kept = {"type": attrs.get("type")} if e["name"] == "exception" else _allowed(attrs)
+        events.append({**e, "attributes": kept})
+    return {**span, "attributes": _allowed(span.get("attributes", {})), "events": events, "links": []}
+
+
+def export_job_trace(job_id: str, traces_dir: Path, endpoint: str) -> dict[str, Any]:
+    """One run job, one trace, one POST. The job id is the trace id, so an operator
+    goes from a log line to the trace with no lookup. Raises like export_workspace."""
+    path = traces_dir / f"{job_id}.jsonl"
+    spans = [_scrubbed(s) for s in load_trace(path)] if path.exists() else []
+    url = _traces_url(endpoint)
+    if spans:
+        with httpx.Client(timeout=10.0) as client:
+            r = client.post(url, json=trace_request("worker", spans),
+                            headers={"Content-Type": "application/json"})
+            r.raise_for_status()
+    return {"traces": 1 if spans else 0, "spans": len(spans), "endpoint": url}
 
 
 class ExportBody(BaseModel):

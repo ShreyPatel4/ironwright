@@ -335,6 +335,22 @@ slices needs a test that crosses it, so walk the whole path early.
 
 **Fix.** Not mine to make, since `scripts/demo_console_check.py` is outside my ticket. I ran the gate with `TZ=UTC`, and the fix is a cross-ticket ask: take the date from UTC. Lesson: a gate that only passes in CI's timezone is a clock test nobody meant to write.
 
+## 29. Every route read as unmatched
+
+**Symptom.** My first request line said `route: unmatched` for `/jobs`, and the requests counter had no `/jobs` series at all. The status, the ids and the timing were all right.
+
+**Cause.** Two separate walls. `BindPrincipalHeader` copies the ASGI scope when sessions are on, so `scope["route"]` and `request.state.ctx` never come back out to a middleware outside it. That one only shows with the door closed, which is why these tests run with it closed. Then, when I matched routes myself, FastAPI 0.143 turned out to keep each included router behind a single object whose `matches()` says yes and names no template.
+
+**Fix.** The middleware flattens the routes itself, the way the isolation sweep does, and matches compiled templates. It reads the session itself, before the app runs, so a logout still logs who asked. That is one more session lookup per request with a token. I asked for a cheaper way in the PR.
+
+## 30. A crash could quote a cell into the server's log
+
+**Symptom.** I wrote a test that a crash logs its type and not its message. It passed, and it proved nothing: my new route sat behind the gate, so the test got a 401 and the handler never ran. With a session it reached the handler, and I saw what my middleware would have done next, which is raise.
+
+**Cause.** Raising hands the exception to uvicorn, which logs the traceback with the message. My JSON line was clean and the line beside it was not. The worker had the same problem: `traceback.print_exc` on its loop, and a SQLAlchemy error prints the parameters it failed on, including a job's error text.
+
+**Fix.** The middleware answers the 500 itself, with the request id, and logs the type plus file and line. So does the worker. The formatter also writes any exception passed as a log argument as its type, which covers `sqlguard` logging raw DuckDB errors without touching it. The lesson: a leak test has to prove its canary reached the leak point first, so these tests now assert that before they scan.
+
 ## Smaller ones
 
 - A session-scoped Playwright broke four MCP and upload tests in other files. It keeps an event loop running on the main thread, so their `asyncio.run()` refused to start. Each file passed alone. The browser now lives only as long as its own module.

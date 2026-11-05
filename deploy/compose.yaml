@@ -9,6 +9,10 @@ x-hosted-env: &hosted-env
   IRONWRIGHT_DATA: /data
   IRONWRIGHT_DEV_OPEN: ${IRONWRIGHT_DEV_OPEN:-0}
   IRONWRIGHT_SECRET_KEY: ${IRONWRIGHT_SECRET_KEY:-}
+  # /metrics stays shut until this is set. docs/operations.md has what to watch.
+  IRONWRIGHT_METRICS_TOKEN: ${IRONWRIGHT_METRICS_TOKEN:-}
+  # With the otel profile: http://otel-collector:4318. Empty means no export.
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
   IRONWRIGHT_DB_URL: postgres://ironwright:${POSTGRES_PASSWORD:-ironwright-local}@postgres:5432/ironwright
   IRONWRIGHT_LAKE_URI: s3://ironwright-lake/hosted
   IRONWRIGHT_S3_ENDPOINT: http://objectstore:7070
@@ -92,6 +96,33 @@ services:
       <<: *hosted-env
     depends_on:
       - objectstore
+
+  # Optional. --profile otel, and set OTEL_EXPORTER_OTLP_ENDPOINT as above. This one
+  # prints what it receives. Point its exporter at your backend to keep the traces.
+  otel-collector:
+    image: otel/opentelemetry-collector:0.114.0
+    profiles: ["otel"]
+    command: ["--config=/etc/otel-collector.yaml"]
+    configs:
+      - source: otel-collector
+        target: /etc/otel-collector.yaml
+
+configs:
+  otel-collector:
+    content: |
+      receivers:
+        otlp:
+          protocols:
+            http:
+              endpoint: 0.0.0.0:4318
+      exporters:
+        debug:
+          verbosity: basic
+      service:
+        pipelines:
+          traces:
+            receivers: [otlp]
+            exporters: [debug]
 
 volumes:
   app-data:
