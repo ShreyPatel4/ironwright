@@ -1,14 +1,22 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { Err } from "../components.jsx";
+import { Loading } from "./onboarding/shared.jsx";
 
 export default function Audit({ ws }) {
-  const [rows, setRows] = useState([]);
+  const [rows, setRows] = useState(null);
   const [verify, setVerify] = useState(null);
   const [err, setErr] = useState(null);
 
+  const latest = useRef(0);
+
+  // Only the newest read may speak. An older answer landing late would paint rows over its failure.
   const load = useCallback(() => {
-    api.audit(ws.name).then(setRows).catch(setErr);
+    const mine = ++latest.current;
+    setErr(null);
+    api.audit(ws.name)
+      .then((r) => { if (mine === latest.current) setRows(r); })
+      .catch((e) => { if (mine === latest.current) { setRows(null); setErr(e); } });
   }, [ws.name]);
   useEffect(() => { setVerify(null); setErr(null); load(); }, [load]);
 
@@ -32,7 +40,9 @@ export default function Audit({ ws }) {
         )}
       </div>
       <Err e={err} />
-      <div className="scroll"><table>
+      {rows === null && !err && <Loading what="the audit log" />}
+      {rows?.length === 0 && <p className="note">No actions are recorded yet.</p>}
+      {rows?.length > 0 && <div className="scroll"><table>
         <thead><tr><th>seq</th><th>actor</th><th>action</th><th>status</th><th>approved by</th><th>hash</th></tr></thead>
         <tbody>
           {rows.map((r) => (
@@ -46,7 +56,7 @@ export default function Audit({ ws }) {
             </tr>
           ))}
         </tbody>
-      </table></div>
+      </table></div>}
     </>
   );
 }

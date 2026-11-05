@@ -1,18 +1,27 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { Err } from "../components.jsx";
+import { Loading } from "./onboarding/shared.jsx";
 
 export default function Approvals({ ws }) {
-  const [pending, setPending] = useState([]);
-  const [escs, setEscs] = useState([]);
+  const [pending, setPending] = useState(null);
+  const [escs, setEscs] = useState(null);
   const [approver, setApprover] = useState("");
   const [expires, setExpires] = useState("");
   const [last, setLast] = useState(null);
   const [err, setErr] = useState(null);
 
+  const latest = useRef(0);
+
+  // A read that failed knows nothing, so it must never look like an empty inbox. Only the
+  // newest read may speak, because an older answer landing late would paint over its failure.
   const load = useCallback(() => {
-    api.approvals(ws.name).then(setPending).catch(setErr);
-    api.escalations(ws.name).then(setEscs).catch(() => setEscs([]));
+    const mine = ++latest.current;
+    const fresh = (set) => (v) => { if (mine === latest.current) set(v); };
+    const failed = (set) => (e) => { if (mine === latest.current) { set(null); setErr(e); } };
+    setErr(null);
+    api.approvals(ws.name).then(fresh(setPending)).catch(failed(setPending));
+    api.escalations(ws.name).then(fresh(setEscs)).catch(failed(setEscs));
   }, [ws.name]);
   useEffect(() => { setLast(null); setErr(null); load(); }, [load]);
 
@@ -54,7 +63,9 @@ export default function Approvals({ ws }) {
       </div>
       <Err e={err} />
       {last && <p aria-live="polite" className="note">last decision: {last.seq} → <b>{last.status}</b></p>}
-      {pending.length === 0 ? <p className="note">Inbox empty. Nothing is waiting on a human.</p> : (
+      {pending === null && !err && <Loading what="the approvals" />}
+      {pending?.length === 0 && <p className="note">Inbox empty. Nothing is waiting on a human.</p>}
+      {pending?.length > 0 && (
         <div className="scroll"><table>
           <thead><tr><th>seq</th><th>requested by</th><th>action</th><th>params</th><th></th></tr></thead>
           <tbody>
@@ -85,8 +96,9 @@ export default function Approvals({ ws }) {
         <input id="esc-exp" onChange={(e) => setExpires(e.target.value)}
                placeholder="2026-11-01" style={{ width: 130 }} type="text" value={expires} />
       </div>
-      {escs.length === 0 ? <p className="note">No pending escalations. A denied action's page
-        under SEMANTIC, Ontology offers "escalate" beside the denied chip.</p> : (
+      {escs?.length === 0 && <p className="note">No pending escalations. A denied action's page
+        under SEMANTIC, Ontology offers "escalate" beside the denied chip.</p>}
+      {escs?.length > 0 && (
         <div className="scroll"><table>
           <thead><tr><th>id</th><th>principal</th><th>wants</th><th>on</th><th>denied by</th><th>owner</th><th></th></tr></thead>
           <tbody>{escs.map((e) => (

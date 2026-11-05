@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api.js";
 import { Err } from "../../components.jsx";
+import { Loading } from "../onboarding/shared.jsx";
 
 const LABELS = [
   ["runs", "Runs today"],
@@ -17,7 +18,7 @@ export default function Usage({ slug }) {
 
   useEffect(() => { api.usage(slug).then(setGot).catch(setErr); }, [slug]);
 
-  if (!got) return <Err e={err} />;
+  if (!got) return err ? <Err e={err} /> : <Loading what="your usage" />;
   return (
     <>
       <p className="sub">Your plan is <b>{got.plan}</b>. Daily counts start again at 00:00 UTC,
