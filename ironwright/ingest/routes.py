@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
 from .. import auth
@@ -20,7 +20,7 @@ from .. import workspaces_tenant as wt
 from ..config import UnsafePath
 from ..jobs.store import JobStore
 from ..tenancy import Ctx, quotas
-from . import uploads
+from . import journey_routes, uploads
 
 router = APIRouter()
 CtxDep = Annotated[Ctx, Depends(auth.ctx)]
@@ -111,6 +111,14 @@ class SpecBody(BaseModel):
     layout: dict[str, Any] | None = None
 
 
+class AddSourcesBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    from_upload: str
+    sources: list[dict[str, Any]]
+    models: dict[str, dict[str, str]] | None = None
+
+
 @contextlib.contextmanager
 def _answers() -> Iterator[None]:
     try:
@@ -139,6 +147,15 @@ def add_version(name: str, source: str, body: VersionBody, c: CtxDep) -> dict[st
 def update_spec(name: str, source: str, body: SpecBody, c: CtxDep) -> dict[str, Any]:
     with _answers():
         return wt.update_source_spec(c.org_id, name, source, columns=body.columns, layout=body.layout)
+
+
+@router.post("/workspaces/{name}/sources", status_code=201)
+def add_sources(name: str, body: AddSourcesBody, c: CtxDep) -> dict[str, Any]:
+    journey_routes._require_upload(c.org_id, body.from_upload)
+    if not journey_routes._inside_upload({"sources": body.sources}, body.from_upload):
+        raise HTTPException(422, "every source has to come from the upload named in from_upload")
+    with _answers():
+        return {"sources": wt.add_sources(c.org_id, name, body.sources, models=body.models, created_by=c.principal)}
 
 
 @router.get("/workspaces/{name}/drift")

@@ -69,6 +69,7 @@
 ["GET", "/workspaces/{name}/sources"],
 ["GET", "/workspaces/{name}/silver/draft"],
 ["POST", "/workspaces/{name}/silver/draft"],
+["POST", "/workspaces/{name}/sources"],
 ["POST", "/workspaces/{name}/sources/{source}/spec"],
 ["GET", "/workspaces/{name}/sources/{source}/versions"],
 ["POST", "/workspaces/{name}/sources/{source}/versions"],

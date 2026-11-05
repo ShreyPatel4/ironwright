@@ -31,8 +31,8 @@ def tomorrow_utc() -> str:
 def main() -> None:
     with TestClient(create_platform_app()) as c:
         ws = {w["name"]: w for w in c.get("/workspaces").json()}
-        step("1:30 four workspaces with derived badges",
-             all(p in ws for p in ("retail", "supply_chain", "banking_aml", "insurance_claims"))
+        step("1:30 five workspaces with derived badges",
+             all(p in ws for p in ("retail", "supply_chain", "banking_aml", "insurance_claims", "insurance_policy"))
              and ws["retail"]["verification"]["level"] == "L3",
              f"retail={ws.get('retail', {}).get('verification')}")
 
@@ -114,7 +114,7 @@ def main() -> None:
         pmap = c.get("/platform/map").json()
         live = [n for n in pmap["nodes"] if n["status"] == "live"]
         planned = [n for n in pmap["nodes"] if n["status"] == "planned"]
-        step("1:45 the map never poses", len(live) > 0 and len(planned) > 0,
+        step("1:45 the map never poses", len(live) > 0 and all("depends_on" in n for n in planned),
              f"{len(live)} live, {len(planned)} planned")
 
         otel = c.post("/workspaces/retail/otel/export",

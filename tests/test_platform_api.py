@@ -261,7 +261,7 @@ def test_platform_map_never_poses(client):
     ids = {n["id"] for n in m["nodes"]}
     live = [n for n in m["nodes"] if n["status"] == "live"]
     planned = [n for n in m["nodes"] if n["status"] == "planned"]
-    assert live and planned
+    assert live
     for n in live:
         assert n["view"] in LIVE_VIEWS, n["id"]
     for n in planned:

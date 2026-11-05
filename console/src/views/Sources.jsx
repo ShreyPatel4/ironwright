@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Err } from "../components.jsx";
+import TenantSources from "./sources/TenantSources.jsx";
 
 export default function Sources({ ws }) {
+  return ws.kind === "workspace" ? <TenantSources ws={ws} /> : <PackSources ws={ws} />;
+}
+
+function PackSources({ ws }) {
   const [sources, setSources] = useState([]);
   const [open, setOpen] = useState(null);
   const [err, setErr] = useState(null);

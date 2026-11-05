@@ -7,10 +7,12 @@ silently break.
 Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
 (about 50 s). Then `make demo` and open http://localhost:8001.
 
-- 0:00  "Four fictional companies, each with a messy legacy estate the
-        generator sabotaged on purpose. Every defect is written to ground
-        truth and checked by an eval, so everything you are about to see is
-        provable." Point at the four tabs, all `evals pass`.
+- 0:00  "Five fictional companies, each with a messy legacy estate the
+        generator sabotaged on purpose: Brightline Retail, Corvane
+        Distribution, Harborview Bank, Granite Mutual and Quillback Casualty.
+        Every defect is written to ground truth and checked by an eval, so
+        everything you are about to see is provable." Point at the tabs, all
+        `evals pass`.
 - 0:15  Brightline Retail. The counter strip: 10 legacy feeds, 117,953 raw
         rows, 60,413 gold rows, 110 ontology objects, 27 agent decisions,
         evals 5/5. "That is the whole migration, landed to a lakehouse,
@@ -24,9 +26,11 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
 - 1:15  The audit log. "Every action lands in a hash-chained audit log. On
         the public site your browser recomputes all 59 digests; rewrite one
         row and the chain catches it one link later."
-- 1:30  The console: `uv run ironwright platform`, open
-        http://localhost:8000. Four workspaces with derived verification
-        badges; pick one and show the pipeline run with measured timings,
+- 1:30  The console, dev open: `IRONWRIGHT_DEV_OPEN=1 uv run ironwright
+        platform`, open http://localhost:8000. Say that this beat runs with
+        the door open, and point at the red badge. The demo workspaces have
+        derived verification badges, and Quillback's is the insurance estate
+        with bitemporal coverage; pick one and show the pipeline run with measured timings,
         the read-only SQL explorer on the lakehouse, the ontology browser
         with each identity's crosswalk, the Loads view showing every
         write's audit branch and checks (publish to main is the checks'
@@ -35,14 +39,16 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         policy denied, the Ask surface answering through governed calls
         and refusing outside the ontology, Governance running a policy
         dry-run, and the audit chain verifying server-side.
-- 1:40  The door: invite-only sign-in (local salted hashes, seeded by
-        ironwright auth-set). Every API route now needs a bearer session,
-        so seed an account before opening the console. No token is a 401,
-        a spoofed X-Principal is ignored, and an agent principal can never
-        sign in. Sessions die after 8 idle hours and rotate on login.
-        Wrong password bounces; the account decides the identity on every
-        audit row. IRONWRIGHT_DEV_OPEN=1 keeps the old open door for tests
-        and demo-check, and the console wears a red badge while it is on.
+- 1:40  The door, closed: restart without IRONWRIGHT_DEV_OPEN and press
+        Sign up. Anyone can, and each sign-up gets its own org. Every API
+        route needs a session. No token is a 401, a spoofed X-Principal is
+        ignored, and an agent principal can never sign in. Sessions die after
+        8 idle hours and rotate on login. Wrong password bounces; the account
+        decides the identity on every audit row. Then sign up a second org.
+        Org B asks for org A's job id and gets a 404 with the same body as
+        an id nobody has: `{"detail": "no such resource"}`.
+        IRONWRIGHT_DEV_OPEN=1 stays for tests and demo-check, and the hosted
+        stack refuses to start with it.
 - 1:41  The connector kinds: object-store drops, ADBC warehouses (the
         postgres driver proven against a real server in CI), SAP IDoc
         flat files, stream windows from recorded segments, and CDC from
@@ -57,18 +63,18 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         (act, the dashboard chips, the governance tester, Ask) until it
         dies at the start of its expiry date, and hand-written forbids
         still win. Objects read as-of any moment; traces export as OTLP.
-- 1:41c The last planned lane, closed: training mode replays approvals
+- 1:41c Training mode replays approvals
         and denials from the audit log into labels and evaluates a
         proposed rule change against the human verdicts before anyone
         adopts it (nothing retrains silently); the engine swap runs
         every retail model unchanged on postgres and compares value for
         value from the Data explorer; silver and gold mirror into
         postgres with a verified round trip and your BI tool renders in
-        a sandboxed frame. Profiler (gated on the first hand-mapped real
-        workspace) and hosted auth stay PLANNED, and say why.
-- 1:41d The serving posture: both servers bind 127.0.0.1, and anything
-        else refuses to start without --host and
-        --i-know-this-is-exposed. IRONWRIGHT_KILL_SWITCH=1 and every
+        a sandboxed frame.
+- 1:41d The serving posture: locally, both servers bind 127.0.0.1, and
+        anything else refuses to start without --host and
+        --i-know-this-is-exposed. The hosted stack binds inside its container
+        and publishes on loopback. IRONWRIGHT_KILL_SWITCH=1 and every
         write answers 503 while reads stay up. docs/threat-model.md maps
         each control to the test that proves it, and a test fails if a
         link goes stale. demo-check does not walk this beat, because it
@@ -91,19 +97,25 @@ Setup, once: `uv sync --all-extras && uv run ironwright run --pack all`
         exists 3 times, twice in one system" found blind from the merge
         log, a failing coverage check, a reconciled difference, and the
         routine work summarized in one line. Empty classes stay empty.
-- 1:45  First run opens the welcome funnel: three facts (real runs, the
-        badge never lies, rules decide) and a template chooser that only
-        picks where you land. The Platform map shows every capability,
-        LIVE solid and clickable, PLANNED dashed with its dependency; the
-        concept never wears a working button.
+- 1:45  The Platform map shows every capability, LIVE solid and clickable.
+        Anything not built yet would be dashed with its dependency, and the
+        concept never wears a working button. Today nothing on it is dashed.
 - 1:50  Create an organization: name, archetype, size, seed. The scenario
         engine generates the whole org (hierarchy, data owners, approval
         chains) in under a second, byte-identical per spec, badged L2
         because generated is not proven and the badge says which is which.
+- 1:55  The beat that sells it: your own files. Signed in as org A, walk the
+        wizard over a messy export: upload, profile, map, run, ontology, then
+        a grounded answer in Ask that cites the evidence it gathered. Org B
+        on the same server cannot see any of it. Next month's export arrives:
+        Sources, Upload new version. A new column is `info` and the run goes
+        on. A renamed key is `block`, the run stops, and Ask keeps serving
+        the last good data until I update the spec and run again. Add another
+        dataset from the same screen. Settings, delete the org, and nothing
+        is left but the promised audit line.
 - 2:10  Done at the long cut; the 90-second cut stops at 1:30 before the
         console and says "and there is an operator console on top". If
-        asked for depth: `uv run pytest -q` (157 tests with POSTGRES_URI
-        set, zero skips; the review gates
-        at the end of test_platform_api.py each pin a fixed defect).
-        CI's `make demo-check` walks the pipeline half AND every console
+        asked for depth: `POSTGRES_URI=... uv run pytest -q`, with zero skips
+        (the review gates at the end of test_platform_api.py each pin a fixed
+        defect). CI's `make demo-check` walks the pipeline half AND every console
         phase above headlessly, bounded at 300 s.

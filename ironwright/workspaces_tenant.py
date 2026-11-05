@@ -814,6 +814,43 @@ def update_source_spec(org_id: str, slug: str, source: str, *, columns: Any = No
     return latest
 
 
+def add_sources(org_id: str, slug: str, sources: Any, *, models: Any = None, created_by: str = "") -> list[dict[str, Any]]:
+    """Another dataset for a workspace that already exists. Each source starts at version 1
+    and nothing the workspace already reads changes. The whole spec validates first, so a
+    refusal leaves no trace. Two model files can spell one table, so a clash goes by table."""
+    d = _existing(org_id, slug)
+    _ensure_versions(org_id, d)
+    raws = [_mapping(s, "sources") for s in _listing(sources, "sources")]
+    if not raws:
+        raise _bad("sources: declare at least one")
+    with _versions_lock(d):
+        spec = _spec_of(d)
+        have = {s.get("name") for s in spec.get("sources") or []}
+        for raw in raws:
+            if raw.get("name") in have:
+                raise _bad(f"this workspace already has a source {raw['name']}")
+        existing = _read_models(d)
+        for table in sorted(_models(existing) & _models(models)):
+            raise _bad(f"this workspace already has a model for {table}")
+        merged = {layer: {**existing.get(layer, {}), **(models or {}).get(layer, {})}
+                  for layer in {*existing, *(models or {})}}
+        spec["sources"] = [*(spec.get("sources") or []), *raws]
+        _normalize(org_id, spec, merged)
+        for layer, files in (models or {}).items():
+            folder = private_dir(d / "models" / layer)
+            for name, sql in files.items():
+                write_private(folder / name, sql)
+        _replace(d / "workspace.yaml", yaml.safe_dump(spec, sort_keys=False))
+        out = []
+        for raw in raws:
+            _ensure_first(org_id, d, d / "run", raw)
+            record = _read_versions(d, raw["name"])[-1]
+            record["created_by"] = created_by
+            _save_version(d, raw["name"], record)
+            out.append({"source": raw["name"], "version": record["version"], "upload": record["upload"]})
+    return out
+
+
 def drift_overview(org_id: str, slug: str) -> dict[str, Any]:
     """The latest report per source, and every item that touches the accepted ontology.
     Impact is worked out on read, because an ontology can be accepted after the upload."""

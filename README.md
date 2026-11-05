@@ -4,7 +4,7 @@ I built Ironwright to show one thing end to end: how you take a company that run
 (mainframe files, aging databases, CSV drops) and get it to a point where AI agents can make real
 business decisions on top of it, safely.
 
-It's not one demo. It's one engine and four mock businesses, each with its own legacy mess,
+It's not one demo. It's one engine and five mock businesses, each with its own legacy mess,
 its own ontology and its own agent:
 
 | Pack | Company | The decision the agent takes on |
@@ -13,8 +13,45 @@ its own ontology and its own agent:
 | `supply_chain` | Corvane Distribution | This shipment is late. Why, and expedite, reroute or just tell the customer? |
 | `banking_aml` | Harborview Bank | Is this AML alert worth escalating, or can it be recommended for closure? |
 | `insurance_claims` | Granite Mutual | Fast track this claim, send it to coverage review, or refer it to SIU? |
+| `insurance_policy` | Quillback Casualty | Was this loss covered on the loss date, or does a person need to review the coverage? |
 
 Everything runs on a laptop for $0. No Docker, no API keys, no cloud account.
+
+It is also a hosted product now. A team signs up, uploads exports from their old systems, and gets
+the same gated pipeline over their own files. A second org on the same server gets a 404 on all of it.
+
+## Quickstart: your own files, from a fresh clone
+
+You need [uv](https://docs.astral.sh/uv/) and node.
+
+```bash
+git clone git@github.com:ShreyPatel4/ironwright.git && cd ironwright
+uv sync
+(cd console && npm ci && npm run build)   # dist/ is not in git, so a clone has no console until now
+
+uv run ironwright platform                # terminal 1: API and console on http://127.0.0.1:8000/console/
+uv run ironwright worker                  # terminal 2: runs the profile, run and ontology jobs
+```
+
+`ironwright platform` warns loudly when the console build is missing or older than `console/src`,
+and serves anyway.
+
+Open http://127.0.0.1:8000/console/ and press Sign up. That makes your org and you are its owner.
+There is no account to seed. The wizard then takes you through upload, profile, map, run and ontology
+to a grounded answer in Ask.
+
+When the next export arrives, open Sources. Upload a new version and I show you what changed. A change
+that would break the run stops it, and Ask keeps serving the last good data until you update the spec
+or upload a corrected file. Add another dataset to the same workspace from the same screen.
+
+```mermaid
+flowchart LR
+  U["Upload new version"] --> D{"Drift report"}
+  D -- "info or warn" --> R["Run"]
+  D -- "block" --> F["Update the spec,<br/>or upload a corrected file"]
+  F --> D
+  R --> L["Last good data replaced<br/>only if the checks pass"]
+```
 
 ## The stack in one picture
 
@@ -80,7 +117,7 @@ sequenceDiagram
   Ont->>Legacy: write back (retry, reject, compensate)
 ```
 
-## Quickstart
+## Run the demo companies
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -94,20 +131,9 @@ ironwright mcp --pack retail          # MCP server: tools are generated from ont
 pytest -q                         # every pack must pass every eval layer
 ```
 
-To walk the product itself, from sign-up to an answer over your own files:
-
-```bash
-make console                      # build the console (needs node, and again after console/src changes)
-ironwright platform               # the API and console on http://127.0.0.1:8000/console/
-ironwright worker                 # in a second terminal: runs the profile, run and ontology jobs
-```
-
-`console/dist` is gitignored, so a checkout has no console until you build one. `ironwright platform`
-warns loudly when the build is missing or older than `console/src`, and serves anyway.
-
 `ironwright serve` and `ironwright platform` bind 127.0.0.1. Anything else needs `--host` plus
 `--i-know-this-is-exposed`. `IRONWRIGHT_KILL_SWITCH=1` turns off Ask and actions and leaves reads up.
-`ironwright platform` needs a sign-in, so seed one with `ironwright auth-set`. `ironwright serve` still trusts `X-Principal`, so keep it on loopback. What I protect, from whom, and
+`ironwright platform` needs a sign-in, and anyone can sign up. `ironwright serve` still trusts `X-Principal`, so keep it on loopback. What I protect, from whom, and
 the test behind each control: [docs/threat-model.md](docs/threat-model.md).
 
 Each stage also runs on its own: `ironwright generate|migrate|reconcile|ontology|agents|evals|export --pack <name>`.
@@ -156,7 +182,7 @@ deploy/            Cloudflare Pages + Worker, free-tier and AWS notes
 docs/              architecture, interview walkthrough, build log
 ```
 
-Adding a fifth industry means adding a folder under `packs/`. The engine does not change.
+Adding another company means adding a folder under `packs/`. The engine does not change.
 
 ## Cost plan
 
