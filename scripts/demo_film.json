@@ -1,0 +1,46 @@
+{
+  "title": "Ironwright as a hosted product, one tenant's journey",
+  "beats": [
+    {"id": "signup", "captions": [
+      {"text": "Northwind Mutual is an insurer with old systems. It signs up here, on the hosted stack.", "hold": 5}
+    ]},
+    {"id": "upload", "captions": [
+      {"text": "Three real shapes of mess: a fixed width policy file, a billing export, an agency's spreadsheet.", "hold": 6}
+    ]},
+    {"id": "profile", "captions": [
+      {"text": "I read each file by rules, not by model. Every guess comes with its reason.", "hold": 6},
+      {"text": "Nobody told me where the joins are. I found them from the values.", "hold": 5}
+    ]},
+    {"id": "silver", "captions": [
+      {"text": "No SQL to write. I draft the cleaning and count the rows each decision touches.", "hold": 7},
+      {"text": "I guessed client_key. A person knows policy_nbr is the real key, so they change it.", "hold": 5}
+    ]},
+    {"id": "run", "captions": [
+      {"text": "Bronze, silver and gold run as a background job, with quality gates on the way.", "hold": 5},
+      {"text": "The badge says L1: real files, so no planted answers to check against. I say so.", "hold": 5}
+    ]},
+    {"id": "ontology", "captions": [
+      {"text": "I propose objects and links, each with its reason. Nothing goes live until a person accepts.", "hold": 7}
+    ]},
+    {"id": "ask", "captions": [
+      {"text": "Ask a real question. Rules gather the facts, and every claim cites what it stands on.", "hold": 6},
+      {"text": "The evidence ids are what the agent really gathered. Anything else gets rewritten.", "hold": 5},
+      {"text": "This one is out of reach of the ontology, so I refuse and say why.", "hold": 5}
+    ]},
+    {"id": "action", "captions": [
+      {"text": "Now an action. The policy parks it, and nothing changes until a person decides.", "hold": 6},
+      {"text": "Approved, with that person's identity on the record.", "hold": 4}
+    ]},
+    {"id": "audit", "captions": [
+      {"text": "Every step lands in a hash chain. The server recomputes all of it on demand.", "hold": 6}
+    ]},
+    {"id": "isolation", "captions": [
+      {"text": "Rival Co shares this stack. Signed in there, none of Northwind's work is listed.", "hold": 5},
+      {"text": "Rival asks for Northwind's real upload id. It gets the same 404 as an id that never existed.", "hold": 6}
+    ]},
+    {"id": "usage", "captions": [
+      {"text": "Back at Northwind: what it used today, against its plan's limits.", "hold": 5},
+      {"text": "That is the whole journey, on the same stack a customer gets.", "hold": 4}
+    ]}
+  ]
+}
