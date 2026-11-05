@@ -63,9 +63,12 @@ def test_a_second_run_changes_nothing(seed):
 
 def test_a_wrong_password_on_a_second_run_stops_it(seed, monkeypatch):
     seed()
+    before = sorted(p.name for p in (data_root() / "tenants").iterdir())
     monkeypatch.setenv("IRONWRIGHT_SEED_PASSWORD", "some-other-password")
     with pytest.raises(SystemExit, match="password"):
         seed()
+    # Signup answers a taken email with a decoy org. Nothing may land under that id.
+    assert sorted(p.name for p in (data_root() / "tenants").iterdir()) == before
 
 
 def test_it_leaves_the_shared_demo_folder_alone(seed):

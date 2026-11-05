@@ -34,13 +34,15 @@ FILES = "erp/*.csv"
 
 
 def _session(password: str) -> dict[str, Any]:
-    now = time.time()
+    """Only a login proves whose org this is. Signup answers a taken email with a decoy,
+    so its answer is never used, and a wrong password stops here with nothing written."""
     try:
-        return service.signup(EMAIL, password, ORG_NAME, now)
-    except service.EmailTaken:
+        return service.login(EMAIL, password, time.time())
+    except service.BadCredentials:
         pass
+    service.revoke(service.signup(EMAIL, password, ORG_NAME, time.time())["token"])
     try:
-        return service.login(EMAIL, password, now)
+        return service.login(EMAIL, password, time.time())
     except service.BadCredentials as e:
         raise SystemExit(f"{EMAIL} exists and IRONWRIGHT_SEED_PASSWORD is not its password") from e
 
