@@ -5,7 +5,9 @@ data root. There is no route stub, no fake api and no adapter in this file, and 
 below holds it to that. tests/test_console_onboarding.py covers the wizard's edge cases.
 This file answers one question: does the journey work against what the server really does?
 
-CI runs this in the demo job, where a skip fails the job.
+CI runs this twice, and a skip fails the job both times. The demo job starts those processes
+here, on SQLite and local disk. The e2e job sets IRONWRIGHT_WIZARD_BASE and walks the compose
+stack, on Postgres and a bucket, through the console its image built.
 
 Two walks, because the two fixtures prove different things. The clean CSVs have clear keys
 and a clear join as they stand. The messy tenant_ws CSVs need the silver draft to get there.
@@ -22,6 +24,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -34,6 +37,8 @@ TWO_CSVS = sorted((ROOT / "tests" / "fixtures" / "tenant_ws" / "uploads" / "fixt
 CLEAN_CSVS = sorted((ROOT / "tests" / "fixtures" / "ingest" / "join").glob("*.csv"))
 PASSWORD = "correct horse battery"
 SLOW = 120_000  # a real pipeline run in another process sits behind these waits
+WIZARD_BASE = "IRONWRIGHT_WIZARD_BASE"  # a stack already running, such as compose. Unset starts one here.
+RUN = uuid.uuid4().hex[:8]  # a running stack remembers its orgs, so a second walk needs new people
 
 
 @pytest.fixture(scope="module")
@@ -78,8 +83,17 @@ def _wait_until_up(base: str, server: subprocess.Popen, log: Path) -> None:
     raise AssertionError(f"the platform did not come up:\n{log.read_text()}")
 
 
+def _stack_under_test() -> str | None:
+    return os.environ.get(WIZARD_BASE, "").rstrip("/") or None
+
+
 @pytest.fixture(scope="module")
-def live(console_dist, tmp_path_factory) -> Iterator[str]:
+def live(request, tmp_path_factory) -> Iterator[str]:
+    given = _stack_under_test()
+    if given:
+        yield given
+        return
+    request.getfixturevalue("console_dist")
     root = tmp_path_factory.mktemp("wizard-real")
     env = {k: v for k, v in os.environ.items() if k not in ("IRONWRIGHT_DEV_OPEN", "IRONWRIGHT_DB_URL")}
     env["IRONWRIGHT_DATA"] = str(root)
@@ -112,6 +126,32 @@ def test_ci_runs_this_file_and_a_skip_fails_the_job():
     assert demo["defaults"]["run"]["shell"] == "bash"
 
 
+def _compose_steps() -> list[dict]:
+    return yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text())["jobs"]["e2e"]["steps"]
+
+
+def test_ci_walks_the_console_on_the_compose_stack():
+    """The demo job's walk runs on SQLite and local disk. Customers get Postgres and a bucket,
+    behind the console the image built, so the walk has to go there too and may not skip."""
+    steps = _compose_steps()
+    runs = [step.get("run", "") for step in steps]
+    walk = next(i for i, run in enumerate(runs) if Path(__file__).name in run)
+    assert "if" not in steps[walk] and "continue-on-error" not in steps[walk]
+    assert steps[walk]["env"][WIZARD_BASE] == "http://127.0.0.1:8000"
+    assert "! grep -q SKIPPED" in runs[walk]
+    assert next(i for i, run in enumerate(runs) if "docker compose up" in run) < walk
+    assert next(i for i, run in enumerate(runs) if "playwright install" in run) < walk
+    assert next(i for i, run in enumerate(runs) if "pip install" in run) < walk
+
+
+def test_a_given_base_is_walked_and_nothing_is_started(monkeypatch):
+    """A local build would prove a console the stack is not serving."""
+    monkeypatch.setenv(WIZARD_BASE, "http://127.0.0.1:8000/")
+    assert _stack_under_test() == "http://127.0.0.1:8000"
+    monkeypatch.delenv(WIZARD_BASE)
+    assert _stack_under_test() is None
+
+
 def test_this_file_stubs_nothing():
     """The whole point of the file. A stub here would hide the next route mismatch."""
     source = Path(__file__).read_text()
@@ -126,7 +166,7 @@ class Walk:
         self.context = browser.new_context()
         self.context.set_default_timeout(20_000)
         self.page = self.context.new_page()
-        self.base, self.email = base, email
+        self.base, self.email = base, f"{email}-{RUN}"
         self.errors: list[str] = []
         self.refused: list[str] = []
         self.page.on("pageerror", lambda e: self.errors.append(str(e)))
@@ -208,7 +248,7 @@ def resume_in_a_new_browser(browser, base: str, email: str) -> None:
     walk = Walk(browser, base, email)
     page = walk.page
     page.goto(f"{base}/console/")
-    page.get_by_label("email").fill(f"{email}@acme.test")
+    page.get_by_label("email").fill(f"{walk.email}@acme.test")
     page.get_by_label("password").fill(PASSWORD)
     page.get_by_role("button", name="Enter the console").click()
     expect(page.get_by_role("heading", name="Ask")).to_be_visible()
