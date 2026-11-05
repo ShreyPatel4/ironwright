@@ -76,5 +76,29 @@ def run_checks(con: duckdb.DuckDBPyConnection, table_label: str, view: str,
     return out
 
 
+def record_checks(table: str, report: dict[str, Any]) -> list[CheckResult]:
+    """What the reader says about the records around the data. All warnings: the human
+    decided, and these keep the decision on the record. Counts only, never the record."""
+    def flag(check: str, failing: int, detail: str) -> CheckResult:
+        return CheckResult(table=table, check=check, kind="structural", severity="warn", owner="workspace",
+                           passed=failing == 0, failing_rows=failing, detail=detail)
+
+    out = []
+    skipped = report["skipped_header"] + report["skipped_footer"]
+    if skipped:
+        out.append(flag("skipped_records", skipped, f"{report['skipped_header']} header and {report['skipped_footer']} "
+                        "footer records were kept out of bronze, as decided on Map"))
+    if report["left_in"]:
+        out.append(flag("trailer_left_in", report["left_in"], f"{report['left_in']} rows at the end read like a trailer "
+                        "and are in this table. They will read as records downstream"))
+    declared = report["declared_rows"]
+    if declared is not None:
+        rows = report["data_rows"]
+        fits = rows <= declared <= report["lines"]  # some systems count the trailer itself
+        out.append(flag("trailer_count", 0 if fits else abs(declared - rows),
+                        f"the trailer says {declared} records and the file holds {rows}"))
+    return out
+
+
 def blocking_failures(results: list[CheckResult]) -> list[CheckResult]:
     return [r for r in results if not r.passed and r.severity == "block"]

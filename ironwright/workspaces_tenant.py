@@ -61,6 +61,10 @@ MARKER = ".ironwright-tenant-workspace"
 MAX_YAML_BYTES = 1024 * 1024
 MODEL_LAYERS = ("silver", "gold")
 VERSIONS_DIR = "source_versions"
+# How many records to skip around the data, per source. Contract 3 has no field for it,
+# so workspace.yaml stays as the contract says and this sits beside it.
+RECORDS_FILE = "records.yaml"
+MAX_SKIP = 16
 RUN_MODES = ("append", "full")
 _VERSION_FILE = re.compile(r"\d{4,}\.json")
 
@@ -228,6 +232,21 @@ def _source(raw: Any, org_id: str, seen: set[str]) -> dict[str, Any]:
         raise _bad(f"{where}.format: use csv or fixed_width")
     return {"name": name, "kind": "upload", "format": src["format"], "layout": layout, "columns": columns,
             "upload": src["upload"], "upload_path": str(_upload_path(org_id, src["upload"], where))}
+
+
+def _records(raw: Any, sources: set[str]) -> dict[str, dict[str, int]]:
+    out: dict[str, dict[str, int]] = {}
+    for source, skips in _mapping(raw if raw is not None else {}, "records").items():
+        if source not in sources:
+            raise _bad(f"records: no source {source}")
+        where = f"records.{source}"
+        skips = _mapping(skips, where)
+        _only(skips, {"skip_header", "skip_footer"}, where)
+        for k, n in skips.items():
+            if _int(n, f"{where}.{k}") > MAX_SKIP:
+                raise _bad(f"{where}.{k}: at most {MAX_SKIP}")
+        out[source] = {"skip_header": skips.get("skip_header", 0), "skip_footer": skips.get("skip_footer", 0)}
+    return out
 
 
 def _upload_path(org_id: str, ref: Any, where: str) -> Path:
@@ -523,14 +542,16 @@ def _existing(org_id: str, slug: str) -> Path:
 def create_workspace(org_id: str, slug: str, spec: dict[str, Any], *,
                      models: dict[str, dict[str, str]] | None = None,
                      ontology: dict[str, Any] | None = None,
-                     policies: dict[str, Any] | None = None) -> dict[str, Any]:
+                     policies: dict[str, Any] | None = None,
+                     records: dict[str, Any] | None = None) -> dict[str, Any]:
     """Validate everything first; nothing touches the disk on a bad spec."""
     try:
         d = workspace_dir(org_id, slug)
     except UnsafePath as e:
         raise _bad(f"bad workspace name: {slug!r}") from e
-    _normalize(org_id, spec, models)
+    normal = _normalize(org_id, spec, models)
     ontology, policies = _ontology(ontology), _policies(policies)
+    records = _records(records, {s["name"] for s in normal["sources"]})
     ensure_tenant(org_id)
     try:
         d.mkdir(mode=0o700)  # atomic: two creators, one winner, and no adopting a folder
@@ -538,6 +559,8 @@ def create_workspace(org_id: str, slug: str, spec: dict[str, Any], *,
         raise _bad(f"workspace {slug} already exists") from e
     write_private(d / MARKER, json.dumps(_marker_body(org_id, slug)))
     write_private(d / "workspace.yaml", yaml.safe_dump(spec, sort_keys=False))
+    if records:
+        write_private(d / RECORDS_FILE, yaml.safe_dump(records, sort_keys=True))
     if ontology:
         write_private(d / "ontology.yaml", yaml.safe_dump(ontology, sort_keys=False))
     if policies:
@@ -554,6 +577,9 @@ def load_workspace(org_id: str, slug: str) -> Pack:
     to call, and the bytes come from the org's uploads."""
     d = _existing(org_id, slug)
     spec = _normalize(org_id, _read_yaml(d / "workspace.yaml", "workspace.yaml"), _read_models(d))
+    records = _records(_read_optional_yaml(d / RECORDS_FILE, RECORDS_FILE), {s["name"] for s in spec["sources"]})
+    for src in spec["sources"]:
+        src["records"] = records.get(src["name"], {})
     return Pack(name=slug, dir=d, spec=spec,
                 ontology=_ontology(_read_optional_yaml(d / "ontology.yaml", "ontology.yaml")),
                 policies=_policies(_read_optional_yaml(d / "policies.yaml", "policies.yaml")),
@@ -564,7 +590,8 @@ def read_workspace(org_id: str, slug: str) -> dict[str, Any]:
     """What a reader sees: the spec as written, which never names a server path."""
     d = _existing(org_id, slug)
     spec = _read_yaml(d / "workspace.yaml", "workspace.yaml")
-    return {"slug": slug, "title": spec.get("title") if isinstance(spec, dict) else None, "spec": spec}
+    return {"slug": slug, "title": spec.get("title") if isinstance(spec, dict) else None, "spec": spec,
+            "records": _read_optional_yaml(d / RECORDS_FILE, RECORDS_FILE) or {}}
 
 
 def list_workspaces(org_id: str) -> list[dict[str, Any]]:
@@ -641,8 +668,9 @@ def _raw_source(spec: dict[str, Any], source: str) -> dict[str, Any]:
     raise NoSuchSource(f"this workspace has no source {source}")
 
 
-def _source_shape(raw: dict[str, Any]) -> dict[str, Any]:
-    return {"format": raw["format"], "layout": raw.get("layout", {}), "columns": raw["columns"]}
+def _source_shape(d: Path, raw: dict[str, Any]) -> dict[str, Any]:
+    records = (_read_optional_yaml(d / RECORDS_FILE, RECORDS_FILE) or {}).get(raw["name"], {})
+    return {"format": raw["format"], "layout": raw.get("layout", {}), "columns": raw["columns"], "records": records}
 
 
 def _readable(org_id: str, source: str, record: dict[str, Any]) -> dict[str, Any]:
@@ -650,7 +678,7 @@ def _readable(org_id: str, source: str, record: dict[str, Any]) -> dict[str, Any
     shape = record["source"]
     where = f"sources.{source}"
     return {"name": source, "kind": "upload", "format": shape["format"], "layout": shape["layout"],
-            "columns": _columns(shape["columns"], where),
+            "columns": _columns(shape["columns"], where), "records": shape.get("records", {}),
             "upload_path": str(_upload_path(org_id, record["upload"], where))}
 
 
@@ -667,7 +695,7 @@ def _ensure_first(org_id: str, d: Path, pack_root: Path, raw: dict[str, Any]) ->
     if _read_versions(d, source):
         return
     record = {"version": 1, "upload": raw["upload"], "created_at": round(time.time(), 3), "created_by": "",
-              "source": _source_shape(raw), "runs": [], "drift": None,
+              "source": _source_shape(d, raw), "runs": [], "drift": None,
               **_file_facts(org_id, raw["upload"], f"sources.{source}")}
     try:
         report = json.loads((pack_root / "reports" / "migrate.json").read_text())
@@ -711,6 +739,7 @@ def _assess(org_id: str, d: Path, source: str, shape: dict[str, Any], upload: st
     """Drift for one file against the spec as it stands now, so a spec update can unblock."""
     where = f"sources.{source}"
     src = {"name": source, "kind": "upload", "format": shape["format"], "layout": shape["layout"],
+           "records": shape.get("records", {}),
            "columns": _columns(shape["columns"], where), "upload_path": str(_upload_path(org_id, upload, where))}
     base_record = _baseline(records, version)
     base = None
@@ -753,7 +782,7 @@ def add_source_version(org_id: str, slug: str, source: str, upload: str, created
         spec = _spec_of(d)
         raw = _raw_source(spec, source)
         version = records[-1]["version"] + 1
-        shape = _source_shape(raw)
+        shape = _source_shape(d, raw)
         record = {"version": version, "upload": upload, "created_at": round(time.time(), 3), "created_by": created_by,
                   "source": shape, "runs": [], **facts,
                   "drift": _assess(org_id, d, source, shape, upload, version, records)}
@@ -778,7 +807,7 @@ def update_source_spec(org_id: str, slug: str, source: str, *, columns: Any = No
         _normalize(org_id, spec, _read_models(d))
         records = _read_versions(d, source)
         latest = records[-1]
-        latest["source"] = _source_shape(raw)
+        latest["source"] = _source_shape(d, raw)
         latest["drift"] = _assess(org_id, d, source, latest["source"], latest["upload"], latest["version"], records)
         _replace(d / "workspace.yaml", yaml.safe_dump(spec, sort_keys=False))
         _save_version(d, source, latest)
@@ -832,7 +861,7 @@ def _gate_drift(org_id: str, d: Path, pack: Pack) -> None:
     for src in pack.spec["sources"]:
         source = src["name"]
         # The spec, not the record: a record keeps the narrower shape its last run loaded under.
-        shape = {"format": src["format"], "layout": src["layout"], "columns": src["columns"]}
+        shape = {"format": src["format"], "layout": src["layout"], "columns": src["columns"], "records": src["records"]}
         with _versions_lock(d):
             records = _read_versions(d, source)
             latest = _loaded_version(records, src)
@@ -902,7 +931,8 @@ def _record_runs(d: Path, pack: Pack, report: dict[str, Any]) -> None:
         with _versions_lock(d):
             latest = _loaded_version(_read_versions(d, src["name"]), src)
             latest["runs"].append({"run_id": report["run_id"], "rows": w["rows"]})
-            latest["source"] = {"format": src["format"], "layout": src["layout"], "columns": src["columns"]}
+            latest["source"] = {"format": src["format"], "layout": src["layout"], "columns": src["columns"],
+                                "records": src["records"]}
             _save_version(d, src["name"], latest)
 
 

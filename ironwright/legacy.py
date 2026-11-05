@@ -10,7 +10,8 @@ import json
 import os
 import re
 import sqlite3
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
@@ -75,6 +76,74 @@ def empty_trailing_columns(header: list[str], rows: Iterable[list[str]]) -> int:
     return count
 
 
+# ---------------------------------------------------------------- records that are not data
+# One rule for the profiler that proposes a skip and the reader that honours it.
+
+MAX_TRAILER = 3
+TRAILER_CELL = re.compile(r"\s*([*=#-]{2,}|total\b|grand total\b|end of\b|eof\b|trailer\b|trl\b|record count\b)", re.IGNORECASE)
+RECORD_TRAILER = re.compile(r"(TRL|TRAILER|EOF|END)([^A-Za-z]|$)")
+RECORD_HEADER = re.compile(r"(HDR|HEADER)([^A-Za-z]|$)")
+_NUMBER = re.compile(r"[+-]?\d*\.?\d+")
+_COUNT = r"(\d[\d,]*)(?![\d,./-])"  # the lookahead keeps a date or an amount from reading as a count
+_DECLARED = (re.compile(rf"(?:records?|rows?|count)\W{{0,3}}{_COUNT}", re.IGNORECASE),
+             re.compile(rf"{_COUNT}\s*(?:records?|rows?)\b", re.IGNORECASE),
+             re.compile(rf"\s*(?:TRL|TRAILER|EOF|END)\W{{0,3}}{_COUNT}\s*$"))
+
+
+def csv_header_record(cells: list[str], width: int) -> bool:
+    """A lone note above the table, or HDR with data beside it. A column that happens
+    to be called header has a name next to it, so it stays the names row."""
+    if width < 2:
+        return False
+    rest = [c.strip() for c in cells[1:]]
+    if sum(bool(c.strip()) for c in cells) == 1:
+        return True
+    return len(cells) == width and bool(RECORD_HEADER.match(cells[0].strip())) and any(
+        not c or _NUMBER.fullmatch(c) for c in rest)
+
+
+def csv_trailer_record(cells: list[str], width: int) -> bool:
+    return len(cells) != width or bool(TRAILER_CELL.match(cells[0]))
+
+
+def fixed_header_record(line: str, length: int) -> bool:
+    return len(line) != length or bool(RECORD_HEADER.match(line))
+
+
+def fixed_trailer_record(line: str, length: int) -> bool:
+    return len(line) != length or bool(RECORD_TRAILER.match(line))
+
+
+def declared_rows(lines: Iterable[str]) -> int | None:
+    """The count a trailer states about the file, if it states one."""
+    for line in lines:
+        for pattern in _DECLARED:
+            m = pattern.search(line)
+            if m:
+                return int(m.group(1).replace(",", ""))
+    return None
+
+
+def _trim(src: dict[str, Any], records: list[Any], header_like: Callable[[Any], bool], trailer_like: Callable[[Any], bool],
+          text: Callable[[Any], str]) -> tuple[list[Any], dict[str, Any]]:
+    """Honour the decision, but only on records that still look like what was decided.
+    The decision outlives the file it was made on, and the next extract may come without
+    a trailer: a blind cut would drop a real row from every refresh."""
+    decided = src.get("records") or {}
+    start = 0
+    while start < min(decided.get("skip_header", 0), len(records)) and header_like(records[start]):
+        start += 1
+    end = len(records)
+    while len(records) - end < decided.get("skip_footer", 0) and end > start and trailer_like(records[end - 1]):
+        end -= 1
+    left = 0
+    while left < MAX_TRAILER and end - left > start and trailer_like(records[end - left - 1]):
+        left += 1
+    tail = records[end - left:]
+    return records[start:end], {"skipped_header": start, "skipped_footer": len(records) - end, "left_in": left,
+                                "declared_rows": declared_rows(text(r) for r in reversed(tail)), "lines": len(records)}
+
+
 def _upload_text(src: dict[str, Any]) -> str:
     try:
         fd = os.open(src["upload_path"], os.O_RDONLY | os.O_NOFOLLOW)
@@ -90,6 +159,10 @@ def _upload_text(src: dict[str, Any]) -> str:
 
 
 def _read_upload_csv(src: dict[str, Any], text: str) -> list[dict[str, Any]]:
+    return _csv_with_records(src, text)[0]
+
+
+def _csv_with_records(src: dict[str, Any], text: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     layout = src["layout"]
     delimiter = layout.get("delimiter", ",")
     try:
@@ -97,6 +170,8 @@ def _read_upload_csv(src: dict[str, Any], text: str) -> list[dict[str, Any]]:
                  if any(c.strip() for c in r)]
     except csv.Error as e:
         raise IngestError(f"source {src['name']}: the file is not readable as csv") from e
+    width = Counter(len(r) for r in table).most_common(1)[0][0] if table else 0
+    table, report = _trim(src, table, lambda r: csv_header_record(r, width), lambda r: csv_trailer_record(r, width), " ".join)
     if layout.get("header", True):
         header = table[0] if table else []
         table = table[1:]
@@ -114,24 +189,50 @@ def _read_upload_csv(src: dict[str, Any], text: str) -> list[dict[str, Any]]:
         if len(cells) > width:  # never drop what the file said
             rec["_extra"] = delimiter.join(cells[width:])
         rows.append(rec)
-    return rows
+    report["data_rows"] = len(rows) - report["left_in"]
+    return rows, report
+
+
+def fixed_body(src: dict[str, Any], text: str) -> tuple[list[str], dict[str, Any]]:
+    """The records to load, and what happened to the rest."""
+    # Split on line ends only: str.splitlines also breaks on bytes like 0x85.
+    lines = [ln.rstrip("\r") for ln in text.split("\n") if ln.strip()]
+    length = Counter(len(ln) for ln in lines).most_common(1)[0][0] if lines else 0
+    fields = src["layout"]["fields"]
+
+    def header_like(line: str) -> bool:  # a row of names holds no number, a record usually does
+        cells = [line[f["start"]:f["start"] + f["width"]].strip() for f in fields]
+        return fixed_header_record(line, length) or not any(_NUMBER.fullmatch(c) for c in cells)
+
+    body, report = _trim(src, lines, header_like, lambda ln: fixed_trailer_record(ln, length), str)
+    report["data_rows"] = len(body) - report["left_in"]
+    return body, report
+
+
+def _fixed_rows(src: dict[str, Any], lines: list[str]) -> list[dict[str, Any]]:
+    return [{f["name"]: line[f["start"]:f["start"] + f["width"]].strip() for f in src["layout"]["fields"]}
+            for line in lines]
 
 
 def _read_upload_fixed_width(src: dict[str, Any], text: str) -> list[dict[str, Any]]:
-    # Split on line ends only: str.splitlines also breaks on bytes like 0x85.
-    rows = []
-    for line in text.split("\n"):
-        if line.strip():
-            rows.append({f["name"]: line.rstrip("\r")[f["start"]:f["start"] + f["width"]].strip()
-                         for f in src["layout"]["fields"]})
-    return rows
+    return _fixed_with_records(src, text)[0]
+
+
+def _fixed_with_records(src: dict[str, Any], text: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    body, report = fixed_body(src, text)
+    return _fixed_rows(src, body), report
 
 
 def read_upload(src: dict[str, Any]) -> pa.Table:
     """One tenant upload as bronze strings, through the same rows_to_table road."""
+    return read_upload_with_records(src)[0]
+
+
+def read_upload_with_records(src: dict[str, Any]) -> tuple[pa.Table, dict[str, Any]]:
+    """The table, plus what the run says about the records that are not data. Counts only."""
     text = _upload_text(src)
-    reader = _read_upload_fixed_width if src["format"] == "fixed_width" else _read_upload_csv
-    rows = reader(src, text)
+    reader = _fixed_with_records if src["format"] == "fixed_width" else _csv_with_records
+    rows, report = reader(src, text)
     if not rows:
         raise IngestError(f"source {src['name']}: the file has no data rows")
     seen = {k for r in rows for k in r}
@@ -141,7 +242,7 @@ def read_upload(src: dict[str, Any]) -> pa.Table:
     file_name = Path(src["upload_path"]).name
     for r in rows:
         r["_source_file"] = file_name
-    return rows_to_table(rows)
+    return rows_to_table(rows), report
 
 
 def read_source(src: dict[str, Any], legacy_dir: Path) -> pa.Table:

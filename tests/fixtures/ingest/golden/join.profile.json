@@ -126,6 +126,7 @@
      "type": "date"
     }
    ],
+   "declared_rows": null,
    "encoding_confidence": 0.9,
    "encoding_reason": "Every byte is ASCII, which UTF-8 reads the same way.",
    "format": "csv",
@@ -142,6 +143,7 @@
    "name": "customers.csv",
    "rows": 6,
    "source": "customers",
+   "trailer_by_name": 0,
    "trailer_rows": 0,
    "truncated": false
   },
@@ -291,6 +293,7 @@
      "type": "date"
     }
    ],
+   "declared_rows": null,
    "encoding_confidence": 0.9,
    "encoding_reason": "Every byte is ASCII, which UTF-8 reads the same way.",
    "format": "csv",
@@ -307,6 +310,7 @@
    "name": "orders.csv",
    "rows": 7,
    "source": "orders",
+   "trailer_by_name": 0,
    "trailer_rows": 0,
    "truncated": false
   }
