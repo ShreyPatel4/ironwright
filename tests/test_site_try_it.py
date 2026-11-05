@@ -1,7 +1,6 @@
 """The landing page's Try it section: every claim names a test that exists, and every link is real."""
 from __future__ import annotations
 
-import ast
 import re
 from html.parser import HTMLParser
 from pathlib import Path
@@ -49,11 +48,6 @@ def section() -> Section:
     return s
 
 
-def _test_names(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text())
-    return {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
-
-
 def test_the_section_is_there_and_the_nav_finds_it(section):
     assert section.ids and section.ids[0] == "try"
     assert 'href="#try"' in HTML
@@ -68,7 +62,7 @@ def test_it_links_the_film_and_its_poster_relatively(section):
 def test_the_sign_up_link_is_a_placeholder_that_says_so(section):
     """Nothing is deployed. .invalid can never resolve to somebody else's site, and the page says it."""
     signup = [a for a in section.links if a.get("data-try") == "signup"]
-    assert [a["href"] for a in signup] == ["https://staging.ironwright.invalid/console/"]
+    assert [a["href"] for a in signup] == ["https://ironwright.invalid/staging/console/"]
     assert "placeholder" in " ".join(section.text).lower()
 
 
@@ -77,9 +71,9 @@ def test_three_claims_each_link_a_test_that_exists(section):
     assert len(claims) == 3
     for a in claims:
         assert a["href"].startswith(BLOB), a["href"]
-        path, _, test = a["href"][len(BLOB):].partition("#")
-        assert a["data-claim"] == test
-        assert test in _test_names(ROOT / path), f"{path} has no {test}"
+        path, _, anchor = a["href"][len(BLOB):].partition("#L")
+        line = (ROOT / path).read_text().splitlines()[int(anchor) - 1]
+        assert line.startswith(f"def {a['data-claim']}("), f"{a['href']} now lands on: {line}"
 
 
 def test_the_copy_follows_the_house_style(section):

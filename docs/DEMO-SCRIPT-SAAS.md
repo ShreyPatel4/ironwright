@@ -89,7 +89,10 @@ write into `media/`.
 
 | Beat | What it needs | Who |
 |---|---|---|
-| silver | F2's silver draft (#39) | F2 |
-| action | Tenant routes for approvals and actions (#24), plus a tenant action with `requires_approval` and a policy that permits it. Workspaces hold no actions today | Nobody yet |
-| audit | Tenant routes for the audit log (#24) | Nobody yet |
+| silver | The silver draft (#39) | F2 |
+| action | The tenant routes for approvals and actions (#24) | G2 |
+| action | A workspace that holds an action with `requires_approval` and a policy that permits it. Workspaces refuse actions today, and the proposer writes none | Nobody yet |
+| action | A console button that requests an action. The chips on an object page only read, so the film asks through the session's own API call | Nobody yet |
+| action | The approver's identity taken from the session. The decide route takes it from the request body, so the caption has no server check behind it yet | Nobody yet |
+| audit | The tenant routes for the audit log (#24) | G2 |
 | every beat | The compose stack, for the take itself | Me |

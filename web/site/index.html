@@ -111,13 +111,13 @@ footer{margin-top:96px;padding-top:24px;border-top:1px solid var(--line);color:v
     <h2>Try it</h2>
     <p class="sub">This is the hosted product I am building. A team signs up, uploads messy exports, and ends at a grounded answer, while a second org on the same stack sees none of it. Watch one insurer walk it, then walk it yourself.</p>
     <div class="film"><video controls preload="none" playsinline poster="media/demo/ironwright-saas-demo.jpg" src="media/demo/ironwright-saas-demo.mp4" aria-label="The hosted product film"></video></div>
-    <div class="cta try-cta"><a class="btn primary" data-try="film" href="media/demo/ironwright-saas-demo.mp4">Watch the walkthrough</a><a class="btn" data-try="signup" href="https://staging.ironwright.invalid/console/">Sign up on staging</a></div>
+    <div class="cta try-cta"><a class="btn primary" data-try="film" href="media/demo/ironwright-saas-demo.mp4">Watch the walkthrough</a><a class="btn" data-try="signup" href="https://ironwright.invalid/staging/console/">Sign up on staging</a></div>
     <p class="caption">The staging address is a placeholder. Nothing is deployed there yet.</p>
     <h3 class="claims-title">Three claims, and the test that proves each one</h3>
     <ul class="claims">
-      <li>A second org gets the same 404 on everything the first owns as on things that never existed. <a data-claim="test_b_gets_the_same_404_on_everything_a_owns_as_on_nothing" href="https://github.com/ShreyPatel4/ironwright/blob/main/tests/test_isolation_routes.py#test_b_gets_the_same_404_on_everything_a_owns_as_on_nothing">Read the test</a></li>
-      <li>A new org goes from sign-up to an answer that cites evidence it really gathered, in a real browser on a real server. <a data-claim="test_sign_up_to_a_cited_answer_over_clean_csvs" href="https://github.com/ShreyPatel4/ironwright/blob/main/tests/e2e/test_wizard_real_backend.py#test_sign_up_to_a_cited_answer_over_clean_csvs">Read the test</a></li>
-      <li>Model output never reaches a function call. Rules pick what runs, whatever a model says. <a data-claim="test_ask_model_output_never_reaches_a_function_call" href="https://github.com/ShreyPatel4/ironwright/blob/main/tests/test_prompt_boundary.py#test_ask_model_output_never_reaches_a_function_call">Read the test</a></li>
+      <li>A second org gets the same 404 on everything the first owns as on things that never existed. <a data-claim="test_b_gets_the_same_404_on_everything_a_owns_as_on_nothing" href="https://github.com/ShreyPatel4/ironwright/blob/main/tests/test_isolation_routes.py#L214">Read the test</a></li>
+      <li>A new org goes from sign-up to an answer that cites evidence it really gathered, in a real browser on a real server. <a data-claim="test_sign_up_to_a_cited_answer_over_clean_csvs" href="https://github.com/ShreyPatel4/ironwright/blob/main/tests/e2e/test_wizard_real_backend.py#L194">Read the test</a></li>
+      <li>Model output never reaches a function call. Rules pick what runs, whatever a model says. <a data-claim="test_ask_model_output_never_reaches_a_function_call" href="https://github.com/ShreyPatel4/ironwright/blob/main/tests/test_prompt_boundary.py#L408">Read the test</a></li>
     </ul>
   </section>
 

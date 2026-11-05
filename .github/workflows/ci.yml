@@ -47,6 +47,7 @@ jobs:
         run: |
           pytest -q -rs tests/e2e/test_wizard_real_backend.py | tee wizard.txt
           ! grep -q SKIPPED wizard.txt
+      - run: sudo apt-get install -y ffmpeg   # the recorder's cut is proved with the real tool
       - name: The screens the film shows, and the recorder's overlay, in a browser
         run: |
           pytest -q -rs tests/e2e/test_console_polish.py tests/test_record_demo.py | tee polish.txt
