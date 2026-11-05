@@ -5,7 +5,8 @@ change a plan: billing is a non-goal, so an owner who could pick `team` would ma
 every limit here decorative. The operator calls set_plan.
 
 The dev org has no limits. It is what IRONWRIGHT_DEV_OPEN maps to, and it runs the
-demo packs, which no tenant can write to.
+demo packs, which no tenant can write to. A tenant may Ask a demo pack, and that
+question spends the tenant's own limit.
 """
 from __future__ import annotations
 

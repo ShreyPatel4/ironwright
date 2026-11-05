@@ -38,7 +38,7 @@ from . import workspaces_tenant as wt
 from .asof import router as asof_router
 from .auth import ctx
 from .bi import router as bi_router
-from .config import data_root, safe_child, write_private
+from .config import data_root, demo_ask_log, ensure_tenant, safe_child, write_private
 from .engines import router as engines_router
 from .ingest import journey_routes
 from .ingest.routes import router as ingest_router
@@ -148,6 +148,12 @@ READ_ONLY_POSTS = frozenset({
     "/workspaces/{name}/lake/query",
     "/workspaces/{name}/governance/check",
 })
+# Ask on a demo pack. It still needs a member and spends that org's quota, so it is not a
+# read in the sense above, and a viewer stays out. What it writes goes under the asking org.
+DEMO_ASK_POSTS = frozenset({
+    "/workspaces/{name}/ask",
+    "/workspaces/{name}/ask/replay",
+})
 # The lowest role for each write. A write not listed here needs owner, so a
 # route nobody thought about fails closed. Reads need viewer.
 WRITE_ROLES = {
@@ -185,6 +191,11 @@ WRITE_ROLES = {
 }
 
 
+def _read_only_for(c: Ctx) -> bool:
+    """Is a demo pack shared for this caller? The dev org owns the packs on its own server."""
+    return c.org_id != DEV_ORG_ID
+
+
 def _gate(request: Request) -> None:
     """The app-wide door. It runs before any handler, on every route, router or not.
 
@@ -206,7 +217,7 @@ def _gate(request: Request) -> None:
         name = request.path_params["name"]
         if not tenancy.can_see_workspace(c, name):
             raise HTTPException(404, NOT_FOUND)
-        if writing and c.org_id != DEV_ORG_ID and name in list_packs():
+        if writing and template not in DEMO_ASK_POSTS and _read_only_for(c) and name in list_packs():
             raise HTTPException(403, "demo packs are read only; work in your own workspace")
     if writing and not at_least(role, WRITE_ROLES.get(template, "owner")):
         raise HTTPException(403, f"your role in this org is {role}, which cannot do this")
@@ -255,12 +266,31 @@ def _ask_pack(name: str, c: Ctx):
         raise HTTPException(422, str(e)) from e
 
 
+def _shared_with(pack, c: Ctx) -> bool:
+    """A demo pack's folder, which every org reads, for an org that is only visiting."""
+    return not pack.is_tenant and _read_only_for(c)
+
+
+def _ask_log(pack, c: Ctx) -> pathlib.Path | None:
+    """Where this caller's questions are kept. On a demo pack, under the org that asked: the
+    pack's folder is read by every org, and a question is that org's business. None means
+    the pack's own log, which is right for a workspace of this org and for a dev server."""
+    return demo_ask_log(c.org_id, pack.name) if _shared_with(pack, c) else None
+
+
+def _ask_ontology(pack, log_path: pathlib.Path | None):
+    """A log kept under the asking org means a visitor on a demo pack, so no shared trace either."""
+    return _ontology(pack) if log_path is None else _ontology(pack, traced=False)
+
+
 @contextlib.contextmanager
-def _ontology(pack) -> Iterator[Ontology]:
+def _ontology(pack, traced: bool = True) -> Iterator[Ontology]:
     # A tenant's reads touch only objects and links, so its lake stays closed here. The
     # worker is another process, and DuckDB holds a file lock while a run builds the store.
+    # traced=False is for a visitor on a demo pack: a span names the principal, and every
+    # org can read that pack's traces.
     try:
-        ont = Ontology(pack, Tracer(pack.paths.ensure().traces), attach_lake=not pack.is_tenant)
+        ont = Ontology(pack, Tracer(pack.paths.ensure().traces if traced else None), attach_lake=not pack.is_tenant)
     except duckdb.IOException as e:
         if not pack.is_tenant:
             raise
@@ -318,6 +348,7 @@ def create_platform_app() -> FastAPI:
             pack = load_pack(name)
             out.append({"name": name, "kind": "pack", "title": pack.title,
                         "decision": pack.spec.get("decision"),
+                        "read_only": _read_only_for(c),
                         "verification": verification.derive(pack)})
         for org in org_mod.list_organizations():
             if not tenancy.can_see_workspace(c, org["name"]):
@@ -670,8 +701,11 @@ def create_platform_app() -> FastAPI:
             c: CtxDep) -> dict[str, Any]:
         pack = _ask_pack(name, c)
         llm = quotas.start_ask(c.org_id, auth_mod._now())
-        with _ontology(pack) as ont:
-            entry = ask_mod.ask(pack, ont, body.question, principal=c.principal, llm=llm)
+        log_path = _ask_log(pack, c)
+        if log_path is not None:
+            ensure_tenant(c.org_id)
+        with _ask_ontology(pack, log_path) as ont:
+            entry = ask_mod.ask(pack, ont, body.question, principal=c.principal, llm=llm, log_path=log_path)
             entry["verification"] = verification.derive(pack)
             return entry
 
@@ -772,18 +806,21 @@ def create_platform_app() -> FastAPI:
 
     @app.get("/workspaces/{name}/ask/log")
     def ask_log(name: str, c: CtxDep) -> list[dict[str, Any]]:
-        return ask_mod.read_log(_ask_pack(name, c))
+        pack = _ask_pack(name, c)
+        return ask_mod.read_log(pack, _ask_log(pack, c))
 
     @app.get("/workspaces/{name}/ask/metrics")
     def ask_metrics(name: str, c: CtxDep) -> dict[str, Any]:
-        return ask_mod.metrics(_ask_pack(name, c))
+        pack = _ask_pack(name, c)
+        return ask_mod.metrics(pack, _ask_log(pack, c))
 
     @app.post("/workspaces/{name}/ask/replay")
     def ask_replay(name: str, body: ReplayBody, c: CtxDep) -> dict[str, Any]:
         pack = _ask_pack(name, c)
-        with _ontology(pack) as ont:
+        log_path = _ask_log(pack, c)
+        with _ask_ontology(pack, log_path) as ont:
             try:
-                return ask_mod.replay(pack, ont, body.index)
+                return ask_mod.replay(pack, ont, body.index, log_path)
             except IndexError as e:
                 raise HTTPException(404, str(e))
 

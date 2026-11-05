@@ -96,6 +96,11 @@ def ensure_tenant(org_id: str) -> Path:
     return org
 
 
+def demo_ask_log(org_id: str, pack: str) -> Path:
+    """One org's questions on one demo pack. Under the org's folder, so they leave with the org."""
+    return safe_child(safe_child(tenant_dir(org_id), "demo_asks"), f"{pack}.jsonl", FILE_NAME)
+
+
 def upload_file(org_id: str, ref: str) -> Path:
     """<upload_id>/<file> under this org's uploads, or UnsafePath. Exactly two
     parts, each a plain child, so a ref cannot climb or name another org."""
