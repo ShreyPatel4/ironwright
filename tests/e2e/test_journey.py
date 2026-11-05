@@ -116,8 +116,6 @@ def test_ask_reaches_a_tenant_workspace(stack, tenant_workspace):
                    body={"question": "how many claims are there"})
 
 
-# W2: GET /workspaces/{ws}/ontology/proposal and POST .../accept
-@X1
 def test_the_ontology_is_proposed_and_accepted(stack, tenant_workspace):
     state = journey.fresh_state()
     journey.signup_a(stack, state)

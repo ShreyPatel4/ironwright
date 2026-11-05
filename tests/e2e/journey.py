@@ -39,8 +39,8 @@ MIN_ISOLATION_ROUTES = 50
 
 # What each one waits on: a profile job needs POST /jobs to take a workspace that does not exist
 # yet. Accepting needs a route that calls create_workspace, and GET /workspaces has to list the
-# result. Ontology needs its routes. Ask needs _pack() to resolve a tenant workspace.
-BLOCKED: dict[str, str] = dict.fromkeys(["profile_job", "accept_proposal", "ontology_accept", "ask"], "X1: journey routes")
+# result. Ask needs _pack() to resolve a tenant workspace.
+BLOCKED: dict[str, str] = dict.fromkeys(["profile_job", "accept_proposal", "ask"], "X1: journey routes")
 
 
 @dataclass
@@ -162,12 +162,16 @@ def run_job(stack: Stack, state: State) -> None:
 
 
 def ontology_accept(stack: Stack, state: State) -> None:
+    """Propose, read, accept as it stands. Accepting queues a run, and Ask needs it finished."""
+    step = "ontology_accept"
+    _wait_job(stack, state, _job(stack, state, "ontology_propose", state.workspace, {}, step), step)
     base = f"/workspaces/{state.workspace}/ontology"
-    proposal = expect(stack, "GET", f"{base}/proposal", 200, "ontology_accept", token=state.a_token)
+    proposal = expect(stack, "GET", f"{base}/proposal", 200, step, token=state.a_token)
     if not proposal["objects"]:
-        raise Broken("ontology_accept", "the proposal holds no objects")
-    expect(stack, "POST", f"{base}/accept", 200, "ontology_accept", token=state.a_token,
-           body={"proposal_id": proposal["id"], "edits": {}})
+        raise Broken(step, "the proposal holds no objects")
+    done = expect(stack, "POST", f"{base}/accept", 200, step, token=state.a_token,
+                  body={"proposal_id": proposal["id"], "edits": []})
+    _wait_job(stack, state, done["job_id"], step)
 
 
 def ask(stack: Stack, state: State) -> None:
