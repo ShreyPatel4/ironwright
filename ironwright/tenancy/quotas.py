@@ -101,6 +101,13 @@ def storage_used(org_id: str) -> int:
     return total
 
 
+def _size(n: int) -> str:
+    for unit, scale in (("GB", GIB), ("MB", 1024 ** 2), ("KB", 1024)):
+        if n >= scale:
+            return f"{n / scale:.1f} {unit}"
+    return f"{n} bytes"
+
+
 def start_upload(org_id: str, content_length: str | None, now: float) -> None:
     """Storage first, so a refusal there does not spend one of today's uploads.
 
@@ -112,8 +119,8 @@ def start_upload(org_id: str, content_length: str | None, now: float) -> None:
         held = storage_used(org_id)
         incoming = max(int(content_length), 0) if (content_length or "").isdecimal() else 0
         if held >= cap or held + incoming > cap:
-            raise QuotaExceeded(f"This upload would take your org over its {cap} bytes of storage on the "
-                                f"{plan_of(org_id)} plan. {held} bytes are in use.")
+            raise QuotaExceeded(f"This upload would take your org over its {_size(cap)} of storage on the "
+                                f"{plan_of(org_id)} plan. {_size(held)} are in use.")
     spend(org_id, "uploads", now)
 
 

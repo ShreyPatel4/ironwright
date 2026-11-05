@@ -858,3 +858,10 @@ def test_a_refused_upload_gives_its_upload_back(api):
     assert usage.used(a["org_id"], "uploads", NOON) == 0
     assert c.post("/uploads", headers=bearer(a), files=[("files", ("one.csv", b"id\n1\n"))]).status_code == 201
     assert usage.used(a["org_id"], "uploads", NOON) == 1
+
+
+def test_the_storage_refusal_reads_in_units_a_person_uses(meta_db):
+    org = "a" * 32
+    with pytest.raises(quotas.QuotaExceeded) as refused:
+        quotas.start_upload(org, str(2 * quotas.GIB), NOON)
+    assert "1.0 GB" in refused.value.detail and "1073741824" not in refused.value.detail
