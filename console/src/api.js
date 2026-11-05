@@ -127,6 +127,7 @@ export const api = {
   },
   uploads: () => req("/uploads"),
   uploadProfile: (id) => req(`/uploads/${id}/profile`),
+  startProfile: (id) => post(`/uploads/${id}/profile`, {}),
   uploadProposal: (id) => req(`/uploads/${id}/proposal`),
   createJob: (kind, workspace, params = {}) => post("/jobs", { kind, workspace, params }),
   jobs: (workspace) => req(`/jobs?workspace=${encodeURIComponent(workspace)}`),

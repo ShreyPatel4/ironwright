@@ -3,8 +3,7 @@
 Three rules keep this honest:
 
   It reads a file the way bronze does. Names come from legacy's reader, not the
-  profiler, because they differ (`date` against `date_`). A check on names the run
-  never sees would report drift that is not there.
+  profiler. A check on names the run never sees would report drift that is not there.
 
   It compares against what was accepted, which is the spec plus the last file. A
   real export starts out messy: a trailing comma column, a duplicate key, an amount
@@ -140,6 +139,8 @@ def _item(kind: str, severity: str, message: str, **more: Any) -> dict[str, Any]
 
 
 def _missing(src: dict[str, Any], new: Observation, base: Observation | None, loaded_before: bool) -> list[dict[str, Any]]:
+    if base is None and not loaded_before:
+        return []  # no earlier file and no run: nothing to drift from. The loader judges the spec.
     declared = src["columns"]
     fixed = src["format"] == "fixed_width"
     gone = [c for c in declared if c["name"] not in new.present

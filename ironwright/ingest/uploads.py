@@ -77,6 +77,26 @@ def manifest(org_id: str, upload_id: str) -> dict[str, Any]:
     return json.loads((upload_dir(org_id, upload_id) / MANIFEST).read_text())
 
 
+def profile_job_label(upload_id: str) -> str:
+    """A job row needs a workspace name and a profile comes before any workspace. This
+    label keeps it apart from real workspaces in GET /jobs?workspace=."""
+    return f"upload-{upload_id}"
+
+
+def list_uploads(org_id: str) -> list[dict[str, Any]]:
+    """Every committed upload of this org, newest first. A staging folder has its own
+    name shape, so it never shows."""
+    root = uploads_root(org_id)
+    if not root.is_dir():
+        return []
+    found = []
+    for folder in root.iterdir():
+        made = folder / MANIFEST
+        if UPLOAD_ID.fullmatch(folder.name) and made.is_file():
+            found.append((made.stat().st_mtime_ns, folder.name, made))
+    return [json.loads(made.read_text()) for _, _, made in sorted(found, reverse=True)]
+
+
 def sniff_text(path: Path) -> None:
     """Refuse bytes that are not text. Reads the whole file: a text head over a
     binary tail is still binary. A latin-1 decode proves nothing, it never fails."""

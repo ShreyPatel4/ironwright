@@ -20,7 +20,7 @@ import yaml
 from ironwright import workspaces_tenant as wt
 from ironwright.ingest import propose as propose_mod
 from ironwright.ingest import uploads
-from ironwright.ingest.profiler import profile, profile_files
+from ironwright.ingest.profiler import profile, profile_files, snake
 
 FIXTURES = Path(__file__).parent / "fixtures" / "ingest"
 ORG_A, ORG_B = "a" * 32, "b" * 32
@@ -374,10 +374,16 @@ def test_duplicate_and_blank_header_names_stay_distinct():
     assert len(set(names)) == 4
 
 
-def test_a_reserved_word_header_is_renamed():
-    """Build log, smaller ones: a month column broke DuckDB parsing."""
+def test_a_reserved_word_header_keeps_the_name_bronze_reads():
+    """It used to come back as month_, which bronze never held, so the first run failed.
+    tests/test_journey_seams.py walks a file like this to a cited answer."""
     f = one("t.csv", b"month,select\n1,2\n3,4\n")
-    assert [c["name"] for c in f["columns"]] == ["month_", "select_"]
+    assert [c["name"] for c in f["columns"]] == ["month", "select"]
+
+
+def test_a_fixed_width_layout_still_renames_a_reserved_word():
+    """A layout declares its own names, so the tidier one can stay."""
+    assert snake("month", "x") == "month_"
 
 
 # ------------------------------------------------------------- messy structure

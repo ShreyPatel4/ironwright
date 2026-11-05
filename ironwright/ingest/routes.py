@@ -18,6 +18,7 @@ from starlette.concurrency import run_in_threadpool
 from .. import auth
 from .. import workspaces_tenant as wt
 from ..config import UnsafePath
+from ..jobs.store import JobStore
 from ..tenancy import Ctx, quotas
 from . import uploads
 
@@ -58,6 +59,19 @@ def _read(org_id: str, upload_id: str, name: str) -> Any:
         return json.loads((uploads.upload_dir(org_id, upload_id) / name).read_text())
     except (UnsafePath, FileNotFoundError) as e:
         raise HTTPException(404, NOT_FOUND) from e
+
+
+@router.get("/uploads")
+def list_uploads(c: CtxDep) -> list[dict[str, Any]]:
+    """This org's uploads, newest first, each with how far it has got. The wizard resumes
+    from this, so the status lives here and the job's label stays on the server."""
+    store, out = JobStore(), []
+    for made in uploads.list_uploads(c.org_id):
+        folder = uploads.upload_dir(c.org_id, made["id"])
+        jobs = store.list(c.org_id, uploads.profile_job_label(made["id"]), limit=1)
+        out.append({**made, "profile_job": {"id": jobs[0]["id"], "state": jobs[0]["state"]} if jobs else None,
+                    "profiled": (folder / "profile.json").is_file(), "proposed": (folder / "proposal.json").is_file()})
+    return out
 
 
 @router.get("/uploads/{upload_id}")

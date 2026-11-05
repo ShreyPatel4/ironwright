@@ -1,8 +1,8 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// Built output is committed and served by `ironwright platform` at /console/,
-// so the one-command local story (uv only, no node at runtime) holds.
+// Built output is gitignored (make console) and served by `ironwright platform` at
+// /console/. It warns when dist is missing or older than src.
 export default defineConfig({
   plugins: [react()],
   base: "/console/",

@@ -56,7 +56,7 @@ export default function ProfileStep({ journey, advance }) {
 
   async function start() {
     setBusy(true); setErr(null);
-    try { setStartedId((await api.createJob("profile", upload.id, { upload_id: upload.id })).id); }
+    try { setStartedId((await api.startProfile(upload.id)).id); }
     catch (e) { setErr(e); }
     setBusy(false);
   }

@@ -27,6 +27,7 @@ from typing import Any
 import yaml
 
 from ..config import FILE_NAME, safe_child, write_private
+from ..legacy import _column_name, empty_trailing_columns
 from . import uploads
 from .propose import propose
 
@@ -63,7 +64,7 @@ _KEY_SUFFIX = re.compile(r"_(id|key|nbr|no|num|number|code)$")
 _TRAILER = re.compile(r"\s*([*=#-]{2,}|total\b|grand total\b|end of\b|eof\b|trailer\b|trl\b|record count\b)", re.IGNORECASE)
 _RECORD_TRAILER = re.compile(r"(TRL|TRAILER|EOF|END)([^A-Za-z]|$)")
 _RECORD_HEADER = re.compile(r"(HDR|HEADER)([^A-Za-z]|$)")
-_GENERATED_NAME = re.compile(r"(field|column)_\d+")
+_GENERATED_NAME = re.compile(r"(field|col)_\d+")
 _TRAILING_NUMBER = re.compile(r"_?\d+$")
 _HEADER_CELL = re.compile(r"[A-Za-z_][\w .#/()-]*")
 
@@ -284,17 +285,23 @@ def _is_header(first: list[str], rest: list[list[str]]) -> tuple[bool, float, st
         below = Counter(r[i].strip() for r in rest if i < len(r) and r[i].strip().lower() not in NULL_TOKENS)
         if c and below and _infer(below, "")["type"] != "string":
             return True, 0.95, "The first row is text above a column of typed values."
+    while cells and not cells[-1]:  # a header that ends in a delimiter is still a header
+        cells.pop()
     if all(_HEADER_CELL.fullmatch(c) for c in cells) and len({c.lower() for c in cells}) == len(cells):
         return True, 0.6, "Every column is text, so this is weaker: the first row looks like distinct names."
     return False, 0.6, "The first row does not look like distinct names."
 
 
-def _column_names(first: list[str], header: bool, width: int) -> tuple[list[str], list[str]]:
+def _column_names(first: list[str], header: bool, width: int, *, reader: bool = False) -> tuple[list[str], list[str]]:
+    """`reader`: a delimited file's spec has to carry the names bronze reads from its header
+    (contract 3), or the first run looks for a column nothing ever wrote. A fixed width
+    layout declares its own names, so those stay free to be tidier."""
     if not header:
         names = [f"field_{i + 1}" for i in range(width)]
         return names, names
     sources = [(first[i] if i < len(first) else "").strip() for i in range(width)]
-    return unique_names(snake(s, f"column_{i + 1}") for i, s in enumerate(sources)), sources
+    made = (_column_name(s, i) if reader else snake(s, f"col_{i + 1}") for i, s in enumerate(sources))
+    return unique_names(made), sources
 
 
 # -------------------------------------------------------------- delimiters
@@ -344,8 +351,11 @@ def _profile_delimited(name: str, text: str, delimiter: str, cut: bool) -> dict[
     good = [c for _, c in body if len(c) == width]
     truncated = cut or len(good) > MAX_ROWS
     good = good[:MAX_ROWS]
-    names, sources = _column_names(first, header, width)
+    names, sources = _column_names(first, header, width, reader=True)
+    dropped = empty_trailing_columns(sources, [c for _, c in rows[1:]]) if header else 0
+    names, sources = names[:width - dropped], sources[:width - dropped]
     return {"format": "csv", "layout": {"delimiter": delimiter, "header": header}, "header_confidence": conf,
+            **({"empty_trailing_columns": list(range(width - dropped + 1, width + 1))} if dropped else {}),
             "header_reason": reason, "rows": len(good), "truncated": truncated, "leader_rows": 0, "trailer_rows": trailer,
             "bad_rows": {"count": len(bad), "lines": bad[:_MAX_BAD_LINES]},
             "_cells": good, "_names": names, "_sources": sources}
