@@ -19,6 +19,7 @@ from ironwright.platform_api import create_platform_app
 
 HERE = Path(__file__).parent
 UPLOADS = HERE / "fixtures" / "tenant_ws" / "uploads" / "fixture"
+INGEST = HERE / "fixtures" / "ingest"
 PASSWORD = "correct-horse-9"
 SLUG = "acme-claims"
 
@@ -53,8 +54,8 @@ def owner(client):
     return r.json()
 
 
-def profiled(c: TestClient, who: dict) -> tuple[str, dict]:
-    files = [("files", (f.name, f.read_bytes(), "text/csv")) for f in sorted(UPLOADS.glob("*.csv"))]
+def profiled(c: TestClient, who: dict, paths: list[Path] | None = None) -> tuple[str, dict]:
+    files = [("files", (f.name, f.read_bytes(), "text/csv")) for f in paths or sorted(UPLOADS.glob("*.csv"))]
     made = c.post("/uploads", headers=bearer(who), files=files)
     assert made.status_code == 201, made.text
     upload_id = made.json()["id"]
@@ -331,3 +332,28 @@ def test_a_demo_pack_has_no_silver_draft(client, owner):
         assert JobStore().get(owner["org_id"], start_job.json()["id"])["state"] == "failed"
     else:
         assert start_job.status_code in (403, 404)
+
+
+@pytest.mark.parametrize("path,source", [(INGEST / "messy" / "claims_export.csv", "claims_export"),
+                                         (INGEST / "mainframe" / "ITEMMAST.DAT", "itemmast")])
+def test_the_other_ingest_fixtures_run_green_through_the_routes(client, owner, path, source):
+    """Through write_wap, the checks and the evals, not just a view the test built."""
+    upload_id, proposal = profiled(client, owner, [path])
+    created(client, owner, upload_id, proposal)
+    r = client.post("/jobs", headers=bearer(owner), json={"kind": "run", "workspace": SLUG, "params": {}})
+    assert r.status_code == 200, r.text
+    got = work(owner["org_id"], r.json()["id"])
+    assert got["result"]["evals"]["passed"] is True, got["result"]
+    assert silver_rows(owner, f"select count(*) from silver_{source}") == [(8,)]
+
+
+def test_a_member_starting_the_job_changes_no_model_and_no_choice(client, owner):
+    """Any member may start any job kind, so this one must not be able to change what runs."""
+    upload_id, proposal = profiled(client, owner)
+    created(client, owner, upload_id, proposal, declined=["claims.collapse_on_key"])
+    folder = wt.load_workspace(owner["org_id"], SLUG).dir / "models" / "silver"
+    before = {f.name: f.read_bytes() for f in folder.iterdir()}
+    member = join_as(client, owner, "member", "member")
+    start(client, member, "silver_draft")
+    assert {f.name: f.read_bytes() for f in folder.iterdir()} == before
+    assert client.get(path(), headers=bearer(owner)).json()["declined"] == ["claims.collapse_on_key"]

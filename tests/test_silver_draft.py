@@ -138,6 +138,16 @@ def test_the_date_decision_names_the_formats_it_saw(tenant):
     assert d["formats"] == ["%Y-%m-%d", "%m/%d/%Y"]
 
 
+def test_a_month_first_guess_on_mixed_dates_says_so(tenant):
+    _, made = tenant
+    assert "month first" in decision(made, "claims", "claims.cast.loss_date")["reason"]
+
+
+def test_an_unambiguous_date_format_does_not_warn_about_month_first(tmp_path):
+    _, made = text_build(tmp_path, items="item_id,due_date\nA,2026-01-25\nB,2026-02-26\n")
+    assert "month first" not in decision(made, "items", "items.cast.due_date")["reason"]
+
+
 def test_the_key_comes_from_the_name_when_duplicates_hide_it_from_the_profile(tenant):
     _, made = tenant
     by_name = {s["name"]: s for s in made["sources"]}

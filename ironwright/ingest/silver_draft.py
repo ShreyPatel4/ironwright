@@ -41,6 +41,7 @@ from ..legacy import IngestError, read_upload
 from .profiler import (
     _COMPACT_DATE,
     _DATE_FORMATS,
+    _ORDER_PAIRS,
     _RECORD_HEADER,
     _RECORD_TRAILER,
     _TIMESTAMP_FORMATS,
@@ -372,6 +373,8 @@ def _cast_decision(con: duckdb.DuckDBPyConnection, name: str, plan: dict[str, An
            "boolean": f"I read the yes and no spellings in {column} as true and false."}.get(plan["cast"], f"I read {column} as {kind}.")
     if plan.get("formats"):
         how = f"I read {column} as {kind}, using the {len(plan['formats'])} formats I saw."
+        if any(f in _ORDER_PAIRS for f in plan["formats"]):
+            how += " A value that fits month first and day first reads as month first. Check this one."
     if lost:
         how += f" {lost} of {filled} values do not fit and read as null. The text stays in bronze."
     extra = {"formats": plan["formats"]} if plan.get("formats") else {}
