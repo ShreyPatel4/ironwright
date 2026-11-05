@@ -154,7 +154,7 @@ def _missing(src: dict[str, Any], new: Observation, base: Observation | None, lo
         elif whole:
             severity, why = "block", f"None of the declared columns are here, {name} included."
         elif not loaded_before and not fixed:
-            severity, why = "block", f"The column {name} is gone, and bronze has no earlier run to keep it."
+            severity, why = "block", f"The file has no column {name}, and bronze has no earlier run to keep it."
         else:
             severity, why = "warn", f"The column {name} is gone. Its rows read as null in this version."
         out.append(_item("missing_column", severity, why, column=name))
