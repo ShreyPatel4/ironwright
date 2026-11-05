@@ -44,7 +44,7 @@ export default function Pipeline({ ws, refresh }) {
           return (
             <div className={`stage ${st ? "ok" : busy ? "run" : ""}`} key={s}>
               <small>{s}</small>
-              <span className="t">{st ? `${st.seconds}s` : busy ? "…" : "—"}</span>
+              <span className="t">{st ? `${st.seconds}s` : busy ? "…" : "-"}</span>
             </div>
           );
         })}

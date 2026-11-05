@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api.js";
 import { Err } from "../../components.jsx";
+import { Loading } from "../onboarding/shared.jsx";
 import Members from "./Members.jsx";
 import Usage from "./Usage.jsx";
 import ModelKey from "./ModelKey.jsx";
@@ -38,7 +39,7 @@ export default function Settings({ onGone }) {
       </>
     );
   }
-  if (!me) return <><h2>Settings</h2><Err e={err} /></>;
+  if (!me) return <><h2>Settings</h2>{err ? <Err e={err} /> : <Loading what="your org's settings" />}</>;
 
   const tabs = TABS.filter(([, , needed]) => RANK.indexOf(me.role) >= RANK.indexOf(needed));
   const key = active ?? tabs[0][0];
