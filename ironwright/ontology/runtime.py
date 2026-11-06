@@ -112,6 +112,8 @@ class Ontology:
                 raise ActionError(f"{name}={v} above maximum {ptype['max']}")
             if "values" in ptype and v not in ptype["values"]:
                 raise ActionError(f"{name}={v} not one of {ptype['values']}")
+            if "max_length" in ptype and len(str(v)) > ptype["max_length"]:
+                raise ActionError(f"{name} is over {ptype['max_length']} characters")
         return v
 
     def _env(self, params_spec: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
@@ -163,7 +165,9 @@ class Ontology:
     # ---------------- actions ----------------
     def act(self, action: str, params: dict[str, Any], actor: str, on_behalf_of: str | None = None,
             idempotency_key: str | None = None, approved_by: str | None = None,
-            evidence: list[str] | None = None) -> dict[str, Any]:
+            evidence: list[str] | None = None, context: dict[str, Any] | None = None) -> dict[str, Any]:
+        """context is extra env for policy only (a tenant passes the caller's role).
+        It can never override what act() itself puts in the env."""
         adef = self.spec.get("actions", {}).get(action)
         if not adef:
             raise ActionError(f"unknown action {action}")
@@ -197,7 +201,7 @@ class Ontology:
             # The env carries a UTC clock so a time-bound rule (an escalation
             # grant's `now < 'date'`) can evaluate; absent a clock it fails closed.
             decision = self.policy.authorize(actor, f"action:{action}",
-                                             {**env, "principal": actor,
+                                             {**(context or {}), **env, "principal": actor,
                                               "approved_by": approved_by,
                                               "now": datetime.now(timezone.utc).isoformat()})
             if not decision.allowed:

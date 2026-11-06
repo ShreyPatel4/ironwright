@@ -78,6 +78,7 @@ class State:
     isolation_workspace: str | None = None
     isolation_job: str | None = None
     answer: dict[str, Any] = field(default_factory=dict)
+    decided: dict[str, Any] = field(default_factory=dict)
 
 
 def fresh_state(budget: float = 600.0) -> State:
@@ -184,9 +185,53 @@ def ask(stack: Stack, state: State) -> None:
     state.answer = entry
 
 
+def govern_action(stack: Stack, state: State) -> None:
+    """The owner authors an action, a member asks for it, the owner approves it.
+    Nothing changes before the approval, and the requester cannot decide their own ask."""
+    step = "govern_action"
+    ws = f"/workspaces/{state.workspace}"
+    catalog = expect(stack, "GET", f"{ws}/actions", 200, step, token=state.a_token)
+    if not catalog["object_types"]:
+        raise Broken(step, "the accepted ontology has no object type to act on")
+    otype = catalog["object_types"][0]["name"]
+    choices = {"template": "flag_for_review", "object_type": otype, "request_role": "member"}
+    draft = expect(stack, "POST", f"{ws}/actions/propose", 200, step, token=state.a_token, body=choices)
+    if not draft["requires_approval"]:
+        raise Broken(step, f"a draft must require approval by default: {draft}")
+    expect(stack, "POST", f"{ws}/actions/accept", 200, step, token=state.a_token,
+           body={**choices, "draft_id": draft["id"]})
+
+    invite = expect(stack, "POST", f"/orgs/{state.a_org_slug}/invites", 201, step, token=state.a_token,
+                    body={"email": f"e2e-member-{state.tag}@example.com", "role": "member"})
+    member = stack.call("POST", "/auth/accept-invite", body={"token": invite["token"], "password": state.password})
+    if member.status not in (200, 201):
+        raise Broken(step, f"the invite did not make a member: {member.status} {member.raw[:200]!r}")
+    m_token = member.json()["token"]
+    objects = expect(stack, "GET", f"{ws}/objects/{otype}", 200, step, token=m_token)
+    if not objects:
+        raise Broken(step, f"no {otype} objects to act on")
+    oid = objects[0]["_id"]
+    asked = expect(stack, "POST", f"{ws}/actions/{draft['name']}", 200, step, token=m_token,
+                   body={"params": {next(iter(draft["params"])): oid, "reason": "e2e check"}})
+    if asked["status"] != "needs_approval":
+        raise Broken(step, f"a member's request did not wait for approval: {asked}")
+    rows = expect(stack, "GET", f"{ws}/approvals", 200, step, token=state.a_token)
+    row = next((r for r in rows if oid in json.dumps(r["params"])), None)
+    if row is None or not row.get("preview"):
+        raise Broken(step, f"the approver sees no before and after: {rows}")
+    expect(stack, "POST", f"{ws}/approvals/{row['seq']}/decide", 403, step, token=m_token,
+           body={"decision": "approve"})
+    state.decided = expect(stack, "POST", f"{ws}/approvals/{row['seq']}/decide", 200, step, token=state.a_token,
+                           body={"decision": "approve"})
+    if state.decided["result"]["status"] != "applied":
+        raise Broken(step, f"the approved action did not apply: {state.decided}")
+    if not expect(stack, "GET", f"{ws}/audit/verify", 200, step, token=state.a_token)["intact"]:
+        raise Broken(step, "the audit chain broke")
+
+
 STEPS: list[tuple[str, Callable[[Stack, State], None]]] = [
     ("signup_a", signup_a), ("upload", upload), ("profile_job", profile_job), ("accept_proposal", accept_proposal),
-    ("run_job", run_job), ("ontology_accept", ontology_accept), ("ask", ask),
+    ("run_job", run_job), ("ontology_accept", ontology_accept), ("ask", ask), ("govern_action", govern_action),
 ]
 
 

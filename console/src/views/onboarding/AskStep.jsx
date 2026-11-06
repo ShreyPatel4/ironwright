@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api.js";
 import { Badge, Err } from "../../components.jsx";
+import ActionButton from "../ActionButton.jsx";
 import { canWrite, Panel } from "./shared.jsx";
 
 /* The first question. An answer shows the evidence ids it stands on. A refusal
@@ -84,6 +85,20 @@ export default function AskStep({ journey }) {
               </span>
             ))}
           </div>
+          {answer.offers?.length > 0 && (
+            <>
+              <h3>You may also</h3>
+              <p className="note">A rule matched your question to an action you are permitted to ask for,
+                on the object this answer cites. I never run it for you.</p>
+              {answer.offers.map((o) => (
+                <div aria-label={`offer ${o.action}`} key={o.action}>
+                  <ActionButton action={o.action} fields={o.fields} fixed={o.params} label={o.label}
+                                requiresApproval={o.requires_approval} ws={workspace.name} />
+                  <span className="note mono">from {o.evidence.join(", ")} · {o.rule}</span>
+                </div>
+              ))}
+            </>
+          )}
         </Panel>
       )}
     </>

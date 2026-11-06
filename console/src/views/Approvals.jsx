@@ -2,7 +2,24 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Err } from "../components.jsx";
 
+/* What the approver sees before deciding: each property the action would change. */
+function Change({ preview }) {
+  if (!preview?.length) return null;
+  return preview.map((c) => {
+    const keys = Object.keys(c.after).filter((k) => JSON.stringify(c.after[k]) !== JSON.stringify(c.before[k]));
+    return (
+      <div className="mono" key={c.id} style={{ fontSize: 12 }}>
+        {c.type} {c.id}: {keys.map((k) => (
+          <span key={k}>{k} <s>{String(c.before[k] ?? "empty")}</s> {"->"} <b>{String(c.after[k])}</b>{" "}</span>
+        ))}
+      </div>
+    );
+  });
+}
+
 export default function Approvals({ ws }) {
+  // On your own workspace the server signs with your session, and refuses your own requests.
+  const tenant = ws.kind === "workspace";
   const [pending, setPending] = useState([]);
   const [escs, setEscs] = useState([]);
   const [approver, setApprover] = useState("");
@@ -19,7 +36,7 @@ export default function Approvals({ ws }) {
   async function decide(seq, decision) {
     setErr(null);
     try {
-      setLast(await api.decide(ws.name, seq, { approved_by: approver, decision }));
+      setLast(await api.decide(ws.name, seq, tenant ? { decision } : { approved_by: approver, decision }));
       load();
     } catch (e) { setErr(e); }
   }
@@ -36,7 +53,7 @@ export default function Approvals({ ws }) {
     } catch (e) { setErr(e); }
   }
 
-  const noIdentity = !approver.trim();
+  const noIdentity = !tenant && !approver.trim();
 
   return (
     <>
@@ -45,10 +62,15 @@ export default function Approvals({ ws }) {
         until a human decides. Approving re-runs the action through the full policy path with
         your identity on the audit row; denying is itself an audit row.</p>
       <div className="row">
-        <label className="note" htmlFor="approver">decide as</label>
-        <input id="approver" onChange={(e) => setApprover(e.target.value)}
-               placeholder="the approving role, e.g. role:…" style={{ minWidth: 220 }}
-               type="text" value={approver} />
+        {tenant ? <span className="note">You decide as yourself. An owner or admin decides, and never
+          on a request they made.</span> : (
+          <>
+            <label className="note" htmlFor="approver">decide as</label>
+            <input id="approver" onChange={(e) => setApprover(e.target.value)}
+                   placeholder="the approving role, e.g. role:…" style={{ minWidth: 220 }}
+                   type="text" value={approver} />
+          </>
+        )}
         <button className="btn ghost" onClick={load}>Refresh</button>
         {noIdentity && <span className="note">name the deciding role to enable the buttons</span>}
       </div>
@@ -63,7 +85,7 @@ export default function Approvals({ ws }) {
                 <td className="mono">{p.seq}</td>
                 <td className="mono">{p.actor}</td>
                 <td className="mono">{p.action}</td>
-                <td className="mono">{JSON.stringify(p.params)}</td>
+                <td className="mono">{JSON.stringify(p.params)}<Change preview={p.preview} /></td>
                 <td style={{ whiteSpace: "nowrap" }}>
                   <button className="btn" disabled={noIdentity}
                           onClick={() => decide(p.seq, "approve")}>Approve</button>{" "}

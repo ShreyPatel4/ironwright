@@ -1,0 +1,46 @@
+# Generic action templates for a tenant workspace. No industry logic lives here.
+#
+# Each one acts on one object of one accepted type. The engine reads this file and
+# builds a full action from it plus what a human picked (actions_propose.py). A
+# template is not callable on its own: nothing runs until a human accepts a permit.
+#
+#   description  one sentence; {thing} becomes the object type in plain words
+#   keywords     words in an Ask question that make this action worth offering
+#   params       typed params beyond the object id. `values: picked` takes the
+#                list the human chose when they authored the action
+#   set          property -> expression over params, evaluated by ironwright.expr
+#   needs        a property the object type must have for this template to apply
+
+set_status:
+  description: Set the status of one {thing}.
+  keywords: [status, close, closed, reopen, open, resolve, resolved, cancel]
+  params:
+    status: {type: str, values: picked}
+  set:
+    status: params.status
+  needs: status
+
+flag_for_review:
+  description: Flag one {thing} for review, with a reason.
+  keywords: [flag, review, suspicious, check, wrong, odd]
+  params:
+    reason: {type: str, max_length: 500}
+  set:
+    review_flag: "True"
+    review_reason: params.reason
+
+assign_owner:
+  description: Assign one {thing} to an owner.
+  keywords: [assign, owner, owns, reassign, who]
+  params:
+    owner: {type: str, max_length: 200}
+  set:
+    owner: params.owner
+
+add_note:
+  description: Add a note to one {thing}.
+  keywords: [note, comment, remark]
+  params:
+    note: {type: str, max_length: 2000}
+  set:
+    note: params.note

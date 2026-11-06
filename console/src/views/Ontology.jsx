@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api.js";
 import { Err } from "../components.jsx";
+import ActionButton from "./ActionButton.jsx";
 
 export default function Ontology({ ws }) {
   const [desc, setDesc] = useState(null);
@@ -118,6 +119,15 @@ export default function Ontology({ ws }) {
                   </span>
                 ))}
               </div>
+              {ws.kind === "workspace" && (detail._allowed_actions ?? []).some((a) => a.allowed) && (
+                <div aria-label="actions on this object">
+                  {(detail._allowed_actions ?? []).filter((a) => a.allowed).map((a) => (
+                    <ActionButton action={a.action} fields={a.params} fixed={{ [a.param]: detail._id }}
+                                  key={a.action} label={a.description} requiresApproval={a.requires_approval}
+                                  ws={ws.name} />
+                  ))}
+                </div>
+              )}
               {escalated && (
                 <p aria-live="polite" className="note">
                   escalated as <span className="mono">{escalated.id}</span> to{" "}
