@@ -55,6 +55,12 @@ NULL_TOKENS = {"", "null", "n/a", "0000-00-00"}
 _BOOL_PAIRS = ({"y", "n"}, {"yes", "no"}, {"t", "f"}, {"true", "false"})
 _INT = re.compile(r"[+-]?\d+")
 _DECIMAL = re.compile(r"[+-]?(\d*)\.(\d+)")
+_MONEY = re.compile(r"[+-]?[$€£]?[+-]?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?")
+_MONEY_SYMBOLS = "$€£"
+# A cleaning cast may lose this share of the values and no more. They read as null in silver.
+_MIN_CAST_COVER = 0.95
+# The widest value seen is no promise about the next extract, and a cast that overflows reads as null.
+_CLEANED_PRECISION = 18
 _INT64_DIGITS = 19
 _INT64_MAX = 2 ** 63 - 1
 _MAX_PRECISION = 38
@@ -140,9 +146,9 @@ def _parse(value: str, fmt: str) -> bool:
         return False
 
 
-def _cover(counts: Counter[str], formats: Iterable[str]) -> dict[str, int] | None:
-    """Fewest formats that explain every value, greedy by rows covered, list
-    order breaking a tie. None when some value fits no format."""
+def _greedy_cover(counts: Counter[str], formats: Iterable[str]) -> tuple[dict[str, int], set[str]]:
+    """(the formats that explain the most values, the values none explain). Greedy by
+    rows covered, list order breaking a tie."""
     fits = {f: {v for v in counts if _parse(v, f)} for f in formats}
     left = set(counts)
     out: dict[str, int] = {}
@@ -150,10 +156,22 @@ def _cover(counts: Counter[str], formats: Iterable[str]) -> dict[str, int] | Non
         best = max(fits, key=lambda f: sum(counts[v] for v in fits[f] & left))
         got = fits[best] & left
         if not got:
-            return None
+            break
         out[best] = sum(counts[v] for v in got)
         left -= got
-    return out
+    return out, left
+
+
+def _cover(counts: Counter[str], formats: Iterable[str]) -> dict[str, int] | None:
+    """Fewest formats that explain every value. None when some value fits no format."""
+    found, left = _greedy_cover(counts, formats)
+    return None if left else found
+
+
+def _lost(unparsed: int) -> str:
+    if not unparsed:
+        return ""
+    return f" {unparsed} {'value does' if unparsed == 1 else 'values do'} not fit, and would read as null in silver."
 
 
 def _temporal(counts: Counter[str], name: str) -> dict[str, Any] | None:
@@ -173,6 +191,7 @@ def _temporal(counts: Counter[str], name: str) -> dict[str, Any] | None:
         out: dict[str, Any] = {"type": kind, "format": fmt, "formats": found}
         alt = _ORDER_PAIRS.get(fmt)
         if len(found) > 1:
+            out["cleaning"] = {"kind": "date_formats", "covers": 1.0, "unparsed": 0}
             out["confidence"] = round(found[fmt] / total, 4)
             out["reason"] = f"Every value parses, but under {len(found)} formats. The dominant one holds this share of the rows."
         elif alt and all(_parse(v, alt) for v in counts):
@@ -184,6 +203,51 @@ def _temporal(counts: Counter[str], name: str) -> dict[str, Any] | None:
             out["reason"] = f"Every value parses as a {kind} in one format."
         return out
     return None
+
+
+def _partly_temporal(counts: Counter[str], name: str) -> dict[str, Any] | None:
+    """Almost every value is a date. The few that are not read as null in silver, and
+    the decision says how many, so a human can refuse the cast."""
+    total = sum(counts.values())
+    formats = [*_DATE_FORMATS, _COMPACT_DATE] if _DATE_NAME.search(name) else list(_DATE_FORMATS)
+    head = Counter(dict(list(counts.items())[:20]))
+    if 2 * sum(_greedy_cover(head, formats)[0].values()) < sum(head.values()):
+        return None
+    found = _greedy_cover(counts, formats)[0]
+    covered = sum(found.values())
+    if covered / total < _MIN_CAST_COVER:
+        return None
+    fmt = max(found, key=lambda f: (found[f], -formats.index(f)))
+    unparsed = total - covered
+    return {"type": "date", "format": fmt, "formats": found,
+            "cleaning": {"kind": "date_formats", "covers": round(covered / total, 4), "unparsed": unparsed},
+            "confidence": round(found[fmt] / total, 4),
+            "reason": f"{covered} of {total} values parse as a date, under {len(found)} formats.{_lost(unparsed)}"}
+
+
+def _currency(counts: Counter[str]) -> dict[str, Any] | None:
+    """Money with a symbol somewhere in the column. With no symbol, a comma could be a
+    decimal comma, so 1,234 stays a string. A leading zero means an id, as it does in _numeric."""
+    total = sum(counts.values())
+    covered = whole = scale = 0
+    symbol = False
+    for v, n in counts.items():
+        m = _MONEY.fullmatch(v)
+        if not m:
+            continue
+        digits = m.group(1).replace(",", "")
+        if len(digits) > 1 and digits[0] == "0":
+            continue
+        covered += n
+        symbol = symbol or any(s in v for s in _MONEY_SYMBOLS)
+        whole, scale = max(whole, len(digits)), max(scale, len(m.group(2) or ""))
+    if not symbol or covered / total < _MIN_CAST_COVER or whole + scale > _MAX_PRECISION:
+        return None
+    unparsed = total - covered
+    return {"type": f"decimal({max(_CLEANED_PRECISION, whole + scale)},{scale})",
+            "cleaning": {"kind": "currency", "covers": round(covered / total, 4), "unparsed": unparsed},
+            "confidence": round(0.85 * covered / total, 4),
+            "reason": f"{covered} of {total} values read as money once the symbol and the commas go.{_lost(unparsed)}"}
 
 
 def _numeric(values: list[str]) -> dict[str, Any] | None:
@@ -226,7 +290,8 @@ def _infer(counts: Counter[str], name: str) -> dict[str, Any]:
     temporal = _temporal(counts, name)
     if temporal:
         return temporal
-    return _numeric(values) or {"type": "string", "confidence": 0.8, "reason": "Some values fit no narrower type, so string keeps every byte."}
+    return (_numeric(values) or _currency(counts) or _partly_temporal(counts, name)
+            or {"type": "string", "confidence": 0.8, "reason": "Some values fit no narrower type, so string keeps every byte."})
 
 
 def _normal(value: str) -> str:
@@ -277,7 +342,7 @@ def _is_header(first: list[str], rest: list[list[str]]) -> tuple[bool, float, st
     if not rest:
         return False, 0.5, "There is one row, so I read it as data."
     cells = [c.strip() for c in first]
-    if any(_numeric([c]) for c in cells if c):
+    if any(_numeric([c]) or _currency(Counter([c])) for c in cells if c):
         return False, 0.9, "The first row holds a number, so it is data."
     if any(_temporal(Counter([c]), "date") for c in cells if c):
         return False, 0.9, "The first row holds a date, so it is data."
@@ -631,8 +696,12 @@ def profile(org_id: str, upload_id: str, log: Callable[[str], Any]) -> dict[str,
     log(f"profiling {len(names)} files")
     result = profile_files((n, reader(n)) for n in names)
     proposal = propose(result, upload_id)
+    # Here and not at the top of the file: the drafter reads this module's rules.
+    from .silver_draft import draft, read_from_folder
+    proposal["silver"] = draft(result, proposal["workspace"], read_from_folder(d))
     write_private(d / "profile.json", json.dumps({"upload_id": upload_id, **result}, indent=1, sort_keys=True))
     write_private(d / "proposal.json", json.dumps(proposal, indent=1, sort_keys=True))
     write_private(d / "workspace.yaml", yaml.safe_dump(proposal["workspace"], sort_keys=False))
     log(f"proposed {len(proposal['workspace']['sources'])} sources with {len(proposal['decisions'])} decisions")
+    log(f"drafted silver for {sum('error' not in s for s in proposal['silver']['sources'])} sources")
     return {"files": len(result["files"]), "sources": len(proposal["workspace"]["sources"])}

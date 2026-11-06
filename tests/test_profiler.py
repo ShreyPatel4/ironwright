@@ -257,11 +257,78 @@ def test_an_id_column_matches_the_singular_of_the_other_file():
     (["Y", "Y", "Y"], "string"),
     (["Y", "false"], "string"),
     (["abc", "1"], "string"),
-    (["$1.50", "$2.00"], "string"),
-    (["1,234", "5,678"], "string"),
+    (["$1.50", "$2.00"], "decimal(18,2)"),
+    (["1,234", "5,678"], "string"),  # no symbol, so a comma could be a decimal comma
 ])
 def test_type_rules(values, expected):
     assert column_of(*values)["type"] == expected
+
+
+# ------------------------------------------------- casts that need cleaning
+
+
+def test_currency_with_groups_and_plain_numbers_is_a_decimal_wide_enough_for_the_next_file():
+    c = column_of("$1,200.50", "300", "75.25")
+    assert c["type"] == "decimal(18,2)"
+    assert c["cleaning"] == {"kind": "currency", "covers": 1.0, "unparsed": 0}
+    assert c["confidence"] < 0.95
+
+
+def test_a_currency_column_at_exactly_95_percent_passes():
+    c = column_of(*[f"${i}.00" for i in range(1, 20)], "call me")
+    assert (c["type"], c["cleaning"]["covers"], c["cleaning"]["unparsed"]) == ("decimal(18,2)", 0.95, 1)
+
+
+def test_a_currency_column_under_95_percent_stays_a_string():
+    c = column_of(*[f"${i}.00" for i in range(1, 19)], "call me", "ask ann")
+    assert c["type"] == "string"
+    assert "cleaning" not in c
+
+
+@pytest.mark.parametrize("values", [["$007", "$010"], ["$1,20", "$3,40"], ["1,200.50", "300"]])
+def test_what_does_not_read_as_currency_stays_a_string(values):
+    assert column_of(*values)["type"] == "string"
+
+
+def test_a_first_row_of_currency_is_data_not_a_header():
+    f = one("t.csv", b"\"$1.50\",a\n\"$2.50\",b\n\"$3.50\",c\n")
+    assert f["layout"]["header"] is False
+
+
+def test_a_fully_parsed_mixed_date_column_names_its_formats_and_its_cleaning():
+    c = column_of("2026-01-03", "01/05/2026", "01/06/2026")
+    assert c["type"] == "date"
+    assert c["formats"] == {"%Y-%m-%d": 1, "%m/%d/%Y": 2}
+    assert c["cleaning"] == {"kind": "date_formats", "covers": 1.0, "unparsed": 0}
+
+
+def test_one_format_with_every_value_parsed_needs_no_cleaning():
+    assert "cleaning" not in column_of("2026-01-03", "2026-01-04")
+
+
+def test_a_date_column_at_95_percent_is_a_date_and_says_what_it_loses():
+    values = [f"2026-01-{i:02d}" for i in range(1, 11)] + [f"02/{i:02d}/2026" for i in range(13, 22)]
+    c = column_of(*values, "unknown")
+    assert c["type"] == "date"
+    assert c["cleaning"] == {"kind": "date_formats", "covers": 0.95, "unparsed": 1}
+    assert c["formats"] == {"%Y-%m-%d": 10, "%m/%d/%Y": 9}
+    assert "1 value" in c["reason"]
+
+
+def test_a_date_column_under_95_percent_stays_a_string():
+    values = [f"2026-01-{i:02d}" for i in range(1, 19)]
+    assert column_of(*values, "unknown", "soon")["type"] == "string"
+
+
+def test_a_cleaned_measure_is_never_a_candidate_key():
+    f = one("t.csv", b"id,amount\nA,\"$1.50\"\nB,\"$2.50\"\n")
+    assert [k["column"] for k in f["candidate_keys"]] == ["id"]
+
+
+def test_no_cell_value_lands_in_a_cleaning_reason():
+    c = column_of(*[f"${i}.00" for i in range(1, 20)], "secret-cell")
+    assert "secret-cell" not in c["reason"]
+    assert "secret-cell" not in json.dumps(c["cleaning"])
 
 
 @pytest.mark.parametrize("values,fmt", [
@@ -593,14 +660,37 @@ def test_every_source_and_every_column_type_has_a_decision():
             assert f"sources[{i}].columns[{j}].type" in paths
 
 
-def test_a_mixed_date_column_is_proposed_as_a_string_and_the_reason_says_why():
+def test_a_mixed_date_column_is_proposed_as_a_date_with_the_cast_as_a_decision():
     out = propose_mod.propose(profile_files(load("messy")), UPLOAD)
     cols = out["workspace"]["sources"][0]["columns"]
     i = next(i for i, c in enumerate(cols) if c["name"] == "claim_date")
-    assert cols[i]["type"] == "string"
+    assert cols[i]["type"] == "date"
     d = next(d for d in out["decisions"] if d["path"] == f"sources[0].columns[{i}].type")
     assert "formats" in d["reason"]
     assert d["confidence"] == 0.5
+    assert d["cast"] == {"kind": "date_formats", "covers": 1.0, "unparsed": 0}
+
+
+def test_a_currency_column_is_proposed_as_a_decimal_with_the_cast_as_a_decision():
+    raw = b"amount,other\n\"$1,200.50\",a\n300,b\n75.25,c\n"
+    out = propose_mod.propose(profile_files([("t.csv", raw)]), UPLOAD)
+    column = out["workspace"]["sources"][0]["columns"][0]
+    assert column["type"] == "decimal(18,2)"
+    d = next(d for d in out["decisions"] if d["path"] == "sources[0].columns[0].type")
+    assert d["cast"] == {"kind": "currency", "covers": 1.0, "unparsed": 0}
+
+
+def test_a_plain_column_carries_no_cast():
+    out = propose_mod.propose(profile_files(load("join")), UPLOAD)
+    assert not [d for d in out["decisions"] if "cast" in d]
+
+
+def test_an_empty_column_with_no_header_stays_out_of_the_spec_and_the_decisions_say_so():
+    """Bronze names it col_6 and the profile names it column_6. Declaring it stops the first run."""
+    raw = b"id,name,\n1,ann,\n2,bob,\n"
+    out = propose_mod.propose(profile_files([("t.csv", raw)]), UPLOAD)
+    assert [c["name"] for c in out["workspace"]["sources"][0]["columns"]] == ["id", "name"]
+    assert any(d["value"] == "left out" and "no name" in d["reason"] for d in out["decisions"])
 
 
 def test_exactly_the_best_candidate_key_is_marked():

@@ -58,6 +58,11 @@
      "type": "string"
     },
     {
+     "cleaning": {
+      "covers": 1.0,
+      "kind": "date_formats",
+      "unparsed": 0
+     },
      "confidence": 0.5,
      "distinct": 8,
      "distinct_ratio": 1.0,

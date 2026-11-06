@@ -37,15 +37,16 @@ def _decision(path: str, value: Any, confidence: float, reason: str, gap: bool =
 
 
 def _column(col: dict[str, Any], path: str, is_key: bool, key: dict[str, Any] | None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    mixed = len(col.get("formats", {})) > 1
-    kind = "string" if mixed else col["type"]
+    cleaning = col.get("cleaning")
     reason = col["reason"]
-    if mixed:
-        reason += " A column has one type, so I propose string and leave the formats for a silver model to normalize."
-    kind = _CONTRACT_TYPE.get(kind, kind)
+    if cleaning:
+        reason += " Bronze keeps the file's text, and the silver draft runs this cast."
+    kind = _CONTRACT_TYPE.get(col["type"], col["type"])
     out: dict[str, Any] = {"name": col["name"], "type": kind}
     decisions = [_decision(f"{path}.type", kind, col["confidence"], reason)]
-    if col["type"] in _TEMPORAL and not mixed:
+    if cleaning:
+        decisions[0]["cast"] = cleaning
+    if col["type"] in _TEMPORAL and not cleaning:
         decisions.append(_decision(f"{path}.format", col["format"], col["confidence"],
                                    "I have no setting for a date format yet, so I record the format here.", gap=True))
     if is_key and key:

@@ -166,6 +166,7 @@ WRITE_ROLES = {
     "/uploads/{upload_id}/profile": "member",
     "/workspaces": "admin",
     "/workspaces/{name}": "admin",
+    "/workspaces/{name}/silver/draft": "admin",
     "/workspaces/{name}/approvals/{seq}/decide": "admin",
     "/workspaces/{name}/escalations/{esc_id}/decide": "admin",
     "/workspaces/{name}/orgpolicy/apply": "admin",

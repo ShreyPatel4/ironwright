@@ -7,10 +7,9 @@ This file answers one question: does the journey work against what the server re
 
 CI runs this in the demo job, where a skip fails the job.
 
-Two walks, because the two fixtures stop in different places today. The clean CSVs go all
-the way to a cited answer. The messy tenant_ws CSVs go to the ontology proposal, which holds
-no objects until F2's silver draft lands, so the rest of that walk is a strict xfail: it goes
-red the moment F2 makes it pass, and F2 takes the marker off.
+Two walks, because the two fixtures prove different things. The clean CSVs have clear keys
+and a clear join as they stand. The messy tenant_ws CSVs need the silver draft to get there.
+Both go all the way to a cited answer.
 """
 from __future__ import annotations
 
@@ -232,7 +231,6 @@ def test_the_messy_csvs_reach_the_ontology_step_on_their_first_run(browser, live
     walk.context.close()
 
 
-@pytest.mark.xfail(strict=True, reason="F2 owns this: no silver draft yet, so the rules find no key in the messy CSVs")
 def test_sign_up_to_a_cited_answer_over_the_messy_csvs(browser, live):
     walk = Walk(browser, live, "messy-ask")
     walk.to_map(TWO_CSVS)
