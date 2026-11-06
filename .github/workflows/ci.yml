@@ -140,6 +140,16 @@ jobs:
           python tests/e2e/journey.py --base http://127.0.0.1:8000 --wait 180 --budget 600 | tee journey.log
           grep -q '^ISOLATION ok' journey.log
           grep '^JOURNEY' journey.log >> "$GITHUB_STEP_SUMMARY"
+      # The walk above is API calls. This one is a customer in a browser, on this same stack,
+      # through the console the image built. A skip is a failure here too.
+      - run: pip install -e ".[dev]"
+      - run: python -m playwright install --with-deps chromium
+      - name: The wizard, in a browser, from sign-up to a cited answer
+        env:
+          IRONWRIGHT_WIZARD_BASE: http://127.0.0.1:8000
+        run: |
+          pytest -q -rs tests/e2e/test_wizard_real_backend.py | tee wizard.log
+          ! grep -q SKIPPED wizard.log
       - name: The demo org seeds on this stack, twice
         env:
           IRONWRIGHT_SEED_PASSWORD: e2e-only-not-a-secret
@@ -153,7 +163,7 @@ jobs:
         if: failure()
         run: |
           mkdir -p e2e-artifacts
-          cp journey.log seed-*.log e2e-artifacts/ || true
+          cp journey.log wizard.log seed-*.log e2e-artifacts/ || true
           docker compose ps -a > e2e-artifacts/ps.txt
           for service in api worker postgres objectstore bucket-init; do
             docker compose logs --no-color "$service" > "e2e-artifacts/$service.log" 2>&1 || true
