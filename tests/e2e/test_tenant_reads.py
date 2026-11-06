@@ -262,9 +262,8 @@ def test_a_read_during_a_run_says_so_instead_of_a_500(stack, built, monkeypatch)
     ("POST", "engines/check", {}),
     ("POST", "otel/export", {"endpoint": "http://collector.example/v1/traces"}),
 ])
-def test_tenant_data_is_not_copied_off_its_prefix(stack, built, monkeypatch, method, path, body):
+def test_tenant_data_is_not_copied_off_its_prefix(stack, built, method, path, body):
     """A shared Postgres and a URL the caller names are both outside the org's storage."""
-    monkeypatch.setenv("POSTGRES_URI", "postgresql://nobody.invalid:1/never")
     got = stack.call(method, f"/workspaces/{built.workspace}/{path}", body=body, token=built.a_token)
     assert got.status == 403, got.raw
     detail = got.json()["detail"]
@@ -310,6 +309,9 @@ def test_a_folder_with_the_same_bare_name_is_never_read(stack, built):
         "default: deny\nrules:\n- {id: foreign-rule, effect: permit, principal: '*', action: '*'}\n")
     (foreign / "escalations.jsonl").write_text(json.dumps(
         {"moment": "escalated", "id": "esc-0001", "principal": "user:foreign", "action": "x"}) + "\n")
+    # The marker a created organization carries, so a delete by bare name would act on it.
+    (foreign / ".ironwright-workspace").write_text(json.dumps({"created_by": "ironwright", "name": built.workspace}))
+    policy = (foreign / "policies.generated.yaml").read_text()
     try:
         gov = _as_read(stack, built, "governance")
         assert "foreign-rule" not in json.dumps(gov)
@@ -317,5 +319,13 @@ def test_a_folder_with_the_same_bare_name_is_never_read(stack, built):
         got = journey.expect(stack, "POST", f"/workspaces/{built.workspace}/governance/check", 200, "check",
                              token=built.a_token, body={"principal": "agent:x", "action": "action:y"})
         assert got["decision"]["allowed"] is False
+        for method, path, body in [("GET", "organization", None), ("GET", "orgpolicy/preview", None),
+                                   ("POST", "orgpolicy/apply", {}), ("DELETE", "", None)]:
+            got = stack.call(method, f"/workspaces/{built.workspace}/{path}".rstrip("/"), body=body,
+                             token=built.a_token)
+            assert got.status == 404, (method, path, got.raw)
+            assert b"SOMEONE ELSE" not in got.raw and "your own workspace" in got.json()["detail"], got.raw
+        assert (foreign / "policies.generated.yaml").read_text() == policy
+        assert (foreign / "org.json").exists()
     finally:
         shutil.rmtree(foreign)

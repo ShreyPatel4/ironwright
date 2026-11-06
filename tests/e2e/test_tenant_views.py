@@ -42,12 +42,12 @@ class Person:
         return self.email
 
 
-
 def _made_by_the_wizard(browser, live, label: str, *, finish: bool) -> Person:
     """The wizard's screens, in a browser, on the real server. Finish goes on to a cited
     answer. Otherwise it stops at Run: the workspace exists, and nothing has run."""
-    person = Person(f"views-{label}-{uuid.uuid4().hex[:8]}")
-    walk = Walk(browser, live, person.email)
+    walk = Walk(browser, live, f"views-{label}-{uuid.uuid4().hex[:8]}")
+    # The walk owns the email it signed up with, so sign in later with exactly that one.
+    person = Person(walk.email)
     walk.to_map(CLEAN_CSVS)
     if finish:
         assert walk.to_proposal(person.workspace)["objects"]

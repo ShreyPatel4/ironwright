@@ -48,7 +48,7 @@ from .ontology.runtime import Ontology
 from .otel_export import router as otel_router
 from .packs import list_packs, load_pack
 from .resolve import find as find_workspace
-from .resolve import workspace_pack
+from .resolve import is_tenant, workspace_pack
 from .scenario.spec import SpecError
 from .tenancy import DEV_ORG_ID, ROLES, Ctx, byokey, quotas
 from .tenancy import service as tenancy
@@ -373,9 +373,12 @@ def create_platform_app() -> FastAPI:
                 "verification": verification.derive_organization(None)}
 
     @app.delete("/workspaces/{name}")
-    def delete_workspace(name: str) -> dict[str, Any]:
+    def delete_workspace(name: str, c: CtxDep) -> dict[str, Any]:
         if name in list_packs():
             raise HTTPException(403, "packs ship with the platform and cannot be deleted")
+        if is_tenant(name, c):
+            # A folder with this bare name is somebody else's, never this workspace.
+            raise HTTPException(404, "your own workspace is not deleted here; this deletes scenario orgs")
         try:
             org_mod.delete_organization(name)
         except FileNotFoundError:
@@ -383,7 +386,10 @@ def create_platform_app() -> FastAPI:
         return {"deleted": name}
 
     @app.get("/workspaces/{name}/organization")
-    def organization(name: str) -> dict[str, Any]:
+    def organization(name: str, c: CtxDep) -> dict[str, Any]:
+        if is_tenant(name, c):
+            raise HTTPException(404, "your own workspace has no generated organization; "
+                                     "scenario orgs have one")
         try:
             return org_mod.read_org(name)
         except FileNotFoundError:

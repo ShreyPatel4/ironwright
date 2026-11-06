@@ -318,9 +318,15 @@ def acting_as(c: Ctx, claimed: str = "") -> str:
     return (claimed or c.principal) if auth.dev_open() else c.principal
 
 
-def _org_or_404(name: str) -> dict[str, Any]:
+def _org_or_404(name: str, c: Ctx) -> dict[str, Any]:
+    from .resolve import is_tenant
+
     if name in list_packs():
         raise HTTPException(404, f"{name} is a pack; packs keep their hand-written policies.yaml")
+    if is_tenant(name, c):
+        # Generated policy files by bare name, and a folder with this name is somebody else's.
+        raise HTTPException(404, "your own workspace has no generated organization, so it has no "
+                                 "generated policy to preview or apply")
     try:
         return read_org(name)
     except FileNotFoundError:
@@ -328,8 +334,8 @@ def _org_or_404(name: str) -> dict[str, Any]:
 
 
 @router.get("/workspaces/{name}/orgpolicy/preview")
-def orgpolicy_preview(name: str) -> dict[str, Any]:
-    org = _org_or_404(name)
+def orgpolicy_preview(name: str, c: CtxDep) -> dict[str, Any]:
+    org = _org_or_404(name, c)
     try:
         new = generate(org)["rules"]
     except ValueError as e:
@@ -342,7 +348,7 @@ def orgpolicy_preview(name: str) -> dict[str, Any]:
 
 @router.post("/workspaces/{name}/orgpolicy/apply")
 def orgpolicy_apply(name: str, body: ApplyBody, c: CtxDep) -> dict[str, Any]:
-    org = _org_or_404(name)
+    org = _org_or_404(name, c)
     try:
         rules = generate(org)["rules"]
     except ValueError as e:
