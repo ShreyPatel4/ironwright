@@ -25,9 +25,9 @@ from pyiceberg.catalog.sql import SqlCatalog
 from pyiceberg.exceptions import NoSuchTableError
 
 from . import config, sqlguard
-from .legacy import read_source
+from .legacy import read_source, read_upload_with_records
 from .packs import Pack
-from .quality import CheckResult, blocking_failures, run_checks
+from .quality import CheckResult, blocking_failures, record_checks, run_checks
 from .tracing import Tracer
 
 LAYERS = ("bronze", "silver", "gold")
@@ -261,13 +261,19 @@ def migrate(pack: Pack, tracer: Tracer, run_id: str | None = None) -> dict[str, 
         with tracer.span("ingest.bronze"):
             for src in pack.spec["sources"]:
                 with tracer.span("legacy.read", source=src["name"], system=src.get("system", "")) as sp:
-                    data = read_source(src, pack.paths.legacy)
+                    records = None
+                    if src["kind"] == "upload":
+                        data, records = read_upload_with_records(src)
+                    else:
+                        data = read_source(src, pack.paths.legacy)
                     sp.set(rows=data.num_rows, kind=src["kind"])
                 data = data.append_column("_run_id", pa.array([run_id] * data.num_rows, pa.string()))
                 data = data.append_column("_source_system", pa.array([src.get("system", src["name"])] * data.num_rows, pa.string()))
                 res = lake.write_wap(f"bronze.{src['name']}", data, quality.get(f"bronze.{src['name']}", []),
                                      run_id, "append", tracer)
-                report["writes"].append(res.to_dict())
+                if records is not None:
+                    res.checks += record_checks(res.table, records)
+                report["writes"].append({**res.to_dict(), **({"records": records} if records else {})})
 
         for layer in ("silver", "gold"):
             with tracer.span(f"transform.{layer}"):

@@ -27,7 +27,21 @@ from typing import Any
 import yaml
 
 from ..config import FILE_NAME, safe_child, write_private
-from ..legacy import _column_name, empty_trailing_columns
+from ..legacy import (
+    RECORD_TRAILER as _RECORD_TRAILER,
+)
+from ..legacy import (
+    TRAILER_CELL as _TRAILER,
+)
+from ..legacy import (
+    _column_name,
+    csv_header_record,
+    csv_trailer_record,
+    declared_rows,
+    empty_trailing_columns,
+    fixed_header_record,
+    fixed_trailer_record,
+)
 from . import uploads
 from .propose import propose
 
@@ -67,9 +81,6 @@ _MAX_PRECISION = 38
 _DATE_NAME = re.compile(r"(^|_)(date|dt|day)(_|$)")
 _KEY_NAME = re.compile(r"(^|_)(id|key|nbr|no|num|number|code)$")
 _KEY_SUFFIX = re.compile(r"_(id|key|nbr|no|num|number|code)$")
-_TRAILER = re.compile(r"\s*([*=#-]{2,}|total\b|grand total\b|end of\b|eof\b|trailer\b|trl\b|record count\b)", re.IGNORECASE)
-_RECORD_TRAILER = re.compile(r"(TRL|TRAILER|EOF|END)([^A-Za-z]|$)")
-_RECORD_HEADER = re.compile(r"(HDR|HEADER)([^A-Za-z]|$)")
 _GENERATED_NAME = re.compile(r"(field|col)_\d+")
 _TRAILING_NUMBER = re.compile(r"_?\d+$")
 _HEADER_CELL = re.compile(r"[A-Za-z_][\w .#/()-]*")
@@ -404,12 +415,19 @@ def _profile_delimited(name: str, text: str, delimiter: str, cut: bool) -> dict[
     if not rows:
         return None
     width = Counter(len(c) for _, c in rows).most_common(1)[0][0]
+    leader = 0
+    while leader < min(_MAX_TRAILER, len(rows) - 1) and csv_header_record(rows[leader][1], width):
+        leader += 1
+    rows = rows[leader:]
     header, conf, reason = _is_header(rows[0][1], [c for _, c in rows[1:_SNIFF_LINES] if len(c) == width])
     first = rows[0][1]
     body = rows[1:] if header else rows
-    trailer = 0
+    trailer = named = 0
+    declared = None
     if not cut:
-        while body and trailer < _MAX_TRAILER and (len(body[-1][1]) != width or _TRAILER.match(body[-1][1][0])):
+        while body and trailer < _MAX_TRAILER and csv_trailer_record(body[-1][1], width):
+            named += bool(_TRAILER.match(body[-1][1][0]))
+            declared = declared if declared is not None else declared_rows([" ".join(body[-1][1])])
             body = body[:-1]
             trailer += 1
     bad = [line for line, c in body if len(c) != width]
@@ -417,12 +435,12 @@ def _profile_delimited(name: str, text: str, delimiter: str, cut: bool) -> dict[
     truncated = cut or len(good) > MAX_ROWS
     good = good[:MAX_ROWS]
     names, sources = _column_names(first, header, width, reader=True)
-    dropped = empty_trailing_columns(sources, [c for _, c in rows[1:]]) if header else 0
+    dropped = empty_trailing_columns(sources, [c for _, c in body]) if header else 0
     names, sources = names[:width - dropped], sources[:width - dropped]
     return {"format": "csv", "layout": {"delimiter": delimiter, "header": header}, "header_confidence": conf,
             **({"empty_trailing_columns": list(range(width - dropped + 1, width + 1))} if dropped else {}),
-            "header_reason": reason, "rows": len(good), "truncated": truncated, "leader_rows": 0, "trailer_rows": trailer,
-            "bad_rows": {"count": len(bad), "lines": bad[:_MAX_BAD_LINES]},
+            "header_reason": reason, "rows": len(good), "truncated": truncated, "leader_rows": leader, "trailer_rows": trailer,
+            "trailer_by_name": named, "declared_rows": declared, "bad_rows": {"count": len(bad), "lines": bad[:_MAX_BAD_LINES]},
             "_cells": good, "_names": names, "_sources": sources}
 
 
@@ -494,14 +512,17 @@ def _sniff_fixed(lines: list[str]) -> int | None:
 
 def _profile_fixed(name: str, lines: list[str], length: int, cut: bool) -> dict[str, Any]:
     leader = 0
-    while leader < len(lines) and (len(lines[leader]) != length or _RECORD_HEADER.match(lines[leader])):
+    while leader < len(lines) and fixed_header_record(lines[leader], length):
         if leader >= _MAX_TRAILER:
             break
         leader += 1
     body = list(enumerate(lines, 1))[leader:]
-    trailer = 0
+    trailer = named = 0
+    declared = None
     if not cut:
-        while body and trailer < _MAX_TRAILER and (len(body[-1][1]) != length or _RECORD_TRAILER.match(body[-1][1])):
+        while body and trailer < _MAX_TRAILER and fixed_trailer_record(body[-1][1], length):
+            named += bool(_RECORD_TRAILER.match(body[-1][1]))
+            declared = declared if declared is not None else declared_rows([body[-1][1]])
             body = body[:-1]
             trailer += 1
     bad = [n for n, ln in body if len(ln) != length]
@@ -526,7 +547,8 @@ def _profile_fixed(name: str, lines: list[str], length: int, cut: bool) -> dict[
     cells = [[ln[f["start"]:f["start"] + f["width"]] for f in fields] for ln in data]
     return {"format": "fixed_width", "layout": {"fields": fields, "header": header}, "header_confidence": conf,
             "header_reason": reason, "rows": len(data), "truncated": truncated, "leader_rows": leader,
-            "trailer_rows": trailer, "bad_rows": {"count": len(bad), "lines": bad[:_MAX_BAD_LINES]},
+            "trailer_rows": trailer, "trailer_by_name": named, "declared_rows": declared,
+            "bad_rows": {"count": len(bad), "lines": bad[:_MAX_BAD_LINES]},
             "_cells": cells, "_names": names, "_sources": sources}
 
 

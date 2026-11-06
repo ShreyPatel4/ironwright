@@ -28,7 +28,8 @@ export function renamesOf(draft) {
   return out;
 }
 
-export function buildWorkspace(slug, uploadId, proposal, draft, declined) {
+export function buildWorkspace(slug, uploadId, proposal, draft, declined, skips = {}) {
+  const records = { ...proposal.records, ...skips };
   const sources = draft.map(({ columns, ...source }) => ({
     ...source,
     columns: columns.filter((c) => c.keep).map((c) => ({
@@ -40,6 +41,7 @@ export function buildWorkspace(slug, uploadId, proposal, draft, declined) {
     slug,
     spec: { ...proposal.workspace, sources },
     silver: { declined: [...declined].sort(), renames: renamesOf(draft) },
+    records,
   };
 }
 
@@ -61,7 +63,29 @@ export function problems(draft) {
   return out;
 }
 
-function SourceForm({ source, locked, onChange }) {
+/* Records around the data that are not data. I propose the skip and the human decides.
+   Contract 3 has no field for it, so the choice travels beside the spec. */
+function SkipRecords({ source, proposed, skips, locked, onChange }) {
+  const lines = [
+    ["skip_header", "header", (n) => `${n} ${n === 1 ? "record" : "records"} before the data`],
+    ["skip_footer", "footer", (n) => `${n} ${n === 1 ? "record" : "records"} after the data`],
+  ].filter(([key]) => proposed?.[key] > 0);
+  if (lines.length === 0) return null;
+  return (
+    <div style={{ marginTop: 10 }}>
+      {lines.map(([key, word, says]) => (
+        <label className="note" key={key} style={{ display: "block" }}>
+          <input aria-label={`skip ${source} ${word}`} checked={skips[key] > 0} disabled={locked}
+                 onChange={(e) => onChange({ ...skips, [key]: e.target.checked ? proposed[key] : 0 })}
+                 type="checkbox" />
+          {" "}Skip {says(proposed[key])}. They do not look like records, so I would keep them out of your tables.
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function SourceForm({ source, proposed, skips, locked, onChange, onSkips }) {
   const set = (i, patch) => onChange(source.columns.map((c, j) => (j === i ? { ...c, ...patch } : c)));
   const options = (c) => [...new Set([...TYPES, c.type])];
   return (
@@ -94,6 +118,7 @@ function SourceForm({ source, locked, onChange }) {
           </tbody>
         </table>
       </div>
+      <SkipRecords locked={locked} onChange={onSkips} proposed={proposed} skips={skips} source={source.name} />
     </Panel>
   );
 }
@@ -140,6 +165,7 @@ export default function MapStep({ journey, advance }) {
   const [declined, setDeclined] = useState(new Set());
   const [kept, setKept] = useState(null);
   const [rewritten, setRewritten] = useState(false);
+  const [skips, setSkips] = useState({});
   const [name, setName] = useState("");
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -149,7 +175,7 @@ export default function MapStep({ journey, advance }) {
   useEffect(() => {
     if (!upload) return;
     api.uploadProposal(upload.id)
-      .then((p) => { setProposal(p); setDraft(toDraft(p.workspace)); setSilver(p.silver ?? null); })
+      .then((p) => { setProposal(p); setDraft(toDraft(p.workspace)); setSilver(p.silver ?? null); setSkips(p.records ?? {}); })
       .catch(setErr);
   }, [upload?.id]);
 
@@ -182,7 +208,7 @@ export default function MapStep({ journey, advance }) {
   async function create() {
     setBusy(true); setErr(null);
     try {
-      await api.createTenantWorkspace(buildWorkspace(name, upload.id, proposal, draft, declined));
+      await api.createTenantWorkspace(buildWorkspace(name, upload.id, proposal, draft, declined, skips));
       await advance();
     } catch (e) { setErr(e); setBusy(false); }
   }
@@ -209,7 +235,9 @@ export default function MapStep({ journey, advance }) {
         <>
           {draft.map((s, i) => (
             <div key={s.name} style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))" }}>
-              <SourceForm locked={locked} source={s}
+              <SourceForm locked={locked} source={s} proposed={proposal.records?.[s.name]}
+                          skips={skips[s.name] ?? {}}
+                          onSkips={(next) => setSkips({ ...skips, [s.name]: next })}
                           onChange={(columns) => setDraft(draft.map((x, j) => (j === i ? { ...x, columns } : x)))} />
               {silverOf(s.name) && (
                 <SilverPanel declined={declined} locked={silverLocked} onToggle={toggle} source={silverOf(s.name)} />

@@ -192,6 +192,7 @@
      "type": "timestamp"
     }
    ],
+   "declared_rows": 8,
    "encoding_confidence": 0.9,
    "encoding_reason": "Every byte is ASCII, which UTF-8 reads the same way.",
    "format": "csv",
@@ -208,6 +209,7 @@
    "name": "claims_export.csv",
    "rows": 8,
    "source": "claims_export",
+   "trailer_by_name": 1,
    "trailer_rows": 1,
    "truncated": false
   }

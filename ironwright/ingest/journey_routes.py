@@ -54,6 +54,7 @@ class CreateFromUpload(BaseModel):
     slug: str
     models: dict[str, dict[str, str]] | None = None
     silver: SilverChoice | None = None
+    records: dict[str, Any] | None = None
 
 
 def _require_upload(org_id: str, upload_id: str) -> None:
@@ -114,7 +115,7 @@ def create_from_upload(body: CreateFromUpload, c: Ctx) -> dict[str, Any]:
         raise HTTPException(422, "every source has to come from the upload named in from_upload")
     try:
         made, models = _drafted(body, c)
-        wt.create_workspace(c.org_id, body.slug, body.spec, models=models)
+        wt.create_workspace(c.org_id, body.slug, body.spec, models=models, records=body.records)
         if made is not None:
             silver_draft.save(c.org_id, body.slug, made, body.silver.declined, body.silver.renames)
         return _entry(wt.load_workspace(c.org_id, body.slug))
