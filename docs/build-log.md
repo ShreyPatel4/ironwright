@@ -351,6 +351,14 @@ slices needs a test that crosses it, so walk the whole path early.
 
 **Fix.** The middleware answers the 500 itself, with the request id, and logs the type plus file and line. So does the worker. The formatter also writes any exception passed as a log argument as its type, which covers `sqlguard` logging raw DuckDB errors without touching it. The lesson: a leak test has to prove its canary reached the leak point first, so these tests now assert that before they scan.
 
+## 31. A tenant could approve its own action by naming someone else
+
+**Symptom.** My first request test on a tenant workspace got a 404 on approvals, decide, act, audit and the object pages, with the workspace right there. Writing the self-approval test, I read decide and saw it would have let an admin who asked approve anyway, by putting the owner's principal in the body. The test sends exactly that body.
+
+**Cause.** Two gaps. Every one of those routes loaded through `_pack()`, which only knows the demo packs, so a customer workspace had no governed path at all. And decide took `approved_by` from the request body. On a demo pack that is a role name, on purpose. On a tenant workspace it let a requester sign as anyone, so "the approver is not the requester" checked a name the requester chose.
+
+**Fix.** One resolver, `_serving_pack`, loads packs first and then the org's own workspace with its generated reads and accepted actions. On a tenant workspace decide signs with the session and nothing else, and refuses the requester on approve and on deny. The body field stays for demo packs. A third trap sat beside these: `POST /actions/{action}` would have taken `propose` and `accept` as action names, so the authoring router goes in first and both names are reserved.
+
 ## Smaller ones
 
 - A session-scoped Playwright broke four MCP and upload tests in other files. It keeps an event loop running on the main thread, so their `asyncio.run()` refused to start. Each file passed alone. The browser now lives only as long as its own module.

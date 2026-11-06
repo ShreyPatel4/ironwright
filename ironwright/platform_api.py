@@ -44,6 +44,8 @@ from .ingest import journey_routes
 from .ingest.routes import router as ingest_router
 from .jobs import routes as jobs_routes
 from .lake import Lakehouse
+from .ontology import actions_propose as actions_mod
+from .ontology.action_routes import router as action_authoring_router
 from .ontology.propose import askable
 from .ontology.routes import router as ontology_router
 from .ontology.runtime import Ontology
@@ -72,7 +74,9 @@ class ActionBody(BaseModel):
 
 
 class DecideBody(BaseModel):
-    approved_by: str
+    # A demo pack signs with a name from the body (a role). A tenant workspace
+    # ignores this field: the approver is the session, and nothing else.
+    approved_by: str = ""
     decision: str = "approve"  # approve | deny
 
 
@@ -167,6 +171,8 @@ WRITE_ROLES = {
     "/workspaces": "admin",
     "/workspaces/{name}": "admin",
     "/workspaces/{name}/silver/draft": "admin",
+    "/workspaces/{name}/actions/propose": "admin",
+    "/workspaces/{name}/actions/accept": "admin",
     "/workspaces/{name}/approvals/{seq}/decide": "admin",
     "/workspaces/{name}/escalations/{esc_id}/decide": "admin",
     "/workspaces/{name}/orgpolicy/apply": "admin",
@@ -252,6 +258,26 @@ def _ask_pack(name: str, c: Ctx):
         raise HTTPException(422, str(e)) from e
 
 
+def _serving_pack(name: str, c: Ctx):
+    """Packs first, as at the gate. A tenant workspace serves its generated reads and
+    the actions a human accepted, so act, approvals and object pages work on it."""
+    if name in list_packs():
+        return load_pack(name)
+    try:
+        return actions_mod.servable(wt.load_workspace(c.org_id, name))
+    except FileNotFoundError as e:
+        raise HTTPException(404, f"no workspace named {name}") from e
+    except wt.WorkspaceError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+def _requester_role(c: Ctx, actor: str) -> str | None:
+    """The role the requester holds now, in this org. Gone from the org means no role."""
+    if not actor.startswith("user:"):
+        return None
+    return tenancy.role_in(actor.removeprefix("user:"), c.org_slug)
+
+
 @contextlib.contextmanager
 def _ontology(pack) -> Iterator[Ontology]:
     # A tenant's reads touch only objects and links, so its lake stays closed here. The
@@ -307,6 +333,9 @@ def create_platform_app() -> FastAPI:
                   dependencies=[Depends(_gate)],
                   docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(auth_mod.BindPrincipalHeader)
+
+    # Before POST /workspaces/{name}/actions/{action}, which would match propose and accept.
+    app.include_router(action_authoring_router)
 
     @app.get("/workspaces")
     def workspaces(c: CtxDep) -> list[dict[str, Any]]:
@@ -495,54 +524,69 @@ def create_platform_app() -> FastAPI:
         return jobs_routes.submit_run(c, response, name, body.seed, body.stages, body.wait)
 
     @app.get("/workspaces/{name}/approvals")
-    def approvals(name: str) -> list[dict[str, Any]]:
-        with _ontology(_pack(name)) as ont:
-            return _pending_approvals(ont)
+    def approvals(name: str, c: CtxDep) -> list[dict[str, Any]]:
+        pack = _serving_pack(name, c)
+        with _ontology(pack) as ont:
+            rows = _pending_approvals(ont)
+            if pack.is_tenant:  # the approver sees what changes before deciding; this reads only
+                rows = [{**r, "preview": actions_mod.preview(ont, r["action"], r["params"])} for r in rows]
+            return rows
 
     @app.post("/workspaces/{name}/approvals/{seq}/decide")
-    def decide(name: str, seq: int, body: DecideBody) -> dict[str, Any]:
+    def decide(name: str, seq: int, body: DecideBody, c: CtxDep) -> dict[str, Any]:
         if body.decision not in ("approve", "deny"):
             raise HTTPException(422, "decision must be approve or deny")
-        if auth_mod.is_agent(body.approved_by) and not auth_mod.dev_open():
+        pack = _serving_pack(name, c)
+        approver = c.principal if pack.is_tenant else body.approved_by
+        if not approver:
+            raise HTTPException(422, "approved_by: say who decides")
+        if auth_mod.is_agent(approver) and not auth_mod.dev_open():
             raise HTTPException(422, "an agent cannot sign a decision")
-        with _ontology(_pack(name)) as ont:
+        with _ontology(pack) as ont:
             row = next((p for p in _pending_approvals(ont) if p["seq"] == seq), None)
             if row is None:
                 raise HTTPException(404, f"no pending approval with seq {seq}")
+            if row["actor"] == approver:
+                raise HTTPException(403, "you asked for this, so someone else decides it")
+            context = {"role": _requester_role(c, row["actor"])} if pack.is_tenant else None
             if body.decision == "deny":
-                ont.store.audit(actor=body.approved_by, on_behalf_of=row["actor"],
+                ont.store.audit(actor=approver, on_behalf_of=row["actor"],
                                 action=row["action"], status="denied",
                                 params=row["params"], objects=[], before=None,
                                 after=None, evidence=[], policy=None,
-                                approved_by=body.approved_by, idempotency_key=None,
+                                approved_by=approver, idempotency_key=None,
                                 action_run=None)
                 return {"status": "denied", "seq": seq}
             # A fresh idempotency key per approval row: the default key is
             # action+params, so approving a re-request would otherwise replay
             # the earlier run's cached result instead of executing.
             result = ont.act(row["action"], row["params"], actor=row["actor"],
-                             approved_by=body.approved_by,
-                             idempotency_key=f"approval-{seq}")
+                             approved_by=approver,
+                             idempotency_key=f"approval-{seq}", context=context)
             return {"status": result.get("status"), "seq": seq, "result": result}
 
     @app.post("/workspaces/{name}/actions/{action}")
     def act(name: str, action: str, body: ActionBody,
             c: CtxDep) -> dict[str, Any]:
         actor = body.actor if auth_mod.dev_open() else c.principal
-        with _ontology(_pack(name)) as ont:
+        pack = _serving_pack(name, c)
+        if pack.is_tenant and action not in (pack.ontology.get("actions") or {}):
+            raise HTTPException(404, f"no action named {action}; an owner or admin authors one first")
+        with _ontology(pack) as ont:
             return ont.act(action, body.params, actor=actor,
                            on_behalf_of=body.on_behalf_of,
-                           idempotency_key=body.idempotency_key)
+                           idempotency_key=body.idempotency_key,
+                           context={"role": c.role} if pack.is_tenant else None)
 
     @app.get("/workspaces/{name}/audit/verify")
-    def verify(name: str) -> dict[str, Any]:
-        with _ontology(_pack(name)) as ont:
+    def verify(name: str, c: CtxDep) -> dict[str, Any]:
+        with _ontology(_serving_pack(name, c)) as ont:
             rows = ont.store.con.execute("select count(*) from audit_log").fetchone()[0]
             return {"intact": ont.store.verify_audit_chain(), "rows": rows}
 
     @app.get("/workspaces/{name}/audit")
-    def audit(name: str, limit: int = 50) -> list[dict[str, Any]]:
-        with _ontology(_pack(name)) as ont:
+    def audit(name: str, c: CtxDep, limit: int = 50) -> list[dict[str, Any]]:
+        with _ontology(_serving_pack(name, c)) as ont:
             df = ont.store.con.execute(
                 "select seq, ts, actor, on_behalf_of, action, status, approved_by, hash "
                 "from audit_log order by seq desc limit ?", [limit]).fetchdf()
@@ -550,20 +594,20 @@ def create_platform_app() -> FastAPI:
 
     @app.get("/workspaces/{name}/ontology")
     def ontology(name: str, c: CtxDep) -> dict[str, Any]:
-        with _ontology(_ask_pack(name, c)) as ont:
+        with _ontology(_serving_pack(name, c)) as ont:
             return {"describe": ont.describe(), "stats": ont.store.stats()}
 
     @app.get("/workspaces/{name}/objects/{type_}")
     def objects(name: str, type_: str, c: CtxDep,
                 limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
-        with _ontology(_pack(name)) as ont:
+        with _ontology(_serving_pack(name, c)) as ont:
             return [ont.masked({**o, "_type": type_}, c.principal)
                     for o in ont.store.list(type_, limit, offset)]
 
     @app.get("/workspaces/{name}/objects/{type_}/{id_}")
     def obj(name: str, type_: str, id_: str,
             c: CtxDep) -> dict[str, Any]:
-        with _ontology(_pack(name)) as ont:
+        with _ontology(_serving_pack(name, c)) as ont:
             o = ont.masked(ont.store.get(type_, id_), c.principal)
             if not o:
                 raise HTTPException(404, f"no {type_} {id_}")
@@ -581,7 +625,7 @@ def create_platform_app() -> FastAPI:
         the audit trail touching this object, pending approvals on it, and
         per-action permits from the real policy engine for the caller."""
         principal = c.principal
-        pack = _pack(name)
+        pack = _serving_pack(name, c)
         with _ontology(pack) as ont:
             o = ont.masked(ont.store.get(type_, id_), principal)
             if not o:
@@ -612,15 +656,24 @@ def create_platform_app() -> FastAPI:
             # permit it is until it expires. Each action's env carries the id
             # under that action's own object-typed param name, the same shape
             # act() builds.
-            engine = orgpolicy_mod.live_engine(name)
+            engine = orgpolicy_mod.live_engine(name, pack=pack)
             now = _utcnow()
             allowed = []
+            types = pack.ontology.get("object_types") or {}
             for action, adef in (pack.ontology.get("actions", {}) or {}).items():
-                pname = escalation_mod._object_param(name, "pack", action)
-                env = {"params": {pname: id_}, "principal": principal, "now": now}
+                if pack.is_tenant:  # only the actions on this object's type, with the caller's role
+                    if adef.get("object_type") != type_:
+                        continue
+                    pname = actions_mod.object_param(adef, types)
+                    env = actions_mod.env_for(principal, c.role, {pname: id_})
+                else:
+                    pname = escalation_mod._object_param(name, "pack", action)
+                    env = {"params": {pname: id_}, "principal": principal, "now": now}
                 d = engine.authorize(principal, f"action:{action}", env)
                 allowed.append({"action": action, "allowed": d.allowed, "reason": d.reason,
-                                "requires_approval": bool(adef.get("requires_approval"))})
+                                "requires_approval": bool(adef.get("requires_approval")),
+                                "description": adef.get("description", ""), "param": pname,
+                                "params": {p: v for p, v in (adef.get("params") or {}).items() if p != pname}})
             return {**o, "_crosswalk": [dict(zip(("system", "source_key", "method", "confidence"), r)) for r in xw],
                     "_neighbors": ont.store.neighbors(id_),
                     "_history": [dict(zip(("version", "changed_by", "action_run", "ts"), r)) for r in hist],
@@ -670,6 +723,9 @@ def create_platform_app() -> FastAPI:
         with _ontology(pack) as ont:
             entry = ask_mod.ask(pack, ont, body.question, principal=c.principal, llm=llm)
             entry["verification"] = verification.derive(pack)
+            if pack.is_tenant:  # rules pick the buttons from what was cited; the answer text is never read
+                entry["offers"] = actions_mod.offers(actions_mod.servable(pack), ont.policy, entry,
+                                                     c.principal, c.role)
             return entry
 
     @app.get("/workspaces/{name}/sources")

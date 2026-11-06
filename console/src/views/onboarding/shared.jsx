@@ -11,6 +11,7 @@ export const STEPS = [
   ["map", "Map"],
   ["run", "Run"],
   ["ontology", "Ontology"],
+  ["actions", "Actions"],
   ["ask", "Ask"],
 ];
 

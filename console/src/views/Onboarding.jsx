@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Err } from "../components.jsx";
+import ActionsStep from "./onboarding/ActionsStep.jsx";
 import AskStep from "./onboarding/AskStep.jsx";
 import MapStep from "./onboarding/MapStep.jsx";
 import OntologyStep from "./onboarding/OntologyStep.jsx";
@@ -27,7 +28,7 @@ function Account({ me }) {
 }
 
 const VIEWS = { upload: UploadStep, profile: ProfileStep, map: MapStep, run: RunStep,
-                ontology: OntologyStep, ask: AskStep };
+                ontology: OntologyStep, actions: ActionsStep, ask: AskStep };
 
 export default function Onboarding({ onChoose, onSkip, onSignOut }) {
   const [journey, setJourney] = useState(null);

@@ -125,3 +125,12 @@ def test_the_whole_journey_ends_on_a_grounded_answer(stack):
     for _name, step in journey.STEPS:
         step(stack, state)
     assert "[ev:" in state.answer["answer"]
+
+
+def test_the_journey_reaches_a_governed_action_a_second_person_approved(stack):
+    state = journey.fresh_state()
+    for _name, step in journey.STEPS:
+        step(stack, state)
+    assert [n for n, _ in journey.STEPS][-1] == "govern_action"
+    assert state.decided["result"]["status"] == "applied"
+    assert state.decided["result"]["audit_seq"] > 0
