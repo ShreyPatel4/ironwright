@@ -37,15 +37,15 @@ import pyarrow as pa
 from .. import sqlguard
 from .. import workspaces_tenant as wt
 from ..config import FILE_NAME, private_dir, safe_child
+from ..legacy import RECORD_HEADER as _RECORD_HEADER
+from ..legacy import RECORD_TRAILER as _RECORD_TRAILER
+from ..legacy import TRAILER_CELL as _TRAILER
 from ..legacy import IngestError, read_upload
 from .profiler import (
     _COMPACT_DATE,
     _DATE_FORMATS,
     _ORDER_PAIRS,
-    _RECORD_HEADER,
-    _RECORD_TRAILER,
     _TIMESTAMP_FORMATS,
-    _TRAILER,
     NULL_TOKENS,
     profile_files,
 )
