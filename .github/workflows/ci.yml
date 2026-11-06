@@ -47,6 +47,10 @@ jobs:
         run: |
           pytest -q -rs tests/e2e/test_wizard_real_backend.py | tee wizard.txt
           ! grep -q SKIPPED wizard.txt
+      - name: Refresh in the console, in a browser, against the real backend
+        run: |
+          pytest -q -rs tests/e2e/test_refresh_console.py | tee refresh.txt
+          ! grep -q SKIPPED refresh.txt
 
   # The hosted stack from the outside: build the image, boot api + postgres +
   # object store, walk it, then prove where the data landed. The same store also

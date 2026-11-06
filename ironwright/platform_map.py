@@ -39,8 +39,8 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "Typed, deduped, conformed; business models in SQL."),
     ("pipe_reconcile", "pipeline", "Reconciliation with known differences", "live", "pipeline",
      "Old equals new, proven, with the differences that are supposed to exist."),
-    ("pipe_profiler", "pipeline", "Profiler and migration assistant", "planned", "src_files",
-     "Profile any file, propose source specs and types; the human authors the mapping. C3."),
+    ("pipe_profiler", "pipeline", "Profiler and migration assistant", "live", "data",
+     "Profile any file, propose source specs and types; a person approves the mapping."),
     # lane: lakehouse
     ("lake_iceberg", "lakehouse", "Iceberg lakehouse", "live", "explorer",
      "Bronze, silver, gold as Iceberg tables; read-only SQL in the console."),
@@ -100,10 +100,9 @@ _NODES: list[tuple[str, str, str, str, str, str]] = [
      "Server-side verify; the same chain the public site verifies in-browser."),
     ("gov_principals", "govern", "Principals and role lenses", "live", "principals",
      "Act-as with masking and audit attribution. An identity claim, not authentication."),
-    ("gov_auth", "govern", "Hosted authentication", "planned", "gov_principals",
-     "An invite gate (salted local credential hashes, console door only) is live; the API "
-     "stays locally open, which is why this node stays PLANNED until the hosted build closes "
-     "it with real authentication end to end."),
+    ("gov_auth", "govern", "Hosted authentication", "live", "principals",
+     "Anyone can sign up and gets an org. Every API route needs a session, and a second org "
+     "gets a 404 on everything of the first."),
     ("gov_escalate", "govern", "Escalation at any grain", "live", "approvals",
      "A denial raises to the owning role; a grant is a narrow expiring policy rule through "
      "the reviewed-diff path that every serving decision consults until it expires, never "

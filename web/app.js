@@ -5,7 +5,8 @@
     { id: "retail", short: "Retail" },
     { id: "supply_chain", short: "Supply chain" },
     { id: "banking_aml", short: "Banking AML" },
-    { id: "insurance_claims", short: "Insurance" },
+    { id: "insurance_claims", short: "Insurance claims" },
+    { id: "insurance_policy", short: "Insurance policy" },
   ];
   const cache = {};
   const $ = (s, r = document) => r.querySelector(s);
