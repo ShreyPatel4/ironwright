@@ -165,6 +165,8 @@ WRITE_ROLES = {
     "/workspaces/{name}/bi": "admin",
     "/orgs/{slug}/invites": "admin",
     "/orgs/{slug}/llm-key": "admin",
+    "/orgs/{slug}/tokens": "admin",
+    "/orgs/{slug}/tokens/{token_id}": "admin",
     "/orgs/{slug}/members/{user_id}": "admin",  # the service keeps admins off owners
     "/orgs/{slug}/switch": "viewer",
     "/auth/logout": "viewer",

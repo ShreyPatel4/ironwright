@@ -80,7 +80,12 @@ def test_the_list_ships_in_the_wheel(tmp_path):
     uv = shutil.which("uv")
     cmd = ([uv, "build", "--wheel", "-q", "-o", str(out), str(ROOT)] if uv else
            [sys.executable, "-m", "pip", "wheel", "--no-deps", "-q", "-w", str(out), str(ROOT)])
-    subprocess.run(cmd, check=True, capture_output=True, cwd=tmp_path)
+    litter = not (ROOT / "build").exists()  # setuptools stages the build inside the tree
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, cwd=tmp_path)
+    finally:
+        if litter:
+            shutil.rmtree(ROOT / "build", ignore_errors=True)
     wheel = next(out.glob("ironwright-*.whl"))
     assert "ironwright/security/breached-100k.txt.gz" in zipfile.ZipFile(wheel).namelist()
 

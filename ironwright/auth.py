@@ -23,7 +23,7 @@ from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from .security import cookies
+from .security import cookies, tokens
 from .tenancy import service
 from .tenancy.models import DEV_ORG_ID, DEV_ORG_SLUG, DEV_USER_ID, Ctx
 
@@ -70,7 +70,15 @@ def bearer_token(headers: Headers) -> str:
 
 
 def session_ctx(token: str) -> Ctx | None:
+    """A session or an org API token. Middleware that only needs the org reads this."""
+    if tokens.is_token(token):
+        got = tokens.resolve(token, _now())
+        return got[0] if got else None
     return service.resolve(token, _now())
+
+
+def is_service(principal: str) -> bool:
+    return principal.startswith("service:")
 
 
 def _dev_ctx(request: Request) -> Ctx:
@@ -83,13 +91,23 @@ def ctx(request: Request) -> Ctx:
     if dev_open():
         return _dev_ctx(request)
     token, via = cookies.credential(request.headers)
-    found = getattr(request.state, "ctx", None) or session_ctx(token)
-    if found is None:
+    template = getattr(request.scope.get("route"), "path", None)
+    if via == "bearer" and tokens.is_token(token):
+        got = tokens.resolve(token, _now())
+        if got is None:
+            raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
+        found, scopes = got
+        if not tokens.allows(scopes, request.method, template):
+            raise HTTPException(403, tokens.REFUSAL)
+        request.state.ctx = found
+        return found
+    found = getattr(request.state, "ctx", None) if via else None
+    found = found if found and not is_service(found.principal) else session_ctx(token)
+    if found is None or is_service(found.principal):
         raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
     if via == "cookie" and request.method not in SAFE_METHODS \
             and not cookies.csrf_ok(token, request.headers.get(cookies.CSRF_HEADER)):
         raise HTTPException(403, "this request needs the X-CSRF-Token header; reload the page and try again")
-    template = getattr(request.scope.get("route"), "path", None)
     if template not in MFA_SETUP_ROUTES and service.mfa_setup_required(found):
         raise HTTPException(403, "your org requires two-step sign in. Set it up in Settings, Security")
     request.state.ctx = found

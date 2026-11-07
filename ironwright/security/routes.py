@@ -17,7 +17,7 @@ from .. import auth
 from ..tenancy import ROLES, Ctx, quotas
 from ..tenancy import service as tenancy
 from ..tenancy.models import at_least
-from . import cookies, mfa, ratelimit
+from . import cookies, mfa, ratelimit, tokens
 
 router = APIRouter()
 CtxDep = Annotated[Ctx, Depends(auth.ctx)]
@@ -292,3 +292,37 @@ def put_org_security(slug: str, body: OrgSecurityBody, c: CtxDep) -> dict[str, A
     org_id = quotas.org_id_of(slug)
     _conflicts(lambda: tenancy.set_require_mfa(org_id, body.require_mfa, c.user_id, c.principal, auth._now()))
     return tenancy.org_security(org_id)
+
+
+# ----- API tokens
+
+class TokenCreateBody(BaseModel):
+    name: str
+    scopes: list[str]
+
+
+def _admin_of(slug: str, c: Ctx) -> str:
+    if not at_least(tenancy.role_in(c.user_id, slug), "admin"):
+        raise HTTPException(403, "only an org admin can do this")
+    return quotas.org_id_of(slug)
+
+
+@router.get("/orgs/{slug}/tokens")
+def list_tokens(slug: str, c: CtxDep) -> list[dict[str, Any]]:
+    return tokens.listed(_admin_of(slug, c))
+
+
+@router.post("/orgs/{slug}/tokens", status_code=201)
+def create_token(slug: str, body: TokenCreateBody, c: CtxDep) -> dict[str, Any]:
+    """The answer holds the only copy of the token."""
+    try:
+        return tokens.create(_admin_of(slug, c), body.name, body.scopes, c.principal, auth._now())
+    except tokens.Invalid as e:
+        raise HTTPException(422, str(e)) from None
+
+
+@router.delete("/orgs/{slug}/tokens/{token_id}")
+def revoke_token(slug: str, token_id: str, c: CtxDep) -> dict[str, bool]:
+    if not tokens.revoke(_admin_of(slug, c), token_id, c.principal, auth._now()):
+        raise HTTPException(404, "no such token")
+    return {"ok": True}
