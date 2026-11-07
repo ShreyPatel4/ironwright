@@ -1,0 +1,49 @@
+name: deploy-cloudflare
+# Deploys the hosted platform (deploy/cloudflare) and smokes it from the outside.
+# Only a person starts this. Never on push: a deploy is a decision, not a side effect.
+on:
+  workflow_dispatch:
+    inputs:
+      smoke_base:
+        description: "Where to smoke after the deploy"
+        default: "https://ironwright-platform.shrey77-wrk.workers.dev"
+
+concurrency:
+  group: deploy-cloudflare
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: No token, no deploy
+        if: ${{ env.CF_TOKEN == '' }}
+        run: |
+          echo "CLOUDFLARE_API_TOKEN is not set, so nothing was deployed." >> "$GITHUB_STEP_SUMMARY"
+          exit 1
+      - name: The Worker's own tests
+        working-directory: deploy/cloudflare
+        run: npm install --no-fund --no-audit && npm test
+      - name: wrangler deploy
+        working-directory: deploy/cloudflare
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx wrangler deploy
+      - name: Smoke the deployed platform under its prefix
+        run: |
+          python deploy/hosted_smoke.py --base "${{ inputs.smoke_base }}" \
+            --base-path /projects/ironwright/app --wait 420 --packs-wait 600 | tee smoke.txt
+          grep -q '^smoke passed' smoke.txt
+          grep '^ok\|^BROKEN' smoke.txt >> "$GITHUB_STEP_SUMMARY"

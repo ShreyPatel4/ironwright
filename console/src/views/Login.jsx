@@ -52,7 +52,15 @@ export default function Login({ onEnter }) {
     setBusy(false);
   }
 
+  async function tryDemo() {
+    setBusy(true); setErr(null);
+    try { enterAs(await api.demo()); } catch (e2) { setErr(e2); }
+    setBusy(false);
+  }
+
   const signingUp = mode === "signup";
+  // The server says who may make an account. Invite and closed hide the button.
+  const canSignUp = !status || status.signup === "open";
   const panel = { background: "var(--bg-1)", border: "1px solid var(--rule)",
                   borderRadius: "var(--rad)", maxWidth: 420, padding: "16px 18px" };
 
@@ -112,14 +120,30 @@ export default function Login({ onEnter }) {
                   type="submit">
             {busy ? "Checking…" : signingUp ? "Create the org" : "Enter the console"}
           </button>
-          <button className="btn" onClick={() => { setMode(signingUp ? "login" : "signup"); setErr(null); }}
-                  style={{ marginLeft: 8 }} type="button">
-            {signingUp ? "I have an account" : "Sign up"}
-          </button>
+          {canSignUp && (
+            <button className="btn" onClick={() => { setMode(signingUp ? "login" : "signup"); setErr(null); }}
+                    style={{ marginLeft: 8 }} type="button">
+              {signingUp ? "I have an account" : "Sign up"}
+            </button>
+          )}
+          {status?.demo && !signingUp && (
+            <button className="btn" disabled={busy} onClick={tryDemo} style={{ marginLeft: 8 }} type="button">
+              Try the demo
+            </button>
+          )}
         </form>
       )}
+      {status && status.signup === "invite" && !picking && (
+        <p className="note" style={{ marginTop: 16 }}>
+          New orgs are by invite for now. Ask an org owner for an invite link
+          {status.demo ? ", or try the demo: it opens the sample companies to read, and changes nothing." : "."}
+        </p>
+      )}
+      {status && status.signup === "closed" && !picking && (
+        <p className="note" style={{ marginTop: 16 }}>New accounts are closed here. Sign in if you have one.</p>
+      )}
       <Err e={err} />
-      {status && !status.seeded && !picking && (
+      {status && !status.seeded && !picking && canSignUp && (
         <p className="note" style={{ marginTop: 16 }}>
           No accounts exist on this instance yet. Sign up to make the first org.
         </p>

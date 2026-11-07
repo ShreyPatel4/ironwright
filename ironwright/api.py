@@ -49,7 +49,7 @@ BODY_CAP_EXEMPT = frozenset({("POST", "/uploads")})
 LOGIN_ATTEMPTS = 10           # per IP, per window
 LOGIN_WINDOW_S = 60.0
 # Every route that takes a password with no session behind it.
-DOORS = frozenset({"/auth/login", "/auth/signup", "/auth/accept-invite"})
+DOORS = frozenset({"/auth/login", "/auth/signup", "/auth/accept-invite", "/auth/demo"})
 
 # The console's own needs and nothing more. frame-src is open to http(s) because
 # the BI embed is a URL the user chose, rendered in a sandboxed iframe.

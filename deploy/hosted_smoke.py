@@ -3,14 +3,18 @@ Standard library only, so it runs anywhere. It prints one line per step and exit
 non-zero at the first break.
 
     python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 180
+    python deploy/hosted_smoke.py --base https://coconutlabs.org --base-path /projects/ironwright/app
 
-The walk is signup, upload, profile job, create workspace, run job. Two steps are
-not what a tenant will finally do, and each says so as it runs:
+--base-path is the prefix the server answers under (IRONWRIGHT_BASE_PATH). Every call
+goes under it, so a link the app builds without the prefix breaks here, not for a customer.
 
-  - No route creates a tenant workspace yet, so an operator creates it inside the
-    API container (--operator), from the proposal the profile job wrote.
-  - POST /jobs only takes a workspace the org can already see, and an org has none
-    before its first profile. So the walk makes a scenario workspace first.
+Where signups are open, the walk is signup, upload, profile job, create workspace from
+the proposal, run job. POST /jobs only takes a workspace the org can already see, and an
+org has none before its first profile, so the walk makes a scenario workspace first.
+
+Where signups are by invite or closed (prod), nobody can sign up, so the walk is what a
+visitor can do: the door refuses a new org, the demo door opens a viewer seat, the seat
+reads the demo packs and cannot write.
 
 Ask comes after wave 2 lands. The demo packs must be built first (`ironwright run
 --pack all` in the container), because a tenant can only read them. The last line
@@ -21,8 +25,6 @@ from __future__ import annotations
 import argparse
 import json
 import pathlib
-import shlex
-import subprocess
 import sys
 import time
 import urllib.error
@@ -32,13 +34,7 @@ from typing import Any
 
 PACKS = ("retail", "supply_chain", "banking_aml", "insurance_claims")
 FIXTURE = pathlib.Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "ingest" / "join"
-OPERATOR = "docker compose -f deploy/compose.yaml exec -T api"
 TENANT_SLUG = "smoke-sales"
-CREATE_WORKSPACE = """
-import json, sys
-from ironwright.workspaces_tenant import create_workspace
-create_workspace(sys.argv[1], sys.argv[2], json.load(sys.stdin))
-"""
 
 
 def call(base: str, path: str, body: Any = None, token: str | None = None, timeout: float = 60,
@@ -111,7 +107,7 @@ def run_job(base: str, token: str, kind: str, workspace: str, params: dict[str, 
     raise AssertionError("unreachable")
 
 
-def walk_a_tenant(base: str, a: dict[str, Any], b: dict[str, Any], scenario: str, operator: str, job_seconds: float) -> None:
+def walk_a_tenant(base: str, a: dict[str, Any], b: dict[str, Any], scenario: str, job_seconds: float) -> None:
     status, raw = upload(base, a["token"], FIXTURE)
     step("org a uploads two files", status == 201, raw[:200] if status != 201 else "")
     upload_id = json.loads(raw)["id"]
@@ -121,10 +117,10 @@ def walk_a_tenant(base: str, a: dict[str, Any], b: dict[str, Any], scenario: str
     spec = json.loads(raw)["workspace"] if status == 200 else {}
     step("the profile proposes both files", len(spec.get("sources", [])) == 2 == job["result"]["sources"], raw[:200] if not spec else "")
 
-    # No route does this yet. An operator approves the proposal as it stands.
-    made = subprocess.run([*shlex.split(operator), "python", "-c", CREATE_WORKSPACE, a["org_id"], TENANT_SLUG],
-                          input=json.dumps(spec), capture_output=True, text=True, timeout=120, check=False)
-    step("an operator creates the workspace (no tenant route yet)", made.returncode == 0, made.stderr[-400:])
+    # The tenant approves the proposal as it stands.
+    status, raw = call(base, "/workspaces", {"from_upload": upload_id, "spec": spec, "slug": TENANT_SLUG},
+                       token=a["token"], timeout=120)
+    step("org a creates the workspace from the proposal", status == 201, raw[:300] if status != 201 else "")
 
     job = run_job(base, a["token"], "run", TENANT_SLUG, {}, job_seconds)
     passed = job["result"]["evals"]["passed"] is True
@@ -141,29 +137,72 @@ def walk_a_tenant(base: str, a: dict[str, Any], b: dict[str, Any], scenario: str
     print(f"tenant {a['org_id']} {TENANT_SLUG}", flush=True)
 
 
+def evals_of(base: str, pack: str, token: str, seconds: float) -> tuple[int, bytes]:
+    """A fresh container builds the demo packs after it is up, so a pack can be missing for
+    a while. Wait for it as long as we were told to, then say what we got."""
+    deadline = time.monotonic() + seconds
+    while True:
+        status, raw = call(base, f"/workspaces/{pack}/reports/evals", token=token)
+        if status == 200 or time.monotonic() >= deadline:
+            return status, raw
+        time.sleep(5)
+
+
+def walk_a_visitor(base: str, door: dict[str, Any], packs: list[str], packs_wait: float) -> None:
+    status = call(base, "/auth/signup", {"email": f"smoke-{uuid.uuid4().hex[:10]}@example.com",
+                                         "password": uuid.uuid4().hex, "org_name": "Smoke"})[0]
+    step("a new org is refused", status == 403, status)
+    step("the server has a demo door", door.get("demo") is True, door)
+    status, raw = call(base, "/auth/demo", {})
+    seat = json.loads(raw) if status == 200 else {}
+    step("the demo door opens a viewer seat", seat.get("role") == "viewer", raw[:200])
+    token = seat["token"]
+    status, raw = call(base, "/workspaces", token=token)
+    names = {w["name"] for w in json.loads(raw)} if status == 200 else set()
+    step("a visitor sees the demo packs", set(packs) <= names, sorted(names))
+    for pack in packs:
+        status, raw = evals_of(base, pack, token, packs_wait)
+        step(f"a visitor reads evals {pack}", status == 200 and json.loads(raw).get("passed") is True,
+             raw[:200] if status != 200 else "")
+    refused = [call(base, "/workspaces", {"name": "smoke", "size": 4, "seed": 3}, token=token)[0],
+               call(base, f"/workspaces/{packs[0]}/runs", {}, token=token)[0]]
+    step("a visitor cannot write", refused == [403, 403], refused)
+    call(base, "/auth/logout", {}, token=token)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--base", default="http://127.0.0.1:8000")
+    ap.add_argument("--base-path", default="", help="the prefix the server answers under, such as /projects/ironwright/app")
     ap.add_argument("--wait", type=float, default=180, help="seconds to wait for /readyz")
     ap.add_argument("--packs", nargs="+", default=list(PACKS))
-    ap.add_argument("--operator", default=OPERATOR, help="command prefix that runs python inside the API's environment")
+    ap.add_argument("--packs-wait", type=float, default=0, help="seconds to wait for the demo packs to be built")
     ap.add_argument("--job-seconds", type=float, default=300, help="seconds to wait for each job")
     args = ap.parse_args()
-    base = args.base.rstrip("/")
+    prefix = "/" + args.base_path.strip("/") if args.base_path.strip("/") else ""
+    base = args.base.rstrip("/") + prefix
 
     wait_ready(base, args.wait)
     step("/healthz", call(base, "/healthz")[0] == 200)
-    status, raw = call(base, "/console/")
-    step("console is built in", status == 200 and b"<html" in raw.lower(), status)
+    for page in ("/console/", "/console"):  # Next.js strips the slash before it rewrites
+        status, raw = call(base, page)
+        step(f"console is built in at {page}", status == 200 and b"<html" in raw.lower(), status)
+        step(f"the console page knows its prefix at {page}", f'<base href="{prefix}/console/">'.encode() in raw)
 
-    step("the door is closed", json.loads(call(base, "/auth/status")[1])["dev_open"] is False)
+    door = json.loads(call(base, "/auth/status")[1])
+    step("the door is closed", door["dev_open"] is False)
     step("no token, no workspaces", call(base, "/workspaces")[0] == 401)
+    step(f"signup is {door.get('signup', 'open')}", True)
+    if door.get("signup", "open") != "open":
+        walk_a_visitor(base, door, args.packs, args.packs_wait)
+        print("smoke passed", flush=True)
+        return
     a, b = signup(base, "a"), signup(base, "b")
     status, raw = call(base, "/auth/me", token=a["token"])
     step("a token is one org", status == 200 and json.loads(raw)["org_id"] == a["org_id"] != b["org_id"])
 
     for pack in args.packs:
-        status, raw = call(base, f"/workspaces/{pack}/reports/evals", token=a["token"])
+        status, raw = evals_of(base, pack, a["token"], args.packs_wait)
         step(f"evals {pack}", status == 200 and json.loads(raw).get("passed") is True, raw[:200] if status != 200 else "")
 
     pack = args.packs[0]
@@ -183,7 +222,7 @@ def main() -> None:
     step("org a sees it", call(base, f"/workspaces/{ws}/organization", token=a["token"])[0] == 200)
     step("org b gets a 404", call(base, f"/workspaces/{ws}/organization", token=b["token"])[0] == 404)
 
-    walk_a_tenant(base, a, b, ws, args.operator, args.job_seconds)
+    walk_a_tenant(base, a, b, ws, args.job_seconds)
     print("smoke passed", flush=True)
 
 

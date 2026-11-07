@@ -158,6 +158,9 @@ export default function App() {
 
   function signIn(s) {
     try { localStorage.setItem("iw.session", JSON.stringify(s)); } catch { /* fine */ }
+    // A demo visitor is a viewer who cannot upload or make anything, so the setup tour has
+    // nothing to offer them. Invited viewers still get it.
+    if (s.demo) { setOnboarded(); setWelcome(false); }
     setSession(s);
   }
   function signOut() {
@@ -294,7 +297,7 @@ export default function App() {
             </select>
             <div style={{ marginTop: 10 }}><Badge v={ws.verification} /></div>
             <p className="note" style={{ margin: "12px 0 0" }}>
-              {session.email}<br />acting as <span className="mono">{who}</span><br />
+              {session.email}{session.role === "viewer" && <> · viewer, read only</>}<br />acting as <span className="mono">{who}</span><br />
               <a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>sign out</a>
             </p>
           </div>
@@ -302,7 +305,7 @@ export default function App() {
         {!ws && (
           <div className="ws">
             <p className="note" style={{ margin: 0 }}>
-              {session.email}<br />acting as <span className="mono">{who}</span><br />
+              {session.email}{session.role === "viewer" && <> · viewer, read only</>}<br />acting as <span className="mono">{who}</span><br />
               <a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>sign out</a>
             </p>
           </div>

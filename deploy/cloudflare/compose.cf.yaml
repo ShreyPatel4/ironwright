@@ -1,0 +1,10 @@
+# make cf-check: the Cloudflare container's shape on the compose stack. One api service runs
+# the same start command as the Worker's container (CF_START comes from src/edge.js through
+# the Makefile, so the two cannot drift), under the same prefix. No separate worker service.
+services:
+  api:
+    entrypoint: ["bash", "-c", "${CF_START:?run this through make cf-check}"]
+    environment:
+      IRONWRIGHT_BASE_PATH: /projects/ironwright/app
+  worker:
+    profiles: ["not-on-cloudflare"]

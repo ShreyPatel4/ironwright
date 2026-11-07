@@ -32,10 +32,28 @@ CHECK_TIMEOUT_SECONDS = 2
 SERVER_ENVS = ("staging", "prod")
 
 
+# Prod runs on a disk that is gone after a restart, so everything a tenant owns has to live
+# somewhere else, and a session has to be signed with a key that outlives the process.
+PROD_NEEDS = ("IRONWRIGHT_SECRET_KEY", "IRONWRIGHT_DB_URL", "IRONWRIGHT_STATE_URI", "IRONWRIGHT_LAKE_URI")
+
+
 def check_posture() -> None:
-    """DEV_OPEN turns the door off. That is for tests, never for a real deployment."""
-    if auth.dev_open() and config.setting("ENV", "local") in SERVER_ENVS:
-        raise SystemExit(f"refusing to start: IRONWRIGHT_DEV_OPEN=1 with IRONWRIGHT_ENV={config.setting('ENV')}")
+    """DEV_OPEN turns the door off. That is for tests, never for a real deployment.
+    Prod also refuses to boot on anything that would lose data or open the door wide."""
+    env = config.setting("ENV", "local")
+    if auth.dev_open() and env in SERVER_ENVS:
+        raise SystemExit(f"refusing to start: IRONWRIGHT_DEV_OPEN=1 with IRONWRIGHT_ENV={env}")
+    try:
+        auth.signup_mode()
+    except ValueError as e:
+        raise SystemExit(f"refusing to start: {e}") from None
+    if env != "prod":
+        return
+    missing = [name for name in PROD_NEEDS if not os.environ.get(name, "").strip()]
+    if missing:
+        raise SystemExit(f"refusing to start: IRONWRIGHT_ENV=prod needs {', '.join(missing)}")
+    if not config.db_url().startswith("postgresql"):
+        raise SystemExit("refusing to start: IRONWRIGHT_ENV=prod needs IRONWRIGHT_DB_URL to be Postgres")
 
 
 def _check_db() -> None:
@@ -140,6 +158,7 @@ class HealthGate:
 
 
 def create_hosted_app() -> ASGIApp:
+    from . import basepath
     from .api import harden
     from .platform_api import create_platform_app
 
@@ -147,7 +166,8 @@ def create_hosted_app() -> ASGIApp:
     config.secure_data_root()
     app = create_platform_app()
     app.add_middleware(HealthGate)
-    return harden(app)  # added last, so outermost
+    # The prefix goes first of all, so every layer below sees the paths it sees at the root.
+    return basepath.mount(harden(app))
 
 
 def serve() -> None:

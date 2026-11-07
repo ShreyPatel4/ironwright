@@ -28,43 +28,40 @@ agent checkpoints are SQLite, the LLM is offline. Nothing to pay for.
 | Postgres ontology store | Neon free tier | if you outgrow DuckDB |
 | CI | GitHub Actions | `.github/workflows/ci.yml` runs every eval on every push |
 
-## Stage 3: coconutlabs.org, two addresses for one site
+## Stage 3: coconutlabs.org
 
 ```mermaid
 flowchart LR
   GH["GitHub push"] --> CI["CI: tests, engine run, build site/"]
-  CI --> P["Pages project ironwright"]
-  P --> SUB["coconutlabs.org/projects/ironwright<br/>(custom domain on Pages)"]
-  P --> PD["ironwright.pages.dev"]
-  W["Worker ironwright-route"] -- "proxies /ironwright/*" --> PD
-  MAIN["coconutlabs.org/ironwright/"] --> W
+  CI --> P["Pages project ironwright<br/>the showcase"]
   CI -- "staging branch" --> ST["staging.ironwright.pages.dev<br/>(behind Cloudflare Access)"]
+  SITE["coconutlabs.org (Vercel)"] -- "/projects/ironwright" --> PAGE["marketing page, in that repo"]
+  SITE -- "rewrite /projects/ironwright/app/*" --> W["Worker ironwright-platform<br/>+ one container"]
 ```
 
-The site uses only relative links, so one build serves both addresses.
+The coconutlabs.org zone is DNS only and Vercel serves it, so a Worker route on it never fires.
+The old route Worker for `coconutlabs.org/ironwright` is gone for that reason. The hosted product
+is mounted with a rewrite instead: `deploy/cloudflare/README.md` is the whole runbook.
 
 | Address | How it is served | Set up once |
 |---|---|---|
-| `coconutlabs.org/projects/ironwright` | Pages custom domain | Pages, project `ironwright`, Custom domains, add the subdomain. Cloudflare creates the DNS record. |
-| `coconutlabs.org/ironwright/` | Worker `ironwright-route` on route `coconutlabs.org/ironwright*` | `cd deploy/route-worker && npx wrangler deploy`. `coconutlabs.org` must be a zone on the same account. |
+| `coconutlabs.org/projects/ironwright` | a page in the coconutlabs-site repo | nothing here |
+| `coconutlabs.org/projects/ironwright/app/` | Vercel rewrite to Worker `ironwright-platform` and its container | `deploy/cloudflare/README.md` |
+| `ironwright.pages.dev` | Pages, the static showcase | below |
 | `staging.ironwright.pages.dev` | Pages branch preview for `staging` | Zero Trust, Access, add an application for that hostname with a one-time PIN to your email. |
 | PR previews | Pages branch previews | Automatic from CI. |
 
-Steps, in order:
+Pages steps, in order:
 
-1. `coconutlabs.org` on Cloudflare DNS (Websites, Add a site, switch nameservers at the registrar).
-2. Create the Pages project once: `npx wrangler pages project create ironwright --production-branch main`.
-3. First deploy from a laptop: `make site && npx wrangler pages deploy site --project-name ironwright --branch main`.
-4. Add the custom domain `coconutlabs.org/projects/ironwright` to the project.
-5. Deploy the route Worker: `cd deploy/route-worker && node test.mjs && npx wrangler deploy`. After the subdomain is live you can point `ORIGIN` at it.
-6. GitHub secrets `CLOUDFLARE_API_TOKEN` (Pages edit, Workers edit, Zone read) and `CLOUDFLARE_ACCOUNT_ID`. From then on, `main` deploys production, `staging` deploys staging, and PRs get previews.
+1. Create the Pages project once: `npx wrangler pages project create ironwright --production-branch main`.
+2. First deploy from a laptop: `make site && npx wrangler pages deploy site --project-name ironwright --branch main`.
+3. GitHub secrets `CLOUDFLARE_API_TOKEN` (Pages edit, Workers edit) and `CLOUDFLARE_ACCOUNT_ID`. From then on, `main` deploys production, `staging` deploys staging, and PRs get previews.
 
 Media: the rendered MP4s live in `media/` in the repo (about 40 MB total, each under the 25 MB Pages file limit). Re-render with `make media` when a film changes.
 
-The Python engine (LangGraph, PyIceberg, DuckDB) does not run inside a Worker. The live site serves
-the snapshot the engine exported, which is the right tradeoff for a free demo. For live runs later,
-put the API (`ironwright serve`) on a small container (Fly.io or a Cloudflare Container) at
-`api.coconutlabs.org/projects/ironwright`, and keep Pages for the UI.
+The Python engine (LangGraph, PyIceberg, DuckDB) does not run inside a Worker. The showcase serves
+the snapshot the engine exported. The live product runs the engine in a Cloudflare Container behind
+the `ironwright-platform` Worker, mounted under the path above.
 
 The narration Worker in `deploy/worker` is optional and separate from the site.
 

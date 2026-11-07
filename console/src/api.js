@@ -6,6 +6,11 @@ let principal = "user:console";
 export const setPrincipal = (p) => { principal = p || "user:console"; };
 export const getPrincipal = () => principal;
 
+// Where the API lives: the folder above the console, from the <base href> the server set.
+// "" at the root of a host, "/projects/ironwright/app" behind coconutlabs.org's rewrite.
+export const API_BASE = new URL(".", document.baseURI).pathname.replace(/\/console\/$/, "").replace(/\/$/, "");
+const at = (path) => API_BASE + path;
+
 function sessionToken() {
   try { return JSON.parse(localStorage.getItem("iw.session") ?? "null")?.token ?? null; }
   catch { return null; }
@@ -13,7 +18,7 @@ function sessionToken() {
 
 async function req(path, opts = {}) {
   const token = sessionToken();
-  const r = await fetch(path, {
+  const r = await fetch(at(path), {
     ...opts,
     headers: { "x-principal": principal,
                ...(token ? { authorization: `Bearer ${token}` } : {}),
@@ -47,7 +52,7 @@ const org = (slug) => `/orgs/${encodeURIComponent(slug)}`;
 // click on a throwaway link to the bytes.
 async function saveFile(path, name) {
   const token = sessionToken();
-  const r = await fetch(path, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  const r = await fetch(at(path), { headers: token ? { authorization: `Bearer ${token}` } : {} });
   if (!r.ok) {
     let detail = r.statusText;
     try { detail = (await r.json()).detail ?? detail; } catch { /* keep statusText */ }
@@ -100,6 +105,7 @@ export const api = {
   discovery: (ws) => req(`/workspaces/${ws}/discovery`),
   authStatus: () => req("/auth/status"),
   login: (email, password) => post("/auth/login", { email, password }),
+  demo: () => post("/auth/demo", {}),
   signup: (email, password, org_name) => post("/auth/signup", { email, password, org_name }),
   // The token is passed in because Login calls this before the session is stored.
   switchOrg: (slug, token) => req(`/orgs/${encodeURIComponent(slug)}/switch`, {

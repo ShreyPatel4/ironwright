@@ -105,7 +105,7 @@ that is not in this table.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `IRONWRIGHT_ENV` | `local` | `local`, `staging` or `prod`. On `staging` and `prod` the server refuses to start with `IRONWRIGHT_DEV_OPEN=1`, or without `IRONWRIGHT_SECRET_KEY`. |
+| `IRONWRIGHT_ENV` | `local` | `local`, `staging` or `prod`. On `staging` and `prod` the server refuses to start with `IRONWRIGHT_DEV_OPEN=1`, or without `IRONWRIGHT_SECRET_KEY`. `prod` also refuses without a Postgres `IRONWRIGHT_DB_URL`, `IRONWRIGHT_STATE_URI` and `IRONWRIGHT_LAKE_URI`. |
 | `IRONWRIGHT_HOST` | `127.0.0.1` | Bind address for `serve-platform`. A container must set `0.0.0.0` to be reachable. The image does not set it. |
 | `IRONWRIGHT_I_KNOW_THIS_IS_EXPOSED` | off | `1` is required for any host that is not loopback. Same two keys as the `--host` and `--i-know-this-is-exposed` flags on `platform`. |
 | `IRONWRIGHT_PORT` | `PORT`, then `8000` | Bind port. |
@@ -113,6 +113,9 @@ that is not in this table.
 | `IRONWRIGHT_DEV_OPEN` | off | `1` removes the login. Tests and demo-check only. Never on a reachable server. |
 | `IRONWRIGHT_KILL_SWITCH` | off | `1` turns off Ask and actions. Reads and health routes stay up. |
 | `IRONWRIGHT_CONSOLE_ORIGIN` | none | One origin allowed to call the API from a browser. Unset means same-origin only. |
+| `IRONWRIGHT_BASE_PATH` | none | A prefix the server also answers under, such as `/projects/ironwright/app` behind coconutlabs.org's rewrite. The root keeps working. See `deploy/cloudflare/README.md`. |
+| `IRONWRIGHT_SIGNUP` | `open`, `invite` on `prod` | `open` lets anyone make an org, `invite` lets only the invited in, `closed` lets nobody new in. Signing in always works. |
+| `IRONWRIGHT_DEMO_ORG` | none | An org slug. Set, `POST /auth/demo` gives each visitor their own viewer seat in that org, with no password. The server makes the org at boot if it is missing, so no signup can take the slug. Naming an org that already exists opens it to every visitor as a viewer. |
 | `IRONWRIGHT_METRICS_TOKEN` | none | Secret. The bearer token `GET /metrics` asks for. Unset means nobody can scrape. See `docs/operations.md`. |
 
 ### Storage

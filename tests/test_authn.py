@@ -25,7 +25,7 @@ from ironwright.tracing import Tracer
 EMAIL = "tester@example.com"
 PASSWORD = "correct-horse-9"
 # "/" only redirects to the console and carries no data.
-PUBLIC = {"/auth/status", "/auth/login", "/auth/signup", "/auth/accept-invite", "/"}
+PUBLIC = {"/auth/status", "/auth/login", "/auth/signup", "/auth/accept-invite", "/auth/demo", "/", "/console"}
 EIGHT_HOURS = 8 * 3600
 
 

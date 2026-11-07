@@ -1,0 +1,37 @@
+diff -ru a/app/projects/ironwright/page.tsx b/app/projects/ironwright/page.tsx
+--- a/app/projects/ironwright/page.tsx	2026-11-06 19:29:41
++++ b/app/projects/ironwright/page.tsx	2026-11-06 19:29:41
+@@ -47,6 +47,18 @@
+           businesses, each with its own legacy mess, its own ontology, and its own agent.
+         </p>
+ 
++        <p className="mt-4 max-w-2xl text-base leading-7 text-ink-1">
++          Try it: the hosted console runs the same engine on the four packs, read only, with no
++          account.{" "}
++          <a
++            className="focus-ring text-accent underline decoration-1 underline-offset-2"
++            href="/projects/ironwright/app"
++          >
++            Open Ironwright
++          </a>
++          . The first visit after a quiet hour wakes the server, which takes about a minute.
++        </p>
++
+         <figure className="mt-10">
+           <video
+             className="w-full rounded-sm border border-rule"
+diff -ru a/next.config.ts b/next.config.ts
+--- a/next.config.ts	2026-11-06 19:29:41
++++ b/next.config.ts	2026-11-06 19:29:41
+@@ -37,6 +37,11 @@
+     return [
+       { source: "/live", destination: "https://coconutlabs-live.shrey77-wrk.workers.dev/live" },
+       { source: "/live/:path*", destination: "https://coconutlabs-live.shrey77-wrk.workers.dev/live/:path*" },
++      /* The hosted Ironwright product: a Worker in front of one Cloudflare Container. The path
++         goes through unchanged and the app answers under it (IRONWRIGHT_BASE_PATH). Both
++         entries, as for /live. The marketing page at /projects/ironwright stays here. */
++      { source: "/projects/ironwright/app", destination: "https://ironwright-platform.shrey77-wrk.workers.dev/projects/ironwright/app" },
++      { source: "/projects/ironwright/app/:path*", destination: "https://ironwright-platform.shrey77-wrk.workers.dev/projects/ironwright/app/:path*" },
+     ];
+   },
+ 
