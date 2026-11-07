@@ -37,7 +37,7 @@ from ..config import (
     workspaces_root,
 )
 from ..packs import list_packs
-from ..security import cookies, outbox, passwords, ratelimit
+from ..security import cookies, mfa, outbox, passwords, ratelimit
 from ..security import store as sec
 from . import db, usage
 from .models import DEV_ORG_ID, DEV_ORG_SLUG, ROLES, Ctx, at_least, principal_of
@@ -408,6 +408,9 @@ def login(email: str, password: str, now: float, seen: dict[str, str] | None = N
         user = con.execute(sa.select(db.users).where(db.users.c.email == email)).mappings().first()
         good = verify_password(password, user["pw_hash"] if user else _NOBODY) and user is not None
         orgs = _orgs_of(con, user["id"]) if good else []
+        if orgs and mfa_enabled(con, user["id"]):
+            # The count clears only once the code is in, or wrong codes could never lock.
+            return _mfa_ticket(con, user["id"], orgs[0]["id"], now)
         if orgs:
             answer = _session_answer(con, _open_session(con, user["id"], orgs[0]["id"], now, seen),
                                      user["id"], orgs[0]["id"])
@@ -588,6 +591,8 @@ def _accept_invite(token: str, password: str, now: float, seen: dict[str, str] |
             ).values(role=row["role"]))
         con.execute(db.invites.delete().where(db.invites.c.token_hash == hashed))
         usage.audit(con, row["org_id"], principal_of(user_id), "member.join", {"user_id": user_id, "role": row["role"]}, now)
+        if mfa_enabled(con, user_id):
+            return _mfa_ticket(con, user_id, row["org_id"], now)
         return _session_answer(con, _open_session(con, user_id, row["org_id"], now, seen),
                                user_id, row["org_id"])
 
@@ -976,3 +981,185 @@ def delete_org_data(org_id: str, now: float) -> dict[str, str]:
             time.sleep(wait)
     _forget_org(org_id, request, now)
     return {"state": "deleted"}
+
+
+# ---------------------------------------------------------------- mfa
+
+MFA_TICKET_SECONDS = 5 * 60
+MFA_TICKET_ATTEMPTS = 5
+
+
+class Conflict(Exception):
+    """The request clashes with the account's state. The words say how."""
+
+
+def _mfa_row(con: Connection, user_id: str) -> Any:
+    return con.execute(sa.select(sec.user_mfa).where(sec.user_mfa.c.user_id == user_id)).mappings().first()
+
+
+def mfa_enabled(con: Connection, user_id: str) -> bool:
+    row = _mfa_row(con, user_id)
+    return bool(row and row["enabled_at"] is not None)
+
+
+def _requiring_orgs(con: Connection, user_id: str) -> list[str]:
+    o = sec.org_security
+    return [org["slug"] for org in _orgs_of(con, user_id)
+            if con.execute(sa.select(o.c.require_mfa).where(o.c.org_id == org["id"])).scalar()]
+
+
+def mfa_setup_required(ctx: Ctx) -> bool:
+    """The org asks for two-step sign in and this user has not set it up."""
+    with sec.engine().connect() as con:
+        required = con.execute(sa.select(sec.org_security.c.require_mfa)
+                               .where(sec.org_security.c.org_id == ctx.org_id)).scalar()
+        return bool(required) and not mfa_enabled(con, ctx.user_id)
+
+
+def _mfa_ticket(con: Connection, user_id: str, org_id: str, now: float) -> dict[str, Any]:
+    """What a right password buys an MFA account: a ticket for the code, never a session."""
+    t = sec.mfa_tickets
+    con.execute(t.delete().where(sa.or_(t.c.user_id == user_id, t.c.expires_at <= now)))
+    ticket = secrets.token_urlsafe(32)
+    con.execute(t.insert().values(token_hash=_token_hash(ticket), user_id=user_id, org_id=org_id,
+                                  expires_at=now + MFA_TICKET_SECONDS, attempts=0))
+    email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == user_id)).scalar_one()
+    return {"mfa_required": True, "ticket": ticket, "email": email}
+
+
+def complete_mfa(ticket: str, code: str | None, recovery: str | None, now: float,
+                 seen: dict[str, str] | None = None) -> dict[str, Any]:
+    t = sec.mfa_tickets
+    hashed = _token_hash(ticket or "")
+    with sec.engine().begin() as con:
+        row = con.execute(sa.select(t).where(t.c.token_hash == hashed)).mappings().first()
+        if row is None or row["expires_at"] <= now or row["attempts"] >= MFA_TICKET_ATTEMPTS:
+            raise BadCredentials
+        user_id = row["user_id"]
+        email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == user_id)).scalar_one()
+        held = _mfa_row(con, user_id)
+        step = used = None
+        if held and held["enabled_at"] is not None:
+            if code:
+                secret = mfa.unseal(user_id, held["sealed"])
+                step = mfa.match(secret, code, now, held["last_step"]) if secret else None
+            elif recovery:
+                left = json.loads(held["recovery"])
+                used = mfa.code_hash(recovery) if mfa.code_hash(recovery) in left else None
+        if step is not None or used is not None:
+            if con.execute(t.delete().where(t.c.token_hash == hashed)).rowcount != 1:
+                raise BadCredentials  # a racing request spent it first
+            values = ({"last_step": step} if step is not None else
+                      {"recovery": json.dumps([h for h in json.loads(held["recovery"]) if h != used])})
+            con.execute(sec.user_mfa.update().where(sec.user_mfa.c.user_id == user_id).values(**values))
+            if used is not None:
+                audit_user(con, user_id, principal_of(user_id), "mfa.recovery_used", _where(seen), now)
+            audit_user(con, user_id, principal_of(user_id), "auth.login", {**_where(seen), "mfa": True}, now)
+            answer = _session_answer(con, _open_session(con, user_id, row["org_id"], now, seen),
+                                     user_id, row["org_id"])
+    if step is None and used is None:
+        with sec.engine().begin() as con:
+            con.execute(t.update().where(t.c.token_hash == hashed).values(attempts=t.c.attempts + 1))
+        failed_sign_in(email, user_id, now, seen)
+        raise BadCredentials
+    ratelimit.clear(email)
+    return answer
+
+
+def mfa_status(user_id: str) -> dict[str, Any]:
+    with sec.engine().connect() as con:
+        row = _mfa_row(con, user_id)
+        return {"enabled": bool(row and row["enabled_at"] is not None),
+                "recovery_left": len(json.loads(row["recovery"])) if row and row["enabled_at"] else 0,
+                "required_by": _requiring_orgs(con, user_id)}
+
+
+def mfa_enrol(user_id: str, now: float) -> dict[str, str]:
+    """A secret waiting for its first code. It counts for nothing until confirmed."""
+    secret = mfa.new_secret()
+    sealed = mfa.seal(user_id, secret)
+    with sec.engine().begin() as con:
+        if mfa_enabled(con, user_id):
+            raise Conflict("two-step sign in is already on; turn it off first to start again")
+        email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == user_id)).scalar_one()
+        con.execute(sec.user_mfa.delete().where(sec.user_mfa.c.user_id == user_id))
+        con.execute(sec.user_mfa.insert().values(user_id=user_id, sealed=sealed, enabled_at=None,
+                                                 last_step=0, recovery="[]"))
+    return {"secret": mfa.b32(secret), "otpauth_uri": mfa.uri(secret, email)}
+
+
+def mfa_confirm(ctx: Ctx, code: str, now: float, seen: dict[str, str] | None = None) -> dict[str, Any]:
+    """The first code turns it on. Every session ends, since none of them passed a code,
+    and this device gets a new one: the rotation on MFA enrolment."""
+    codes = mfa.recovery_codes()
+    with sec.engine().begin() as con:
+        row = _mfa_row(con, ctx.user_id)
+        if row is None or row["enabled_at"] is not None:
+            raise Conflict("start setting up two-step sign in first")
+        secret = mfa.unseal(ctx.user_id, row["sealed"])
+        step = mfa.match(secret, code, now, 0) if secret else None
+        if step is None:
+            raise Invalid("that code does not match; check the time on your phone and try the next one")
+        con.execute(sec.user_mfa.update().where(sec.user_mfa.c.user_id == ctx.user_id).values(
+            enabled_at=now, last_step=step, recovery=json.dumps([mfa.code_hash(c) for c in codes])))
+        _end(con, db.sessions.c.user_id == ctx.user_id)
+        audit_user(con, ctx.user_id, ctx.principal, "mfa.enable", {}, now)
+        session = _session_answer(con, _open_session(con, ctx.user_id, ctx.org_id, now, seen),
+                                  ctx.user_id, ctx.org_id)
+    return {"session": session, "recovery_codes": codes}
+
+
+def _prove(con: Connection, user_id: str, code: str | None, now: float) -> dict[str, Any]:
+    row = _mfa_row(con, user_id)
+    if row is None or row["enabled_at"] is None:
+        raise Conflict("two-step sign in is not on")
+    secret = mfa.unseal(user_id, row["sealed"])
+    step = mfa.match(secret, code or "", now, row["last_step"]) if secret else None
+    if step is None:
+        raise Invalid("that code does not match")
+    con.execute(sec.user_mfa.update().where(sec.user_mfa.c.user_id == user_id).values(last_step=step))
+    return row
+
+
+def mfa_disable(ctx: Ctx, code: str | None, now: float) -> None:
+    with sec.engine().begin() as con:
+        required = _requiring_orgs(con, ctx.user_id)
+        if required:
+            raise Conflict(f"{', '.join(required)} requires two-step sign in, so it has to stay on")
+        _prove(con, ctx.user_id, code, now)
+        con.execute(sec.user_mfa.delete().where(sec.user_mfa.c.user_id == ctx.user_id))
+        audit_user(con, ctx.user_id, ctx.principal, "mfa.disable", {}, now)
+
+
+def mfa_new_recovery(ctx: Ctx, code: str | None, now: float) -> list[str]:
+    codes = mfa.recovery_codes()
+    with sec.engine().begin() as con:
+        _prove(con, ctx.user_id, code, now)
+        con.execute(sec.user_mfa.update().where(sec.user_mfa.c.user_id == ctx.user_id)
+                    .values(recovery=json.dumps([mfa.code_hash(c) for c in codes])))
+        audit_user(con, ctx.user_id, ctx.principal, "mfa.recovery_new", {}, now)
+    return codes
+
+
+def org_security(org_id: str) -> dict[str, Any]:
+    with sec.engine().connect() as con:
+        required = con.execute(sa.select(sec.org_security.c.require_mfa)
+                               .where(sec.org_security.c.org_id == org_id)).scalar()
+        people = con.execute(sa.select(db.memberships.c.user_id).where(db.memberships.c.org_id == org_id)).scalars().all()
+        enrolled = sum(1 for p in people if mfa_enabled(con, p))
+    return {"require_mfa": bool(required), "members": len(people), "members_with_mfa": enrolled}
+
+
+def set_require_mfa(org_id: str, on: bool, actor_id: str, actor: str, now: float) -> None:
+    """Owner only, which the gate checks. An owner cannot lock themselves out: they must
+    have it on first."""
+    o = sec.org_security
+    with sec.engine().begin() as con:
+        _lock_org(con, org_id)
+        if _role_there(con, org_id, actor_id) != "owner":
+            raise Forbidden("only an org owner can change this")
+        if on and not mfa_enabled(con, actor_id):
+            raise Conflict("turn on two-step sign in for yourself before you require it for the org")
+        con.execute(o.delete().where(o.c.org_id == org_id))
+        con.execute(o.insert().values(org_id=org_id, require_mfa=on))
+        usage.audit(con, org_id, actor, "org.require_mfa", {"on": on}, now)

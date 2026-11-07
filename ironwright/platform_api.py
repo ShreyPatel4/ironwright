@@ -171,6 +171,10 @@ WRITE_ROLES = {
     "/auth/sessions/{session_id}": "viewer",
     "/auth/sessions/revoke-all": "viewer",
     "/auth/verify/resend": "viewer",
+    "/auth/mfa/enrol": "viewer",
+    "/auth/mfa/confirm": "viewer",
+    "/auth/mfa/disable": "viewer",
+    "/auth/mfa/recovery-codes": "viewer",
 }
 
 

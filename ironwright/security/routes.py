@@ -17,7 +17,7 @@ from .. import auth
 from ..tenancy import ROLES, Ctx, quotas
 from ..tenancy import service as tenancy
 from ..tenancy.models import at_least
-from . import cookies, ratelimit
+from . import cookies, mfa, ratelimit
 
 router = APIRouter()
 CtxDep = Annotated[Ctx, Depends(auth.ctx)]
@@ -53,8 +53,10 @@ def seen(request: Request) -> dict[str, str]:
 
 
 def opened(answer: dict[str, Any], status: int = 200) -> JSONResponse:
+    """An MFA ticket is not a session, so it gets no cookie."""
     response = JSONResponse(answer, status_code=status)
-    cookies.issue(response, answer["token"], tenancy.ABSOLUTE_SECONDS)
+    if "token" in answer:
+        cookies.issue(response, answer["token"], tenancy.ABSOLUTE_SECONDS)
     return response
 
 
@@ -154,6 +156,7 @@ def auth_me(request: Request, c: CtxDep) -> dict[str, Any]:
         if c is None:
             raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
     answer = auth.describe(c)
+    answer["mfa_setup_required"] = not auth.dev_open() and tenancy.mfa_setup_required(c)
     if via == "cookie":
         answer["csrf"] = cookies.csrf_of(token)
     return answer
@@ -206,3 +209,86 @@ def org_invite(slug: str, body: InviteBody, c: CtxDep) -> dict[str, Any]:
                 "email": body.email.strip().lower(), "role": body.role, "org_slug": slug}
     except tenancy.Invalid as e:
         raise HTTPException(422, str(e)) from e
+
+
+# ----- two-step sign in
+
+class MfaBody(BaseModel):
+    ticket: str
+    code: str | None = None
+    recovery_code: str | None = None
+
+
+class CodeBody(BaseModel):
+    code: str | None = None
+
+
+class OrgSecurityBody(BaseModel):
+    require_mfa: bool
+
+
+def _conflicts(change: Any) -> Any:
+    try:
+        return change()
+    except mfa.NoSecret as e:
+        raise HTTPException(503, str(e)) from None
+    except tenancy.Conflict as e:
+        raise HTTPException(409, str(e)) from None
+    except tenancy.Invalid as e:
+        raise HTTPException(422, str(e)) from None
+    except tenancy.Forbidden as e:
+        raise HTTPException(403, str(e)) from None
+
+
+@router.post("/auth/mfa")
+def auth_mfa(body: MfaBody, request: Request) -> JSONResponse:
+    """The second step of a sign in. Wrong codes count toward the email's lock."""
+    try:
+        return opened(tenancy.complete_mfa(body.ticket, body.code, body.recovery_code, auth._now(), seen(request)))
+    except ratelimit.Locked as e:
+        raise HTTPException(429, ratelimit.LOCKED_DETAIL) from e
+    except tenancy.BadCredentials as e:
+        raise HTTPException(401, "that code does not match, or the sign in took too long; start again") from e
+
+
+@router.get("/auth/mfa/status")
+def auth_mfa_status(c: CtxDep) -> dict[str, Any]:
+    return tenancy.mfa_status(c.user_id)
+
+
+@router.post("/auth/mfa/enrol")
+def auth_mfa_enrol(c: CtxDep) -> dict[str, str]:
+    return _conflicts(lambda: tenancy.mfa_enrol(c.user_id, auth._now()))
+
+
+@router.post("/auth/mfa/confirm")
+def auth_mfa_confirm(body: CodeBody, request: Request, c: CtxDep) -> JSONResponse:
+    done = _conflicts(lambda: tenancy.mfa_confirm(c, body.code or "", auth._now(), seen(request)))
+    response = JSONResponse(done)
+    cookies.issue(response, done["session"]["token"], tenancy.ABSOLUTE_SECONDS)
+    return response
+
+
+@router.post("/auth/mfa/disable")
+def auth_mfa_disable(body: CodeBody, c: CtxDep) -> dict[str, bool]:
+    _conflicts(lambda: tenancy.mfa_disable(c, body.code, auth._now()))
+    return {"ok": True}
+
+
+@router.post("/auth/mfa/recovery-codes")
+def auth_mfa_recovery(body: CodeBody, c: CtxDep) -> dict[str, Any]:
+    return {"recovery_codes": _conflicts(lambda: tenancy.mfa_new_recovery(c, body.code, auth._now()))}
+
+
+@router.get("/orgs/{slug}/security")
+def org_security(slug: str, c: CtxDep) -> dict[str, Any]:
+    if not at_least(tenancy.role_in(c.user_id, slug), "admin"):
+        raise HTTPException(403, "only an org admin can see this")
+    return tenancy.org_security(quotas.org_id_of(slug))
+
+
+@router.put("/orgs/{slug}/security")
+def put_org_security(slug: str, body: OrgSecurityBody, c: CtxDep) -> dict[str, Any]:
+    org_id = quotas.org_id_of(slug)
+    _conflicts(lambda: tenancy.set_require_mfa(org_id, body.require_mfa, c.user_id, c.principal, auth._now()))
+    return tenancy.org_security(org_id)

@@ -279,7 +279,7 @@ def test_rate_limit_applies_to_login_only(platform):
 # Ending a session is a safety action, so it stays up too.
 READ_ONLY_WRITES = {"/auth/login", "/auth/logout", "/workspaces/retail/lake/query",
                     "/workspaces/retail/boards/x/run", "/workspaces/retail/governance/check",
-                    "/auth/sessions/x", "/auth/sessions/revoke-all"}
+                    "/auth/sessions/x", "/auth/sessions/revoke-all", "/auth/mfa"}
 
 
 def _routes(routes, prefix=""):

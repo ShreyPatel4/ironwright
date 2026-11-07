@@ -35,6 +35,10 @@ PUBLIC_ROUTES = frozenset({"/auth/status", "/auth/login", "/auth/signup",
                            "/auth/accept-invite", "/auth/verify", "/auth/reset-request",
                            "/auth/reset", "/auth/mfa", "/"})
 SESSION_COOKIE = cookies.SESSION_COOKIE
+# All a member can reach while their org requires MFA and they have not set it up.
+MFA_SETUP_ROUTES = frozenset({"/auth/me", "/auth/logout", "/auth/mfa/status", "/auth/mfa/enrol",
+                              "/auth/mfa/confirm", "/auth/sessions", "/auth/sessions/{session_id}",
+                              "/auth/sessions/revoke-all", "/orgs/{slug}/switch"})
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 _now = time.time
@@ -85,6 +89,9 @@ def ctx(request: Request) -> Ctx:
     if via == "cookie" and request.method not in SAFE_METHODS \
             and not cookies.csrf_ok(token, request.headers.get(cookies.CSRF_HEADER)):
         raise HTTPException(403, "this request needs the X-CSRF-Token header; reload the page and try again")
+    template = getattr(request.scope.get("route"), "path", None)
+    if template not in MFA_SETUP_ROUTES and service.mfa_setup_required(found):
+        raise HTTPException(403, "your org requires two-step sign in. Set it up in Settings, Security")
     request.state.ctx = found
     return found
 
