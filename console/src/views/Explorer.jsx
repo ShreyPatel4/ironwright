@@ -21,8 +21,9 @@ export default function Explorer({ ws }) {
     setOut(null); setErr(null);
     api.lakeTables(ws.name).then((t) => {
       setTables(t);
-      const gold = t.find((x) => x.layer === "gold");
-      if (gold) setSql(`select * from ${gold.layer}_${gold.name} limit 20`);
+      // A workspace from your own files may stop at silver or bronze.
+      const first = t.find((x) => x.layer === "gold") ?? t.find((x) => x.layer === "silver") ?? t[0];
+      if (first) setSql(`select * from ${first.layer}_${first.name} limit 20`);
     }).catch(setErr);
   }, [ws.name]);
 
@@ -56,6 +57,10 @@ export default function Explorer({ ws }) {
           <Err e={err} />
           {out && <Rows columns={out.columns} rows={out.rows} />}
 
+          {ws.kind === "workspace" ? (
+            <p className="note">Engine swap is off here. It copies tables to a shared postgres server,
+              and your data stays in your org's storage.</p>
+          ) : <>
           <h3>Engine swap</h3>
           <p className="note">Transforms are SQL. This runs every model of this workspace
             unchanged on a second engine (postgres, from POSTGRES_URI) and compares the
@@ -87,6 +92,7 @@ export default function Explorer({ ws }) {
               </tbody>
             </table></div>
           )}
+          </>}
         </div>
       </div>
     </>

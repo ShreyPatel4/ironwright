@@ -32,6 +32,7 @@ export default function BIEmbed({ ws }) {
   const [report, setReport] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
+  const own = ws.kind === "workspace";
 
   const load = useCallback(() => {
     api.bi(ws.name).then((c) => { setConfig(c); setDraft(c.url || ""); }).catch(setErr);
@@ -52,15 +53,19 @@ export default function BIEmbed({ ws }) {
   return (
     <>
       <h2>BI embed</h2>
-      <p className="sub">Point your own BI tool (Metabase, Looker, Power BI) at this workspace.
+      {own ? (
+        <p className="sub">Save a link to a dashboard from your own BI tool (Metabase, Looker,
+          Power BI) and it shows here. The mirror is off here. It copies tables to a shared
+          postgres server, and your data stays in your org's storage.</p>
+      ) : <p className="sub">Point your own BI tool (Metabase, Looker, Power BI) at this workspace.
         The mirror copies every silver and gold table into a postgres schema, then reads each
         copy back and verifies it row for row; the badges below are that verdict, not a hope.
-        deploy/bi in the repo has a Metabase recipe.</p>
+        deploy/bi in the repo has a Metabase recipe.</p>}
       <Err e={err} />
 
       <ReadOnlyNote ws={ws} />
       <div className="row">
-        {!ws.read_only && (
+        {!own && !ws.read_only && (
           <button className="btn" disabled={busy} onClick={mirror}>
             {busy ? "Mirroring…" : "Mirror lake to postgres"}</button>
         )}
@@ -92,8 +97,8 @@ export default function BIEmbed({ ws }) {
 
       {config?.url && (
         <>
-          <p className="note">The dashboard below is your BI tool rendering the mirrored schema.
-            Ironwright claims the mirror and this frame, nothing more.</p>
+          <p className="note">{own ? "The dashboard below is your own BI tool. Ironwright claims this frame, nothing more."
+            : "The dashboard below is your BI tool rendering the mirrored schema. Ironwright claims the mirror and this frame, nothing more."}</p>
           <iframe sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                   src={config.url} style={{ background: "var(--bg-1)",
                     border: "1px solid var(--rule)", borderRadius: "var(--rad)",

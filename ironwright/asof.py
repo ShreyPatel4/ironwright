@@ -16,17 +16,21 @@ from __future__ import annotations
 
 import contextlib
 import datetime
-from typing import Any, Iterator
+from typing import Annotated, Any, Iterator
 
-from fastapi import APIRouter, Header, HTTPException
+import duckdb
+from fastapi import APIRouter, Depends, Header, HTTPException
 
+from . import auth
 from .ontology.runtime import Ontology
-from .packs import list_packs, load_pack
+from .resolve import workspace_pack
+from .tenancy.models import Ctx
 from .tracing import Tracer
 
 CONSOLE_PRINCIPAL = "user:console"
 
 router = APIRouter()
+CtxDep = Annotated[Ctx, Depends(auth.ctx)]
 
 
 def parse_ts(raw: str) -> float:
@@ -45,15 +49,14 @@ def parse_ts(raw: str) -> float:
     return dt.timestamp()
 
 
-def _pack(name: str):
-    if name not in list_packs():
-        raise HTTPException(404, f"no workspace named {name}")
-    return load_pack(name)
-
-
 @contextlib.contextmanager
 def _ontology(pack) -> Iterator[Ontology]:
-    ont = Ontology(pack, Tracer(pack.paths.ensure().traces), attach_lake=False)
+    try:
+        ont = Ontology(pack, Tracer(pack.paths.ensure().traces), attach_lake=False)
+    except duckdb.IOException as e:
+        if not pack.is_tenant:
+            raise
+        raise HTTPException(409, "a run is using this workspace; try again when it is done") from e
     try:
         yield ont
     finally:
@@ -62,12 +65,12 @@ def _ontology(pack) -> Iterator[Ontology]:
 
 
 @router.get("/workspaces/{name}/objects/{type_}/{id_}/asof")
-def object_asof(name: str, type_: str, id_: str, ts: str,
+def object_asof(name: str, type_: str, id_: str, ts: str, c: CtxDep,
                 x_principal: str = Header(CONSOLE_PRINCIPAL)) -> dict[str, Any]:
     """The object as of ts, masked like every other object read, plus which
     version answered and when that version was written."""
     at = parse_ts(ts)
-    with _ontology(_pack(name)) as ont:
+    with _ontology(workspace_pack(name, c)) as ont:
         obj = ont.store.get_asof(type_, id_, at)
         if obj is None:
             raise HTTPException(404, f"no {type_} {id_} as of {ts}; it did not exist yet or never did")

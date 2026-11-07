@@ -604,7 +604,7 @@ def asking(api, monkeypatch, tmp_path):
         finally:
             o.store.con.close()
 
-    monkeypatch.setattr(platform_api, "_ask_pack", lambda name, c: pack)
+    monkeypatch.setattr(platform_api, "workspace_pack", lambda name, c: pack)
     monkeypatch.setattr(platform_api, "_ontology", opened)
     c, a, b, ws = api
     yield c, a, b, ws, pack

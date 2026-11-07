@@ -35,6 +35,7 @@ from pydantic import BaseModel
 from . import auth, orgpolicy
 from .config import PackPaths
 from .packs import list_packs, load_pack
+from .resolve import is_tenant
 from .tenancy.models import Ctx
 
 RECORD_FILE = "escalations.jsonl"
@@ -83,6 +84,14 @@ def _workspace(name: str) -> tuple[str, Path]:
         return "organization", orgpolicy._org_dir(name) / RECORD_FILE
     except FileNotFoundError as e:
         raise HTTPException(404, f"no workspace named {name}") from e
+
+
+def _workspace_for(name: str, c: Ctx) -> tuple[str, Path]:
+    """What a route takes. A tenant workspace has no actions to escalate, and its slug is
+    only unique inside its org, so it must never reach the bare-name lookup above."""
+    if is_tenant(name, c):
+        raise HTTPException(404, "your own workspace has no actions yet, so it has nothing to escalate")
+    return _workspace(name)
 
 
 def _moments(path: Path) -> list[dict[str, Any]]:
@@ -208,7 +217,7 @@ CtxDep = Annotated[Ctx, Depends(auth.ctx)]
 
 @router.post("/workspaces/{name}/escalations", status_code=201)
 def escalate(name: str, body: EscalateBody, c: CtxDep) -> dict[str, Any]:
-    kind, path = _workspace(name)
+    kind, path = _workspace_for(name, c)
     principal = orgpolicy.acting_as(c, body.principal)
     for value, pattern, what in ((principal, _PRINCIPAL, "principal"),
                                  (body.action, _ACTION, "action"),
@@ -236,14 +245,16 @@ def escalate(name: str, body: EscalateBody, c: CtxDep) -> dict[str, Any]:
 
 
 @router.get("/workspaces/{name}/escalations")
-def escalations(name: str) -> list[dict[str, Any]]:
+def escalations(name: str, c: CtxDep) -> list[dict[str, Any]]:
+    if is_tenant(name, c):
+        return []
     _, path = _workspace(name)
     return [r for r in _records(path).values() if r["status"] == "pending"]
 
 
 @router.post("/workspaces/{name}/escalations/{esc_id}/decide")
 def decide(name: str, esc_id: str, body: EscalationDecideBody, c: CtxDep) -> dict[str, Any]:
-    kind, path = _workspace(name)
+    kind, path = _workspace_for(name, c)
     rec = _records(path).get(esc_id)
     if rec is None:
         raise HTTPException(404, f"no escalation {esc_id}")

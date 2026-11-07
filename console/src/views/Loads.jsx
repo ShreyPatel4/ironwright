@@ -20,7 +20,9 @@ export default function Loads({ ws }) {
         to main is not a button here because it is not a human decision: the checks decide,
         and failures land in quarantine instead.</p>
       <Err e={err} />
-      {loads && (
+      {loads && !loads.run_id && <p className="note">Nothing has loaded yet. Run the pipeline and
+        every write shows up here.</p>}
+      {loads?.run_id && (
         <>
           <div className="row">
             <span className="mono note">run {loads.run_id}</span>
