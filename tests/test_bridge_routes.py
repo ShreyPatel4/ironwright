@@ -182,3 +182,15 @@ def test_a_demo_pack_shows_an_empty_board_and_refuses_a_run(client):
     a = signup(client, "ann@example.com", "Org Ann")
     assert client.get("/workspaces/retail/bridge/board", headers=bearer(a)).json()["runs"] == []
     assert client.post("/workspaces/retail/bridge/runs", headers=bearer(a), json={}).status_code == 403
+
+
+def test_a_decision_is_not_recorded_when_nothing_could_resume_the_run(client):
+    owner = signup(client, "ann@example.com", "Org Ann")
+    admin = join_as(client, owner, "bo", "admin")
+    d = workspace(client, owner)
+    out = start_run(client, owner)
+    card = client.get(f"{base()}/cards/{out['card_id']}", headers=bearer(owner)).json()
+    (d / "silver_draft.json").unlink()
+    r = decide(client, admin, card)
+    assert r.status_code == 422 and "silver draft" in r.json()["detail"]
+    assert client.get(f"{base()}/cards/{out['card_id']}", headers=bearer(owner)).json()["decision"] is None

@@ -173,24 +173,18 @@ def _cost(staged: Staged, budget: float) -> dict[str, Any]:
 def _compliance(change: Change, staged: Staged, pii: dict[str, str], policy: dict[str, Any]) -> dict[str, Any]:
     purpose = change.purpose.strip() or None
     allowed = set((policy.get("purposes") or {}).get(purpose or "", []))
-    raw_values: set[str] = set()
-    for t in staged.bronze.values():
-        for name in t.column_names:
-            if name in pii:
-                raw_values |= {str(v) for v in t.column(name).to_pylist() if v is not None}
+    raw_values = set(staged.raw_pii(pii))
     found, masked, unmasked, allowed_through = [], [], [], []
     for table in sorted(staged.tables):
-        for col in staged.tables[table]["columns"]:
-            name = col["name"]
-            if name not in pii:
-                continue
+        # By name, or by carrying raw PII values under another name.
+        for name, cls in sorted(staged.pii_columns(table, pii).items()):
             ref = f"{table}.{name}"
-            found.append({"column": ref, "class": pii[name]})
+            found.append({"column": ref, "class": cls})
             declared = (change.masking.get(table) or {}).get(name)
             vals = {str(r[name]) for r in staged.rows(table) if r.get(name) is not None}
             if declared and not (vals & raw_values):
                 masked.append(ref)
-            elif pii[name] in allowed:
+            elif cls in allowed:
                 allowed_through.append(ref)
             else:
                 unmasked.append(ref)

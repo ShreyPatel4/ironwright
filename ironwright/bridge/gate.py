@@ -28,12 +28,16 @@ does not count.
 from __future__ import annotations
 
 import difflib
+import fcntl
 import hashlib
 import json
+import os
 import re
+import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -166,6 +170,39 @@ class Change:
 
 # ---------------------------------------------------------------- the store
 
+# One writer at a time per bridge folder. A thread lock per folder inside this process, and
+# an flock on a file in the folder across processes. Reentrant per thread, because decide()
+# holds it across the transition and the audit row it writes.
+_FOLDER_LOCKS: dict[str, threading.RLock] = {}
+_FOLDER_LOCKS_GUARD = threading.Lock()
+_HELD = threading.local()
+
+
+@contextmanager
+def _folder_lock(root: Path) -> Iterator[None]:
+    key = str(root)
+    with _FOLDER_LOCKS_GUARD:
+        rlock = _FOLDER_LOCKS.setdefault(key, threading.RLock())
+    with rlock:
+        held: dict[str, tuple[int, int]] = getattr(_HELD, "held", None) or {}
+        _HELD.held = held
+        depth, fd = held.get(key, (0, -1))
+        if depth == 0:
+            fd = os.open(root / ".lock", os.O_RDWR | os.O_CREAT, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX)
+        held[key] = (depth + 1, fd)
+        try:
+            yield
+        finally:
+            depth, fd = held[key]
+            if depth == 1:
+                del held[key]
+                fcntl.flock(fd, fcntl.LOCK_UN)
+                os.close(fd)
+            else:
+                held[key] = (depth - 1, fd)
+
+
 class BridgeStore:
     """One folder per workspace. Runs are JSON, cards and the outbox are append-only JSONL,
     and the audit log is hash-chained JSONL, so a tenant workspace with no ontology store
@@ -176,16 +213,22 @@ class BridgeStore:
         private_dir(self.root / "runs")
         self.tracer = Tracer(self.root / "traces")
 
+    def locked(self):
+        return _folder_lock(self.root)
+
     # audit
     def audit(self, **rec: Any) -> dict[str, Any]:
-        path = self.root / "audit.jsonl"
-        rows = self.audit_rows()
-        prev = rows[-1]["hash"] if rows else "genesis"
-        row = {**rec, "seq": len(rows) + 1, "ts": round(time.time(), 6), "prev_hash": prev}
-        row["hash"] = hashlib.sha256((prev + _j(row)).encode()).hexdigest()
-        with open(path, "a") as f:
-            f.write(_j(row) + "\n")
-        return row
+        # seq is read then written: two writers taking the same seq would break the chain
+        # for an honest reason the verifier cannot tell from tampering.
+        with self.locked():
+            path = self.root / "audit.jsonl"
+            rows = self.audit_rows()
+            prev = rows[-1]["hash"] if rows else "genesis"
+            row = {**rec, "seq": len(rows) + 1, "ts": round(time.time(), 6), "prev_hash": prev}
+            row["hash"] = hashlib.sha256((prev + _j(row)).encode()).hexdigest()
+            with open(path, "a") as f:
+                f.write(_j(row) + "\n")
+            return row
 
     def audit_rows(self) -> list[dict[str, Any]]:
         return self._lines("audit.jsonl")
@@ -265,6 +308,11 @@ class BridgeStore:
 # ---------------------------------------------------------------- transitions
 
 def transition(store: BridgeStore, run_id: str, to: State, actor: str, **detail: Any) -> dict[str, Any]:
+    with store.locked():
+        return _transition(store, run_id=run_id, to=to, actor=actor, **detail)
+
+
+def _transition(store: BridgeStore, run_id: str, to: State, actor: str, **detail: Any) -> dict[str, Any]:
     run = store.run(run_id)
     frm = run.get("state")
     if not allowed(frm, to):
@@ -360,13 +408,38 @@ class Staged:
         cols = [d[0] for d in cur.description]
         return [dict(zip(cols, r)) for r in cur.fetchall()]
 
+    def raw_pii(self, pii: dict[str, str]) -> dict[str, str]:
+        """{value: class} for every value of a PII-tagged column in the bronze sample."""
+        out: dict[str, str] = {}
+        for t in self.bronze.values():
+            for name in t.column_names:
+                if name in pii:
+                    out.update({str(v): pii[name] for v in t.column(name).to_pylist() if v is not None})
+        return out
+
+    def pii_columns(self, table: str, pii: dict[str, str]) -> dict[str, str]:
+        """{column: class} for an output table. A column is PII by its name, or because its
+        values are raw PII values from bronze, so a rename carries nothing past the gate."""
+        raw = self.raw_pii(pii)
+        rows = self.rows(table)
+        out: dict[str, str] = {}
+        for col in self.tables.get(table, {}).get("columns", []):
+            name = col["name"]
+            if name in pii:
+                out[name] = pii[name]
+                continue
+            hit = next((raw[str(r[name])] for r in rows if r.get(name) is not None and str(r[name]) in raw), None)
+            if hit:
+                out[name] = hit
+        return out
+
     def samples(self, pii: dict[str, str], n: int = 5) -> dict[str, Any]:
-        """Before and after rows for the card, with every PII-tagged column masked. The card
-        goes to a human inbox, so it must not leak what the change was meant to protect."""
-        def mask(row: dict[str, Any]) -> dict[str, Any]:
-            return {k: ("[masked]" if k in pii and v is not None else _plain(v)) for k, v in row.items()}
-        before = {name: [mask(r) for r in t.slice(0, n).to_pylist()] for name, t in sorted(self.bronze.items())}
-        after = {t: [mask(r) for r in self.rows(t, n)] for t in sorted(self.tables)}
+        """Before and after rows for the card, with every PII column masked. The card goes
+        to a human inbox, so it must not leak what the change was meant to protect."""
+        def mask(row: dict[str, Any], cols: dict[str, str] | set[str]) -> dict[str, Any]:
+            return {k: ("[masked]" if k in cols and v is not None else _plain(v)) for k, v in row.items()}
+        before = {name: [mask(r, pii) for r in t.slice(0, n).to_pylist()] for name, t in sorted(self.bronze.items())}
+        after = {t: [mask(r, self.pii_columns(t, pii)) for r in self.rows(t, n)] for t in sorted(self.tables)}
         return {"before": before, "after": after}
 
     def close(self) -> None:
@@ -384,9 +457,13 @@ def sample(bronze: dict[str, pa.Table], rows: int) -> dict[str, pa.Table]:
 
 
 def stage(change: Change | dict[str, Any], bronze: dict[str, pa.Table], run_id: str,
-          sample_rows: int = SAMPLE_ROWS) -> Staged:
+          sample_rows: int = SAMPLE_ROWS, upstream: dict[str, dict[str, str]] | None = None) -> Staged:
     """Run the models on a sample in `sandbox_<run>`, a catalog that lives in memory and
-    dies with the connection. External access is off before any model runs."""
+    dies with the connection. External access is off before any model runs.
+
+    `upstream` holds the live models of the layers below, by layer. They run first on the
+    same sample, under the names a run gives them (`silver_<table>`), so a gold mart stages
+    over the silver it will read. Only the change's own models are scored."""
     change = Change.from_dict(change) if isinstance(change, dict) else change
     change.validate()
     schema = f"sandbox_{re.sub(r'[^a-z0-9_]', '_', run_id.lower())}"
@@ -406,11 +483,22 @@ def stage(change: Change | dict[str, Any], bronze: dict[str, pa.Table], run_id: 
         con.execute("set lock_configuration = true")
         tables: dict[str, dict[str, Any]] = {}
         errors: dict[str, str] = {}
+        below = [layer for layer in LAYERS if LAYERS.index(layer) < LAYERS.index(change.layer)]
+        for layer in below:
+            for file_name, sql in sorted((upstream or {}).get(layer, {}).items()):
+                table = model_table(file_name)
+                if not _MODEL_FILE.fullmatch(file_name) or not _IDENT.fullmatch(table):
+                    raise GateError(f"bad upstream model file name {file_name!r}")
+                try:
+                    con.execute(f'create table "{layer}_{table}" as {guard_select(sql)}')
+                except (duckdb.Error, SqlRejected) as e:
+                    errors[f"{layer}/{file_name}"] = f"the live {layer} model did not run ({type(e).__name__})"
         for file_name in sorted(change.models):
             table = model_table(file_name)
             try:
                 con.execute(f'create table "{table}" as {change.models[file_name]}')
                 con.execute(f'create view "{change.layer}"."{table}" as select * from "{table}"')
+                con.execute(f'create view "{change.layer}_{table}" as select * from "{table}"')
             except duckdb.Error as e:  # DuckDB's text can quote a cell, so only its kind leaves
                 errors[file_name] = f"the model did not run ({type(e).__name__})"
                 continue
@@ -437,6 +525,12 @@ def _diff(live: dict[str, str], models: dict[str, str]) -> dict[str, str]:
 
 
 def package_card(store: BridgeStore, run_id: str, staged: Staged, scores: dict[str, Any],
+                 live_models: dict[str, str], pii: dict[str, str], actor: str = "agent:supervisor") -> dict[str, Any]:
+    with store.locked():
+        return _package_card(store, run_id=run_id, staged=staged, scores=scores, live_models=live_models, pii=pii, actor=actor)
+
+
+def _package_card(store: BridgeStore, run_id: str, staged: Staged, scores: dict[str, Any],
                  live_models: dict[str, str], pii: dict[str, str], actor: str = "agent:supervisor") -> dict[str, Any]:
     """ONE approval card per escalation: diff, before and after samples, scores, lineage,
     compliance and evidence ids. A run whose evaluation failed escalates as stuck, with
@@ -496,6 +590,12 @@ def _check_decider(by: str, role: str, card: dict[str, Any], approving: bool) ->
 
 def decide(store: BridgeStore, card_id: str, by: str, role: str, decision: str, content_hash: str,
            reason: str = "") -> dict[str, Any]:
+    with store.locked():
+        return _decide(store, card_id=card_id, by=by, role=role, decision=decision, content_hash=content_hash, reason=reason)
+
+
+def _decide(store: BridgeStore, card_id: str, by: str, role: str, decision: str, content_hash: str,
+           reason: str = "") -> dict[str, Any]:
     if decision not in ("approve", "reject"):
         raise GateError("decision must be approve or reject")
     card = store.card(card_id)
@@ -539,6 +639,13 @@ def _file_writer(live_dir: Path) -> Callable[[str, dict[str, str]], None]:
 
 
 def promote(store: BridgeStore, run_id: str, policy: dict[str, Any], live_dir: Path | None = None,
+            writer: Callable[[str, dict[str, str]], None] | None = None,
+            actor: str | None = None) -> dict[str, Any]:
+    with store.locked():
+        return _promote(store, run_id=run_id, policy=policy, live_dir=live_dir, writer=writer, actor=actor)
+
+
+def _promote(store: BridgeStore, run_id: str, policy: dict[str, Any], live_dir: Path | None = None,
             writer: Callable[[str, dict[str, str]], None] | None = None,
             actor: str | None = None) -> dict[str, Any]:
     """The sub-agent applies the approved change. Nothing here trusts the run record alone:

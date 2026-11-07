@@ -64,13 +64,15 @@ class Supervisor:
                  live_dir: Path | None = None, live_models: Callable[[], dict[str, str]] | None = None,
                  sample_rows: int = gate.SAMPLE_ROWS, compliance_policy: dict[str, Any] | None = None,
                  coverage: Callable[[Change, gate.Staged], float] | None = None,
-                 pii: dict[str, str] | None = None, source: dict[str, Any] | None = None):
+                 pii: dict[str, str] | None = None, source: dict[str, Any] | None = None,
+                 upstream: Callable[[], dict[str, dict[str, str]]] | None = None):
         self.store, self.agent, self.bronze, self.policy = store, agent, bronze, policy
         self.writer, self.live_dir = writer, live_dir
         self.sample_rows, self.compliance_policy, self.coverage = sample_rows, compliance_policy, coverage
         self.pii = pii if pii is not None else ev.pii_tags(bronze)
         self.source = source or {}
         self._live_models = live_models
+        self._upstream = upstream
         self._staged: dict[str, gate.Staged] = {}
 
     # -------------------------------------------------------- helpers
@@ -78,6 +80,16 @@ class Supervisor:
     def live_models(self, layer: str) -> dict[str, str]:
         if self._live_models is not None:
             return self._live_models()
+        return self._live_folder(layer)
+
+    def upstream(self, layer: str) -> dict[str, dict[str, str]]:
+        """The live models of the layers below this one, which a staged change reads."""
+        if self._upstream is not None:
+            return self._upstream()
+        below = gate.LAYERS[: gate.LAYERS.index(layer)] if layer in gate.LAYERS else ()
+        return {low: self._live_folder(low) for low in below}
+
+    def _live_folder(self, layer: str) -> dict[str, str]:
         folder = (self.live_dir / layer) if self.live_dir else None
         if not folder or not folder.is_dir():
             return {}
@@ -99,7 +111,8 @@ class Supervisor:
     def _staged_for(self, run: dict[str, Any]) -> gate.Staged:
         staged = self._staged.get(run["run_id"])
         if staged is None:  # a resumed process: stage again, it is a sample in memory
-            staged = gate.stage(run["change"], self.bronze, run["run_id"], self.sample_rows)
+            staged = gate.stage(run["change"], self.bronze, run["run_id"], self.sample_rows,
+                                upstream=self.upstream(run["layer"]))
             self._staged[run["run_id"]] = staged
         return staged
 

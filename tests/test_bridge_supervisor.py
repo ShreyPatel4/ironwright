@@ -244,3 +244,47 @@ def test_nothing_the_supervisor_does_before_interrupt_touches_a_live_folder(tmp_
     approve(s, out["card_id"])
     s.resume(out["run_id"])
     assert (live / "silver" / "01_policies.sql").read_text() == MASKED
+
+
+# ---------------------------------------------------------------- a gold mart over promoted silver
+
+GOLD_POLICY = {"default": "deny", "rules": [
+    *POLICY["rules"],
+    {"id": "gold-builder-promotes-gold", "effect": "permit", "principal": "agent:mart-builder",
+     "action": "action:bridge.promote.gold"}]}
+MART = ("select policy_no, premium, premium * 12 as premium_year from silver_policies")
+
+
+class MartBuilder:
+    name = "agent:mart-builder"
+
+    def draft(self, attempt: int, feedback: dict | None) -> Change:
+        return Change(layer="gold", models={"01_mart_premium.sql": MART},
+                      contract={"mart_premium": [{"name": "policy_no", "type": "string"},
+                                                 {"name": "premium_year", "type": "double"}]},
+                      tests=[{"name": "one_row_per_policy",
+                              "sql": "select policy_no from mart_premium group by 1 having count(*) > 1"}],
+                      dq=[{"table": "mart_premium", "column": "policy_no", "check": "not_null"}],
+                      purpose="premium reporting", note=f"attempt {attempt}")
+
+
+def test_a_mart_over_promoted_silver_goes_to_gold_only_with_a_human_approval(tmp_path):
+    live = tmp_path / "live"
+    store = gate.BridgeStore(tmp_path / "bridge")
+    silver = supervisor.Supervisor(store, Builder(), bronze(), policy=GOLD_POLICY, live_dir=live)
+    first = silver.start(requested_by=REQUESTER)
+    approve(silver, first["card_id"])
+    assert silver.resume(first["run_id"])["state"] == State.OBSERVED
+
+    mart = supervisor.Supervisor(store, MartBuilder(), bronze(), policy=GOLD_POLICY, live_dir=live)
+    out = mart.start(requested_by=REQUESTER)
+    assert out["state"] == State.ESCALATED, store.run(out["run_id"])["evaluations"]
+    card = store.card(out["card_id"])
+    assert card["kind"] == "promotion" and card["layer"] == "gold"
+    assert not (live / "gold").exists()
+    assert card["samples"]["after"]["mart_premium"][0]["premium_year"] == 1200.0
+    with pytest.raises(GateError, match="requester"):
+        approve(mart, out["card_id"], by=REQUESTER)
+    approve(mart, out["card_id"])
+    assert mart.resume(out["run_id"])["state"] == State.OBSERVED
+    assert (live / "gold" / "01_mart_premium.sql").read_text() == MART

@@ -143,11 +143,12 @@ def post_decide(name: str, card_id: str, body: DecideBody, c: CtxDep) -> dict[st
         card = store.card(card_id)
     except gate.GateError as e:
         raise HTTPException(404, NO_CARD) from e
+    # Build what resumes the run first: a decision recorded with nothing able to act on it
+    # would leave the run Approved with no route to wake it.
+    sup = _supervisor(c, name, store, store.run(card["run_id"])["sample_rows"])
     try:
         rec = gate.decide(store, card_id, by=c.principal, role=c.role, decision=body.decision,
                           content_hash=body.content_hash, reason=body.reason)
     except gate.GateError as e:
         raise HTTPException(422, str(e)) from e
-    run = store.run(card["run_id"])
-    sup = _supervisor(c, name, store, run["sample_rows"])
     return {"decision": rec, "run": sup.resume(card["run_id"])}

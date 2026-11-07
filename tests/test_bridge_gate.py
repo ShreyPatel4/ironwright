@@ -354,3 +354,71 @@ def test_an_observed_change_reopens_on_drift(store, tmp_path):
     gate.observe(store, rid, monitors=["freshness", "drift", "dq"])
     gate.reopen(store, rid, reason="drift on policies.premium")
     assert store.run(rid)["state"] == State.DRAFTED
+
+
+# ---------------------------------------------------------------- a rename carries no PII past the gate
+
+ALIASED = "select policy_no, holder as owner_label, premium from bronze_policies"
+
+
+def test_an_aliased_pii_column_fails_compliance():
+    comp = scores(change(ALIASED))["gates"]["compliance"]
+    assert not comp["passed"]
+    assert comp["unmasked"] == ["policies.owner_label"]
+
+
+def test_an_aliased_pii_column_is_masked_on_the_card():
+    staged = gate.stage(change(ALIASED), bronze(), run_id="r4", sample_rows=10)
+    try:
+        flat = json.dumps(staged.samples(ev.pii_tags(bronze())))
+    finally:
+        staged.close()
+    assert "Ann Lee" not in flat
+
+
+# ---------------------------------------------------------------- two requests at once
+
+def test_concurrent_audit_appends_keep_the_chain(store):
+    import threading
+    rid = gate.open_run(store, change(), sample_rows=10)["run_id"]
+
+    def write(i: int) -> None:
+        for j in range(20):
+            gate.BridgeStore(store.root).audit(kind="probe", run_id=rid, actor=AGENT, status=f"{i}.{j}")
+
+    threads = [threading.Thread(target=write, args=(i,)) for i in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    rows = store.audit_rows()
+    assert len(rows) == 1 + 6 * 20
+    assert [r["seq"] for r in rows] == list(range(1, len(rows) + 1))
+    assert store.verify_audit_chain()
+
+
+def test_two_admins_deciding_at_once_settle_one_decision(store):
+    import threading
+    rid, card = escalated(store)
+    h = store.card(card)["content_hash"]
+    out: dict[str, str] = {}
+
+    def go(who: str, decision: str) -> None:
+        try:
+            gate.decide(gate.BridgeStore(store.root), card, by=who, role="admin", decision=decision,
+                        content_hash=h, reason="no")
+            out[who] = "ok"
+        except GateError as e:
+            out[who] = str(e)
+
+    threads = [threading.Thread(target=go, args=(f"user:admin{i}", "approve" if i % 2 else "reject"))
+               for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert list(out.values()).count("ok") == 1
+    lines = [c for c in store._lines("cards.jsonl") if c["card_id"] == card and c["decision"]]
+    assert len(lines) == 1
+    state = store.run(rid)["state"]
+    assert state == ("approved" if lines[0]["decision"]["decision"] == "approve" else "drafted")
