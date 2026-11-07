@@ -5,6 +5,7 @@ import Pipeline from "./views/Pipeline.jsx";
 import Explorer from "./views/Explorer.jsx";
 import Ontology from "./views/Ontology.jsx";
 import Approvals from "./views/Approvals.jsx";
+import RunBoard from "./views/RunBoard.jsx";
 import Audit from "./views/Audit.jsx";
 import Ask from "./views/Ask.jsx";
 import Sources from "./views/Sources.jsx";
@@ -38,6 +39,7 @@ const VIEWS = [
   ["agents", "Agents", Agents],
   ["training", "Training", Training],
   ["approvals", "Approvals", Approvals],
+  ["bridge", "Run board", RunBoard],
   ["audit", "Audit", Audit],
   ["governance", "Governance", Governance],
   ["principals", "Principals", Principals],
@@ -49,7 +51,7 @@ const PACK_GROUPS = [
   ["MAP", ["platform"]],
   ["DATA", ["data", "pipeline", "loads", "explorer"]],
   ["SEMANTIC", ["discovery", "semantic", "ask"]],
-  ["OPERATE", ["boards", "bi", "agents", "training", "approvals", "audit"]],
+  ["OPERATE", ["boards", "bi", "agents", "training", "approvals", "bridge", "audit"]],
   ["GOVERN", ["governance", "principals"]],
 ];
 const ORG_GROUPS = [["MAP", ["platform"]], ["ORGANIZATION", ["organization", "orgpolicy"]]];

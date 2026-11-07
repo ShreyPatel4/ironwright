@@ -38,9 +38,9 @@ from . import workspaces_tenant as wt
 from .asof import router as asof_router
 from .auth import ctx
 from .bi import router as bi_router
+from .bridge.routes import router as bridge_router
 from .config import data_root, demo_ask_log, ensure_tenant, safe_child, write_private
 from .engines import router as engines_router
-from .bridge.routes import router as bridge_router
 from .ingest import journey_routes
 from .ingest.routes import router as ingest_router
 from .jobs import routes as jobs_routes
