@@ -1,0 +1,4706 @@
+{
+ "runs": [
+  {
+   "base": "http://127.0.0.1:8020",
+   "run": "b5f1b0",
+   "steps": [
+    {
+     "area": "upload",
+     "what": "empty.csv",
+     "seconds": 2.19,
+     "screen": [
+      "empty.csv is empty"
+     ],
+     "heading": "Upload your files",
+     "shot": "docs/review/qa-2026-11/shots/u-empty-csv.png"
+    },
+    {
+     "area": "upload",
+     "what": "book.xlsx",
+     "seconds": 2.1,
+     "screen": [
+      "only .csv, .dat, .tsv, .txt files are allowed"
+     ],
+     "heading": "Upload your files",
+     "shot": "docs/review/qa-2026-11/shots/u-book-xlsx.png"
+    },
+    {
+     "area": "upload",
+     "what": "header-only.csv",
+     "seconds": 2.28,
+     "screen": [],
+     "heading": "Profile",
+     "shot": "docs/review/qa-2026-11/shots/u-header-only-csv.png"
+    },
+    {
+     "area": "upload",
+     "what": "30mb.csv",
+     "broke": "Locator expected to be visible\nActual value: None\nError: element(s) not found \nCall log:\n  - Expect \"to_be_visible\" get_by_role(\"heading\", name=\"Upload your files\") with timeout 5000ms\n  - waiting for get_by_role(\"heading\", name=\"Upload your files\")\n\nAria snapshot:\n- main:\n  - paragraph: ironwright ",
+     "shot": "docs/review/qa-2026-11/shots/u-30mb-csv-broke.png"
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Platform",
+     "violations": [
+      {
+       "id": "aria-required-children",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "svg"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Sources",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": ".ws > select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Pipeline",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Loads",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Data explorer",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Discovery",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "click",
+     "what": "qa-desk/Discovery",
+     "found": [
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Ontology",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Ask",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Boards",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/BI embed",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Audit",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Governance",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on qa-desk/Principals",
+     "violations": [
+      {
+       "id": "label",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "input"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "views",
+     "what": "qa-views-b5f1b0 at desk",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Platform.png",
+       "axe": [
+        "aria-required-children",
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Sources": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Sources.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Pipeline": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Pipeline.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Loads": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Loads.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Data explorer": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Data_explorer.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Discovery": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Discovery.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": [
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+        }
+       ]
+      },
+      "Ontology": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Ontology.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Ask": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Ask.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Boards": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Boards.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "BI embed": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-BI_embed.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Audit": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Audit.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Governance": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Governance.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Principals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-desk-Principals.png",
+       "axe": [
+        "label",
+        "select-name"
+       ],
+       "clicked": []
+      }
+     },
+     "page_errors": []
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Platform",
+     "violations": [
+      {
+       "id": "aria-required-children",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "svg"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Sources",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Pipeline",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Loads",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Data explorer",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Discovery",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "click",
+     "what": "retail-desk/Discovery",
+     "found": [
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Ontology",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Ask",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Boards",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/BI embed",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Agents",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "click",
+     "what": "retail-desk/Agents",
+     "found": [
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(2)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(3)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(10)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(17)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(18)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(19)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(20)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(21)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(22)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(23)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(24)\n"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Training",
+     "violations": [
+      {
+       "id": "scrollable-region-focusable",
+       "impact": "serious",
+       "nodes": 1,
+       "sample": ".scroll"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Approvals",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Audit",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Governance",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on retail-desk/Principals",
+     "violations": [
+      {
+       "id": "label",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "input"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "views",
+     "what": "retail at desk",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Agents",
+      "Training",
+      "Approvals",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Platform.png",
+       "axe": [
+        "aria-required-children",
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Sources": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Sources.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Pipeline": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Pipeline.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Loads": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Loads.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Data explorer": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Data_explorer.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Discovery": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Discovery.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": [
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+        }
+       ]
+      },
+      "Ontology": {
+       "seconds": 0.71,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Ontology.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Ask": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Ask.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Boards": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Boards.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "BI embed": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-BI_embed.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Agents": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Agents.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": [
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(2)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(3)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(10)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(17)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(18)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(19)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(20)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(21)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(22)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(23)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(24)\n"
+        }
+       ]
+      },
+      "Training": {
+       "seconds": 0.94,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Training.png",
+       "axe": [
+        "scrollable-region-focusable",
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Approvals": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Approvals.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Audit": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Audit.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Governance": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Governance.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Principals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-desk-Principals.png",
+       "axe": [
+        "label",
+        "select-name"
+       ],
+       "clicked": []
+      }
+     },
+     "page_errors": []
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Platform",
+     "violations": [
+      {
+       "id": "aria-required-children",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "svg"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Sources",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Pipeline",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Loads",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Data explorer",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Discovery",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "click",
+     "what": "banking_aml-desk/Discovery",
+     "found": [
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Ontology",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Ask",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Boards",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/BI embed",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Agents",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "click",
+     "what": "banking_aml-desk/Agents",
+     "found": [
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(2)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(3)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(10)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(17)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(18)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(19)\n"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Training",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Approvals",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Audit",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Governance",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on banking_aml-desk/Principals",
+     "violations": [
+      {
+       "id": "label",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "input"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "views",
+     "what": "banking_aml at desk",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Agents",
+      "Training",
+      "Approvals",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Platform.png",
+       "axe": [
+        "aria-required-children",
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Sources": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Sources.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Pipeline": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Pipeline.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Loads": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Loads.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Data explorer": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Data_explorer.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Discovery": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Discovery.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": [
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+        }
+       ]
+      },
+      "Ontology": {
+       "seconds": 0.75,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Ontology.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Ask": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Ask.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Boards": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Boards.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "BI embed": {
+       "seconds": 0.68,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-BI_embed.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Agents": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Agents.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": [
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(2)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(3)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(10)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(17)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(18)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(19)\n"
+        }
+       ]
+      },
+      "Training": {
+       "seconds": 0.74,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Training.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Approvals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [
+        "500 GET http://127.0.0.1:8020/workspaces/banking_aml/training/labels"
+       ],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Approvals.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Audit": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Audit.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Governance": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Governance.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Principals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-desk-Principals.png",
+       "axe": [
+        "label",
+        "select-name"
+       ],
+       "clicked": []
+      }
+     },
+     "page_errors": [
+      "console.error: Failed to load resource: the server responded with a status of 500 (Internal Server Error)"
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Platform",
+     "violations": [
+      {
+       "id": "aria-required-children",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "svg"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Sources",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Pipeline",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Loads",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Data explorer",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Discovery",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "click",
+     "what": "supply_chain-desk/Discovery",
+     "found": [
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Ontology",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Ask",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Boards",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/BI embed",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Agents",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "click",
+     "what": "supply_chain-desk/Agents",
+     "found": [
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(2)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(3)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(10)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(17)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(18)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(19)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(20)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(21)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(22)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(23)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(24)\n"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Training",
+     "violations": [
+      {
+       "id": "scrollable-region-focusable",
+       "impact": "serious",
+       "nodes": 1,
+       "sample": ".scroll"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Approvals",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Audit",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Governance",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on supply_chain-desk/Principals",
+     "violations": [
+      {
+       "id": "label",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "input"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "views",
+     "what": "supply_chain at desk",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Agents",
+      "Training",
+      "Approvals",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Platform.png",
+       "axe": [
+        "aria-required-children",
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Sources": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Sources.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Pipeline": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Pipeline.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Loads": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Loads.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Data explorer": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Data_explorer.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Discovery": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Discovery.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": [
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+        }
+       ]
+      },
+      "Ontology": {
+       "seconds": 0.7,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Ontology.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Ask": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Ask.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Boards": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Boards.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "BI embed": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-BI_embed.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Agents": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Agents.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": [
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(2)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(3)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(10)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(17)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(18)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(19)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(20)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(21)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(22)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(23)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(24)\n"
+        }
+       ]
+      },
+      "Training": {
+       "seconds": 0.72,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Training.png",
+       "axe": [
+        "scrollable-region-focusable",
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Approvals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Approvals.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Audit": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Audit.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Governance": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Governance.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Principals": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-desk-Principals.png",
+       "axe": [
+        "label",
+        "select-name"
+       ],
+       "clicked": []
+      }
+     },
+     "page_errors": []
+    },
+    {
+     "area": "views",
+     "what": "health_claims at desk",
+     "rail": [],
+     "views": {},
+     "page_errors": []
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Platform",
+     "violations": [
+      {
+       "id": "aria-required-children",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "svg"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Sources",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Pipeline",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Loads",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Data explorer",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Discovery",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "click",
+     "what": "insurance_policy-desk/Discovery",
+     "found": [
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Ontology",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Ask",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Boards",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/BI embed",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Agents",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "click",
+     "what": "insurance_policy-desk/Agents",
+     "found": [
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(2)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(3)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(10)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(17)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(18)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(19)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(20)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(21)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(22)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(23)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(24)\n"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Training",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Approvals",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Audit",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Governance",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_policy-desk/Principals",
+     "violations": [
+      {
+       "id": "label",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "input"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "views",
+     "what": "insurance_policy at desk",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Agents",
+      "Training",
+      "Approvals",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Platform.png",
+       "axe": [
+        "aria-required-children",
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Sources": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Sources.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Pipeline": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Pipeline.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Loads": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Loads.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Data explorer": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Data_explorer.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Discovery": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Discovery.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": [
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+        }
+       ]
+      },
+      "Ontology": {
+       "seconds": 0.73,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Ontology.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Ask": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Ask.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Boards": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Boards.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "BI embed": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-BI_embed.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Agents": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Agents.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": [
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(2)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(3)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(10)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(17)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(18)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(19)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(20)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(21)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(22)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(23)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 20000ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(24)\n"
+        }
+       ]
+      },
+      "Training": {
+       "seconds": 0.77,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Training.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Approvals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Approvals.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Audit": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Audit.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Governance": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Governance.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Principals": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-desk-Principals.png",
+       "axe": [
+        "label",
+        "select-name"
+       ],
+       "clicked": []
+      }
+     },
+     "page_errors": []
+    },
+    {
+     "area": "views",
+     "what": "qa-views-b5f1b0 at phone",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Platform.png"
+      },
+      "Sources": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Sources.png"
+      },
+      "Pipeline": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Pipeline.png"
+      },
+      "Loads": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Loads.png"
+      },
+      "Data explorer": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Data_explorer.png"
+      },
+      "Discovery": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Discovery.png"
+      },
+      "Ontology": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Ontology.png"
+      },
+      "Ask": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Ask.png"
+      },
+      "Boards": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Boards.png"
+      },
+      "BI embed": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-BI_embed.png"
+      },
+      "Audit": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Audit.png"
+      },
+      "Governance": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Governance.png"
+      },
+      "Principals": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-qa-phone-Principals.png"
+      }
+     },
+     "page_errors": [],
+     "h_scroll": false
+    },
+    {
+     "area": "views",
+     "what": "retail at phone",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Agents",
+      "Training",
+      "Approvals",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Platform.png"
+      },
+      "Sources": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Sources.png"
+      },
+      "Pipeline": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Pipeline.png"
+      },
+      "Loads": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Loads.png"
+      },
+      "Data explorer": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Data_explorer.png"
+      },
+      "Discovery": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Discovery.png"
+      },
+      "Ontology": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Ontology.png"
+      },
+      "Ask": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Ask.png"
+      },
+      "Boards": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Boards.png"
+      },
+      "BI embed": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-BI_embed.png"
+      },
+      "Agents": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Agents.png"
+      },
+      "Training": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Training.png"
+      },
+      "Approvals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Approvals.png"
+      },
+      "Audit": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Audit.png"
+      },
+      "Governance": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Governance.png"
+      },
+      "Principals": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-retail-phone-Principals.png"
+      }
+     },
+     "page_errors": [],
+     "h_scroll": false
+    },
+    {
+     "area": "views",
+     "what": "banking_aml at phone",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Agents",
+      "Training",
+      "Approvals",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Platform.png"
+      },
+      "Sources": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Sources.png"
+      },
+      "Pipeline": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Pipeline.png"
+      },
+      "Loads": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Loads.png"
+      },
+      "Data explorer": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Data_explorer.png"
+      },
+      "Discovery": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Discovery.png"
+      },
+      "Ontology": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Ontology.png"
+      },
+      "Ask": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Ask.png"
+      },
+      "Boards": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Boards.png"
+      },
+      "BI embed": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-BI_embed.png"
+      },
+      "Agents": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Agents.png"
+      },
+      "Training": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Training.png"
+      },
+      "Approvals": {
+       "seconds": 0.9,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Approvals.png"
+      },
+      "Audit": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Audit.png"
+      },
+      "Governance": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Governance.png"
+      },
+      "Principals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-banking_aml-phone-Principals.png"
+      }
+     },
+     "page_errors": [],
+     "h_scroll": false
+    },
+    {
+     "area": "views",
+     "what": "supply_chain at phone",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Agents",
+      "Training",
+      "Approvals",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Platform.png"
+      },
+      "Sources": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Sources.png"
+      },
+      "Pipeline": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Pipeline.png"
+      },
+      "Loads": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Loads.png"
+      },
+      "Data explorer": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Data_explorer.png"
+      },
+      "Discovery": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Discovery.png"
+      },
+      "Ontology": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Ontology.png"
+      },
+      "Ask": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Ask.png"
+      },
+      "Boards": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Boards.png"
+      },
+      "BI embed": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-BI_embed.png"
+      },
+      "Agents": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Agents.png"
+      },
+      "Training": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Training.png"
+      },
+      "Approvals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Approvals.png"
+      },
+      "Audit": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Audit.png"
+      },
+      "Governance": {
+       "seconds": 0.67,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Governance.png"
+      },
+      "Principals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-supply_chain-phone-Principals.png"
+      }
+     },
+     "page_errors": [],
+     "h_scroll": false
+    },
+    {
+     "area": "views",
+     "what": "health_claims at phone",
+     "rail": [],
+     "views": {},
+     "page_errors": [],
+     "h_scroll": false
+    },
+    {
+     "area": "views",
+     "what": "insurance_policy at phone",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Agents",
+      "Training",
+      "Approvals",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Platform.png"
+      },
+      "Sources": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Sources.png"
+      },
+      "Pipeline": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Pipeline.png"
+      },
+      "Loads": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Loads.png"
+      },
+      "Data explorer": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Data_explorer.png"
+      },
+      "Discovery": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Discovery.png"
+      },
+      "Ontology": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Ontology.png"
+      },
+      "Ask": {
+       "seconds": 0.65,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Ask.png"
+      },
+      "Boards": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Boards.png"
+      },
+      "BI embed": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-BI_embed.png"
+      },
+      "Agents": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Agents.png"
+      },
+      "Training": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Training.png"
+      },
+      "Approvals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Approvals.png"
+      },
+      "Audit": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Audit.png"
+      },
+      "Governance": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Governance.png"
+      },
+      "Principals": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_policy-phone-Principals.png"
+      }
+     },
+     "page_errors": [],
+     "h_scroll": false
+    },
+    {
+     "area": "nav",
+     "what": "url after switching views",
+     "ask": "http://127.0.0.1:8020/console/",
+     "audit": "http://127.0.0.1:8020/console/",
+     "changed": false
+    },
+    {
+     "area": "nav",
+     "what": "back from Audit",
+     "url": "about:blank",
+     "heading": null,
+     "shot": "docs/review/qa-2026-11/shots/n-back-from-audit.png"
+    },
+    {
+     "area": "nav",
+     "what": "reload",
+     "url": "http://127.0.0.1:8020/console/",
+     "heading": "Audit"
+    },
+    {
+     "area": "nav",
+     "what": "deep link /console/#ask in a new tab",
+     "heading": "Workspaces",
+     "shot": "docs/review/qa-2026-11/shots/n-deep-link.png"
+    },
+    {
+     "area": "session",
+     "what": "wrong password",
+     "screen": [
+      "that email and password do not match"
+     ],
+     "shot": "docs/review/qa-2026-11/shots/s-wrong-password.png"
+    },
+    {
+     "area": "session",
+     "what": "sign up with a taken email",
+     "body": "IRONWRIGHT\n\nLegacy systems to an ontology, with agents that are safe to let act.\n\nOne platform that walks an estate from mainframe files to a governed, queryable, agent-ready model of the business, and tells you what your systems did not know about themselves on the way.\n\nYour account decides the id",
+     "shot": "docs/review/qa-2026-11/shots/s-taken-email.png"
+    },
+    {
+     "area": "session",
+     "what": "password field",
+     "type": "password",
+     "autocomplete": "new-password",
+     "minlength": null
+    },
+    {
+     "area": "session",
+     "what": "eight spaces as a password",
+     "screen": [],
+     "at_upload": false,
+     "shot": "docs/review/qa-2026-11/shots/s-spaces-password.png"
+    },
+    {
+     "area": "session",
+     "what": "second tab after sign out",
+     "at_door": false
+    },
+    {
+     "area": "session",
+     "what": "back after sign out",
+     "at_door": false,
+     "shot": "docs/review/qa-2026-11/shots/s-back-after-logout.png"
+    },
+    {
+     "area": "session",
+     "what": "old token after sign out",
+     "status": 401
+    },
+    {
+     "area": "session",
+     "what": "first device after a second sign in",
+     "status": 401
+    },
+    {
+     "area": "roles",
+     "what": "invite links",
+     "contains_fragment": true
+    },
+    {
+     "area": "a11y",
+     "what": "tab stops on the door",
+     "stops": [
+      {
+       "tag": "INPUT",
+       "label": "login-pass",
+       "outline": true,
+       "shadow": false
+      },
+      {
+       "tag": "BUTTON",
+       "label": "Sign up",
+       "outline": true,
+       "shadow": false
+      },
+      {
+       "tag": "BODY",
+       "label": "IRONWRIGHT\n\nLegacy systems to ",
+       "outline": false,
+       "shadow": false
+      },
+      {
+       "tag": "INPUT",
+       "label": "login-email",
+       "outline": true,
+       "shadow": false
+      },
+      {
+       "tag": "INPUT",
+       "label": "login-pass",
+       "outline": true,
+       "shadow": false
+      },
+      {
+       "tag": "BUTTON",
+       "label": "Sign up",
+       "outline": true,
+       "shadow": false
+      },
+      {
+       "tag": "BODY",
+       "label": "IRONWRIGHT\n\nLegacy systems to ",
+       "outline": false,
+       "shadow": false
+      },
+      {
+       "tag": "INPUT",
+       "label": "login-email",
+       "outline": true,
+       "shadow": false
+      },
+      {
+       "tag": "INPUT",
+       "label": "login-pass",
+       "outline": true,
+       "shadow": false
+      },
+      {
+       "tag": "BUTTON",
+       "label": "Sign up",
+       "outline": true,
+       "shadow": false
+      },
+      {
+       "tag": "BODY",
+       "label": "IRONWRIGHT\n\nLegacy systems to ",
+       "outline": false,
+       "shadow": false
+      },
+      {
+       "tag": "INPUT",
+       "label": "login-email",
+       "outline": true,
+       "shadow": false
+      }
+     ],
+     "invisible_focus": [
+      "IRONWRIGHT\n\nLegacy systems to ",
+      "IRONWRIGHT\n\nLegacy systems to ",
+      "IRONWRIGHT\n\nLegacy systems to "
+     ]
+    },
+    {
+     "area": "security",
+     "what": "headers on /console/",
+     "present": [
+      "content-security-policy",
+      "referrer-policy",
+      "x-content-type-options"
+     ]
+    },
+    {
+     "area": "perf",
+     "what": "console js bytes",
+     "bytes": 289988
+    },
+    {
+     "area": "copy",
+     "what": "em dashes in the shipped console",
+     "count": 1
+    },
+    {
+     "area": "isolation",
+     "what": "B with A's workspace in iw.last",
+     "card": 0,
+     "shows_name": false,
+     "shot": "docs/review/qa-2026-11/shots/i-b-with-a-last.png"
+    }
+   ]
+  },
+  {
+   "base": "http://127.0.0.1:8020",
+   "run": "91ff67",
+   "steps": [
+    {
+     "area": "session",
+     "what": "wrong password",
+     "screen": [
+      "that email and password do not match"
+     ],
+     "shot": "docs/review/qa-2026-11/shots/s-wrong-password.png"
+    },
+    {
+     "area": "session",
+     "what": "sign up with a taken email",
+     "body": "IRONWRIGHT\n\nLegacy systems to an ontology, with agents that are safe to let act.\n\nOne platform that walks an estate from mainframe files to a governed, queryable, agent-ready model of the business, and tells you what your systems did not know about themselves on the way.\n\nYour account decides the id",
+     "shot": "docs/review/qa-2026-11/shots/s-taken-email.png"
+    },
+    {
+     "area": "session",
+     "what": "password field",
+     "type": "password",
+     "autocomplete": "new-password",
+     "minlength": null
+    },
+    {
+     "area": "session",
+     "what": "eight spaces as a password",
+     "screen": [],
+     "at_upload": true,
+     "shot": "docs/review/qa-2026-11/shots/s-spaces-password.png"
+    },
+    {
+     "area": "session",
+     "what": "second tab after sign out, without a reload",
+     "at_door": false,
+     "says": []
+    },
+    {
+     "area": "session",
+     "what": "back after sign out",
+     "at_door": false,
+     "shot": "docs/review/qa-2026-11/shots/s-back-after-logout.png"
+    },
+    {
+     "area": "session",
+     "what": "old token after sign out",
+     "status": 401
+    },
+    {
+     "area": "session",
+     "what": "first device after a second sign in",
+     "status": 401
+    },
+    {
+     "area": "roles",
+     "what": "invite links",
+     "contains_fragment": true
+    },
+    {
+     "area": "roles",
+     "what": "admin",
+     "landed_on": "Ask",
+     "rail": [
+      "Workspaces",
+      "Settings",
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "Pipeline": [
+      "Run the pipeline"
+     ],
+     "Sources": [
+      "Upload new version",
+      "Upload new version",
+      "Run the pipeline",
+      "Upload and profile"
+     ],
+     "Ask": [
+      "Ask",
+      "Get one customer by its id for customer 1002",
+      "Get one order by its id for order 50002",
+      "List the orders on one customer, by customer id for cus\u2026"
+     ],
+     "Ontology": [
+      "Customer \u00b7 Proposed from bronze.customers.\u2026",
+      "Order \u00b7 Proposed from bronze.orders.\u2026"
+     ],
+     "Boards": [
+      "Create with starter tiles"
+     ],
+     "settings_tabs": [
+      "Members",
+      "Usage",
+      "Model key",
+      "Audit"
+     ],
+     "refused": []
+    },
+    {
+     "area": "roles",
+     "what": "member",
+     "landed_on": "Ask",
+     "rail": [
+      "Workspaces",
+      "Settings",
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "Pipeline": [
+      "Run the pipeline"
+     ],
+     "Sources": [
+      "Upload new version",
+      "Upload new version",
+      "Run the pipeline"
+     ],
+     "Ask": [
+      "Ask",
+      "Get one customer by its id for customer 1002",
+      "Get one order by its id for order 50002",
+      "List the orders on one customer, by customer id for cus\u2026"
+     ],
+     "Ontology": [
+      "Customer \u00b7 Proposed from bronze.customers.\u2026",
+      "Order \u00b7 Proposed from bronze.orders.\u2026"
+     ],
+     "Boards": [
+      "Create with starter tiles"
+     ],
+     "settings_tabs": [
+      "Usage"
+     ],
+     "refused": []
+    },
+    {
+     "area": "roles",
+     "what": "viewer",
+     "landed_on": "Ask",
+     "rail": [
+      "Workspaces",
+      "Settings",
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "Pipeline": [
+      "Run the pipeline"
+     ],
+     "Sources": [],
+     "Ask": [
+      "Ask",
+      "Get one customer by its id for customer 1002",
+      "Get one order by its id for order 50002",
+      "List the orders on one customer, by customer id for cus\u2026"
+     ],
+     "Ontology": [
+      "Customer \u00b7 Proposed from bronze.customers.\u2026",
+      "Order \u00b7 Proposed from bronze.orders.\u2026"
+     ],
+     "Boards": [
+      "Create with starter tiles"
+     ],
+     "settings_tabs": [
+      "Usage"
+     ],
+     "refused": []
+    }
+   ]
+  },
+  {
+   "base": "http://127.0.0.1:8020",
+   "run": "6cdd03",
+   "steps": [
+    {
+     "area": "session",
+     "what": "wrong password",
+     "screen": [
+      "that email and password do not match"
+     ],
+     "shot": "docs/review/qa-2026-11/shots/s-wrong-password.png"
+    },
+    {
+     "area": "session",
+     "what": "sign up with a taken email",
+     "body": "IRONWRIGHT\n\nLegacy systems to an ontology, with agents that are safe to let act.\n\nOne platform that walks an estate from mainframe files to a governed, queryable, agent-ready model of the business, and tells you what your systems did not know about themselves on the way.\n\nYour account decides the id",
+     "shot": "docs/review/qa-2026-11/shots/s-taken-email.png"
+    },
+    {
+     "area": "session",
+     "what": "password field",
+     "type": "password",
+     "autocomplete": "new-password",
+     "minlength": null
+    },
+    {
+     "area": "session",
+     "what": "eight spaces as a password",
+     "screen": [],
+     "at_upload": true,
+     "shot": "docs/review/qa-2026-11/shots/s-spaces-password.png"
+    },
+    {
+     "area": "session",
+     "what": "second tab after sign out, without a reload",
+     "at_door": false,
+     "says": []
+    },
+    {
+     "area": "session",
+     "what": "back after sign out",
+     "at_door": false,
+     "shot": "docs/review/qa-2026-11/shots/s-back-after-logout.png"
+    },
+    {
+     "area": "session",
+     "what": "old token after sign out",
+     "status": 401
+    },
+    {
+     "area": "session",
+     "what": "first device after a second sign in",
+     "status": 401
+    }
+   ]
+  },
+  {
+   "base": "http://127.0.0.1:8020",
+   "run": "554315",
+   "steps": [
+    {
+     "area": "session",
+     "what": "wrong password",
+     "screen": [
+      "that email and password do not match"
+     ],
+     "shot": "docs/review/qa-2026-11/shots/s-wrong-password.png"
+    },
+    {
+     "area": "session",
+     "what": "sign up with a taken email",
+     "body": "IRONWRIGHT\n\nLegacy systems to an ontology, with agents that are safe to let act.\n\nOne platform that walks an estate from mainframe files to a governed, queryable, agent-ready model of the business, and tells you what your systems did not know about themselves on the way.\n\nYour account decides the id",
+     "shot": "docs/review/qa-2026-11/shots/s-taken-email.png"
+    },
+    {
+     "area": "session",
+     "what": "password field",
+     "type": "password",
+     "autocomplete": "new-password",
+     "minlength": null
+    },
+    {
+     "area": "session",
+     "what": "eight spaces as a password",
+     "screen": [],
+     "at_upload": true,
+     "shot": "docs/review/qa-2026-11/shots/s-spaces-password.png"
+    },
+    {
+     "area": "session",
+     "what": "second tab after sign out, without a reload",
+     "at_door": false,
+     "says": []
+    },
+    {
+     "area": "session",
+     "what": "back after sign out",
+     "at_door": false,
+     "shot": "docs/review/qa-2026-11/shots/s-back-after-logout.png"
+    },
+    {
+     "area": "session",
+     "what": "old token after sign out",
+     "status": 401
+    },
+    {
+     "area": "session",
+     "what": "first device after a second sign in",
+     "status": 401
+    },
+    {
+     "area": "session",
+     "what": "expired token in storage",
+     "at_door": true,
+     "screen": [],
+     "shot": "docs/review/qa-2026-11/shots/s-expired.png"
+    }
+   ]
+  },
+  {
+   "base": "http://127.0.0.1:8020",
+   "run": "468f48",
+   "steps": [
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Platform",
+     "violations": [
+      {
+       "id": "aria-required-children",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "svg"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Sources",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Pipeline",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Loads",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Data explorer",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Discovery",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "click",
+     "what": "insurance_claims-desk/Discovery",
+     "found": [
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+      },
+      {
+       "button": "evidence",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Ontology",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Ask",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Boards",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/BI embed",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Agents",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "click",
+     "what": "insurance_claims-desk/Agents",
+     "found": [
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(2)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(3)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(10)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(17)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(18)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(19)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(20)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(21)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(22)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(23)\n"
+      },
+      {
+       "button": "Investigate",
+       "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(24)\n"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Training",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Approvals",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Audit",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Governance",
+     "violations": [
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "a11y",
+     "what": "axe on insurance_claims-desk/Principals",
+     "violations": [
+      {
+       "id": "label",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "input"
+      },
+      {
+       "id": "select-name",
+       "impact": "critical",
+       "nodes": 1,
+       "sample": "select"
+      }
+     ]
+    },
+    {
+     "area": "views",
+     "what": "insurance_claims at desk",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Agents",
+      "Training",
+      "Approvals",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.7,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Platform.png",
+       "axe": [
+        "aria-required-children",
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Sources": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Sources.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Pipeline": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Pipeline.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Loads": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Loads.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Data explorer": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Data_explorer.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Discovery": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Discovery.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": [
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+        },
+        {
+         "button": "evidence",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+        }
+       ]
+      },
+      "Ontology": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Ontology.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Ask": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Ask.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Boards": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Boards.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "BI embed": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-BI_embed.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Agents": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Agents.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": [
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(2)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(3)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(4)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(5)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(6)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(7)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(8)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(9)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(10)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(11)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(12)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(13)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(14)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(15)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(16)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(17)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(18)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(19)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(20)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(21)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(22)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(23)\n"
+        },
+        {
+         "button": "Investigate",
+         "broke": "Locator.is_disabled: Timeout 1500ms exceeded.\nCall log:\n  - waiting for locator(\"main button:visible\").nth(24)\n"
+        }
+       ]
+      },
+      "Training": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Training.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Approvals": {
+       "seconds": 0.61,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Approvals.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Audit": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Audit.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Governance": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Governance.png",
+       "axe": [
+        "select-name"
+       ],
+       "clicked": []
+      },
+      "Principals": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-desk-Principals.png",
+       "axe": [
+        "label",
+        "select-name"
+       ],
+       "clicked": []
+      }
+     },
+     "page_errors": []
+    },
+    {
+     "area": "views",
+     "what": "insurance_claims at phone",
+     "rail": [
+      "Platform",
+      "Sources",
+      "Pipeline",
+      "Loads",
+      "Data explorer",
+      "Discovery",
+      "Ontology",
+      "Ask",
+      "Boards",
+      "BI embed",
+      "Agents",
+      "Training",
+      "Approvals",
+      "Audit",
+      "Governance",
+      "Principals"
+     ],
+     "views": {
+      "Platform": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Platform.png"
+      },
+      "Sources": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Sources.png"
+      },
+      "Pipeline": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Pipeline.png"
+      },
+      "Loads": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Loads.png"
+      },
+      "Data explorer": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Data_explorer.png"
+      },
+      "Discovery": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Discovery.png"
+      },
+      "Ontology": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Ontology.png"
+      },
+      "Ask": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Ask.png"
+      },
+      "Boards": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Boards.png"
+      },
+      "BI embed": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-BI_embed.png"
+      },
+      "Agents": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Agents.png"
+      },
+      "Training": {
+       "seconds": 0.62,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Training.png"
+      },
+      "Approvals": {
+       "seconds": 0.63,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Approvals.png"
+      },
+      "Audit": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Audit.png"
+      },
+      "Governance": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Governance.png"
+      },
+      "Principals": {
+       "seconds": 0.64,
+       "screen": [],
+       "refused": [],
+       "shot": "docs/review/qa-2026-11/shots/v-insurance_claims-phone-Principals.png"
+      }
+     },
+     "page_errors": [],
+     "h_scroll": false
+    }
+   ]
+  }
+ ]
+}
