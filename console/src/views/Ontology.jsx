@@ -110,7 +110,7 @@ export default function Ontology({ ws }) {
                     <span className={`badge ${a.allowed ? "ok" : "bad"}`} title={a.reason}>
                       {a.action}{a.allowed ? (a.requires_approval ? " · needs approval" : "") : " · denied"}
                     </span>
-                    {!a.allowed && (
+                    {!a.allowed && !ws.read_only && (
                       <button className="linklike" onClick={() => escalate(a)}
                               style={{ marginLeft: 4 }}
                               title="raise this exact denial to the owning role">escalate</button>

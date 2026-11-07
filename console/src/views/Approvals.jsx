@@ -65,10 +65,14 @@ export default function Approvals({ ws }) {
                 <td className="mono">{p.action}</td>
                 <td className="mono">{JSON.stringify(p.params)}</td>
                 <td style={{ whiteSpace: "nowrap" }}>
-                  <button className="btn" disabled={noIdentity}
-                          onClick={() => decide(p.seq, "approve")}>Approve</button>{" "}
-                  <button className="btn danger" disabled={noIdentity}
-                          onClick={() => decide(p.seq, "deny")}>Deny</button>
+                  {!ws.read_only && (
+                    <>
+                      <button className="btn" disabled={noIdentity}
+                              onClick={() => decide(p.seq, "approve")}>Approve</button>{" "}
+                      <button className="btn danger" disabled={noIdentity}
+                              onClick={() => decide(p.seq, "deny")}>Deny</button>
+                    </>
+                  )}
                 </td>
               </tr>
             ))}
@@ -95,11 +99,15 @@ export default function Approvals({ ws }) {
               <td className="mono">{e.action}</td><td className="mono">{e.object_id}</td>
               <td className="mono">{e.denying_rule}</td><td className="mono">{e.owner_role}</td>
               <td style={{ whiteSpace: "nowrap" }}>
-                <button className="btn" disabled={noIdentity || !expires}
-                        onClick={() => decideEsc(e.id, "grant")}
-                        title={expires ? "" : "set an expiry first"}>Grant</button>{" "}
-                <button className="btn danger" disabled={noIdentity}
-                        onClick={() => decideEsc(e.id, "deny")}>Deny</button>
+                {!ws.read_only && (
+                  <>
+                    <button className="btn" disabled={noIdentity || !expires}
+                            onClick={() => decideEsc(e.id, "grant")}
+                            title={expires ? "" : "set an expiry first"}>Grant</button>{" "}
+                    <button className="btn danger" disabled={noIdentity}
+                            onClick={() => decideEsc(e.id, "deny")}>Deny</button>
+                  </>
+                )}
               </td>
             </tr>))}
           </tbody>

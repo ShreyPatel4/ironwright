@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../api.js";
-import { Err } from "../components.jsx";
+import { Err, ReadOnlyNote } from "../components.jsx";
 
 const VERDICT_CLASS = { approved: "ok", denied: "bad", denied_by_policy: "hold" };
 
@@ -72,11 +72,16 @@ export default function Training({ ws }) {
       <p className="note">Paste candidate rules in the policies.yaml rule schema, as a JSON array.
         The evaluation replays every label through the pack rules plus your proposal and reports
         agreement with the human verdicts. It adopts nothing.</p>
-      <textarea onChange={(e) => setRulesText(e.target.value)} placeholder={PLACEHOLDER}
-                spellCheck={false} value={rulesText} />
-      <div className="row">
-        <button className="btn" onClick={evaluate}>Evaluate</button>
-      </div>
+      <ReadOnlyNote ws={ws} />
+      {!ws.read_only && (
+        <>
+          <textarea onChange={(e) => setRulesText(e.target.value)} placeholder={PLACEHOLDER}
+                    spellCheck={false} value={rulesText} />
+          <div className="row">
+            <button className="btn" onClick={evaluate}>Evaluate</button>
+          </div>
+        </>
+      )}
       {report && (
         <>
           <p aria-live="polite" className="note">

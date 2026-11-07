@@ -6,6 +6,7 @@ behind the API, it says why. meta_db runs each test on SQLite and on Postgres.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from pathlib import Path
 
@@ -533,3 +534,181 @@ def test_live_engine_by_name_still_reads_what_it_read(meta_db):
     rule = {"id": "esc-x", "effect": "permit", "principal": "user:x", "action": "action:y"}
     plant_rules_at("north", [rule])
     assert orgpolicy.live_engine("north").authorize("user:x", "action:y", {}).allowed
+
+
+# ---------------------------------------------------------------- the customer's own ids
+
+def journey(c: TestClient, who: dict, slug: str = SLUG, upload_id: str | None = None,
+            spec: dict | None = None, models: dict | None = None) -> None:
+    """Profile, create, run, propose, accept: every step through the routes the wizard calls."""
+    if upload_id is None:
+        upload_id, proposal = profiled(c, who)
+        spec = proposal["workspace"]
+    extra = {"models": models} if models else {}
+    made = create(c, who, upload_id, spec, slug=slug, **extra)
+    assert made.status_code == 201, made.text
+    r = c.post("/jobs", headers=bearer(who), json={"kind": "run", "workspace": slug, "params": {}})
+    work(who["org_id"], r.json()["id"])
+    propose(c, who, slug)
+    accept(c, who, slug=slug)
+
+
+def upload_csv(c: TestClient, who: dict, name: str, body: str) -> tuple[str, dict]:
+    made = c.post("/uploads", headers=bearer(who), files=[("files", (name, body.encode(), "text/csv"))])
+    assert made.status_code == 201, made.text
+    upload_id = made.json()["id"]
+    r = c.post(f"/uploads/{upload_id}/profile", headers=bearer(who))
+    assert r.status_code == 202, r.text
+    work(who["org_id"], r.json()["id"])
+    got = c.get(f"/uploads/{upload_id}/proposal", headers=bearer(who))
+    assert got.status_code == 200, got.text
+    return upload_id, got.json()["workspace"]
+
+
+def test_a_customer_asks_with_the_id_in_their_own_file(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    entry = asks(c, a, "show me customer 1001")
+    assert entry["status"] == "answered", entry
+    assert entry["calls"][0]["function"] == "get_customer"
+    assert "Ann Lee" in entry["answer"]
+
+
+def test_the_answer_names_the_id_the_customer_typed_and_no_internals(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    answer = asks(c, a, "show me customer 1001")["answer"]
+    assert "customer 1001" in answer
+    assert "CUS-" not in answer
+    assert "_id" not in answer
+    assert "_title" not in answer
+
+
+def test_the_answer_has_human_labels_and_no_fake_midnight(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    answer = asks(c, a, "show me customer 1001")["answer"]
+    assert "Signup date: 2021-03-04" in answer
+    assert "signup_date" not in answer
+    assert "00:00:00" not in answer
+
+
+def test_the_answer_still_cites_what_it_gathered(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    entry = asks(c, a, "show me customer 1001")
+    assert entry["citations"] == [entry["calls"][0]["evidence_id"]]
+    assert f"[ev:{entry['citations'][0]}]" in entry["answer"]
+
+
+def test_a_key_answer_replays_digest_for_digest(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    assert asks(c, a, "show me customer 1001")["status"] == "answered"
+    replay = c.post(f"/workspaces/{SLUG}/ask/replay", headers=bearer(a), json={"index": 0}).json()
+    assert (replay["replayable"], replay["match"]) == (True, True)
+
+
+def test_orders_for_a_customer_reach_the_list_and_not_the_get(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    entry = asks(c, a, "orders for customer 1001")
+    assert entry["status"] == "answered", entry
+    assert entry["calls"][0]["function"].startswith("list_order_by_customer")
+
+
+def test_a_key_as_the_silver_model_normalized_it_resolves_as_typed(orgs):
+    """The draft trims and upper cases a key, so the crosswalk holds P-100 and a person types p-100."""
+    c, a, _ = orgs
+    upload_id, spec = upload_csv(c, a, "parts.csv", "part_id,name\np-100 ,Bolt\nP-101,Nut\n")
+    model = "select upper(trim(part_id)) as part_id, name from bronze_parts"
+    journey(c, a, upload_id=upload_id, spec=spec, models={"silver": {"parts.sql": model}})
+    entry = asks(c, a, "show me part p-100")
+    assert entry["status"] == "answered", entry
+    assert "Bolt" in entry["answer"]
+
+
+def test_a_question_naming_two_records_is_refused_and_not_a_guess(orgs):
+    """Longest first would answer 1001 here. With short integer keys that is a wrong answer."""
+    c, a, _ = orgs
+    journey(c, a)
+    entry = asks(c, a, "show me customer 1001 and customer 1002")
+    assert entry["status"] == "refused", entry
+    assert "calls" not in entry
+
+
+def test_a_key_that_is_not_in_the_file_is_refused(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    entry = asks(c, a, "show me customer 999999")
+    assert entry["status"] == "refused"
+
+
+def test_a_type_word_alone_is_not_enough(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    assert asks(c, a, "show me 1001")["status"] == "refused"
+
+
+def test_counting_is_refused_and_the_refusal_says_what_ask_can_do(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    entry = asks(c, a, "how many orders does each customer have")
+    assert entry["status"] == "refused"
+    assert entry["reason_code"] == "aggregate_unsupported"
+    assert "count" in entry["reason"].lower()
+    assert "Get one customer by its id" in entry["reason"]
+
+
+def test_an_out_of_scope_refusal_says_what_ask_can_do(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    entry = asks(c, a, "what is the meaning of everything")
+    assert entry["reason_code"] == "out_of_scope"
+    assert "Get one customer by its id" in entry["reason"]
+
+
+def test_the_refusal_never_offers_a_function_policy_forbids(orgs):
+    c, a, _ = orgs
+    rule = {"id": "no-claims", "effect": "forbid", "principal": "user:*", "action": "function:get_claim"}
+    fixture_workspace(a["org_id"], policies={"default": "deny", "rules": [rule]})
+    reason = asks(c, a, "what is the meaning of everything")["reason"]
+    assert "one claim" not in reason
+    assert "one policy" in reason
+
+
+def test_examples_use_the_key_from_the_file(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    examples = c.get(f"/workspaces/{SLUG}/ask/examples", headers=bearer(a)).json()
+    get = next(e for e in examples if e["function"] == "get_customer")
+    assert re.search(r"customer 100\d$", get["question"]), get["question"]
+    assert "CUS-" not in get["question"]
+
+
+def test_every_example_on_a_real_journey_answers_with_its_function(orgs):
+    c, a, _ = orgs
+    journey(c, a)
+    for example in c.get(f"/workspaces/{SLUG}/ask/examples", headers=bearer(a)).json():
+        entry = asks(c, a, example["question"])
+        assert entry["status"] == "answered", (example, entry)
+        assert entry["calls"][0]["function"] == example["function"]
+
+
+def test_a_key_of_org_a_means_nothing_in_org_b(orgs):
+    c, a, b = orgs
+    journey(c, a)
+    upload_id, spec = upload_csv(c, b, "customers.csv", "customer_id,name\n7001,Zed Nox\n7002,Yan Fro\n")
+    journey(c, b, upload_id=upload_id, spec=spec)
+    assert asks(c, b, "show me customer 7001")["status"] == "answered"
+    theirs = asks(c, b, "show me customer 1001")
+    assert theirs["status"] == "refused"
+    assert "Ann Lee" not in json.dumps(theirs)
+    assert asks(c, a, "show me customer 7001")["status"] == "refused"
+
+
+def test_org_b_asking_by_a_key_of_org_a_gets_the_same_404(orgs):
+    c, a, b = orgs
+    journey(c, a)
+    r = c.post(f"/workspaces/{SLUG}/ask", headers=bearer(b), json={"question": "show me customer 1001"})
+    assert (r.status_code, r.json()) == (404, GONE)

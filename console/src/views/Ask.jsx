@@ -54,10 +54,14 @@ export default function Ask({ ws }) {
       <p className="sub">Questions route only to this workspace's governed functions; nothing is
         guessed. An answer carries the exact calls it is made of and can be replayed; a question
         outside the ontology is refused, with the reason, and the refusal rate is published below.</p>
+      {ws.read_only && (
+        <p className="note">This is a shared demo. Your questions stay in your org's log, nobody
+          else's, and each one counts toward your org's Ask limit.</p>
+      )}
       <div className="row">
         <input aria-label="your question" onChange={(e) => setQ(e.target.value)}
                onKeyDown={(e) => e.key === "Enter" && q.trim() && run()}
-               placeholder="units and sales for item ITM-… in store STR-…"
+               placeholder={examples[0]?.question ?? "name a record by the id in your file, like customer 1001"}
                style={{ flex: 1, minWidth: 280 }} type="text" value={q} />
         <button className="btn" disabled={busy || !q.trim()} onClick={run}>{busy ? "Asking…" : "Ask"}</button>
       </div>
@@ -66,15 +70,15 @@ export default function Ask({ ws }) {
           <span className="note">try one, built from real records your identity may read:</span>
           {examples.map((ex) => (
             <button className="btn ghost" key={ex.function} onClick={() => runText(ex.question)}
-                    style={{ fontSize: 12 }}>
+                    style={{ fontSize: 12 }} title={ex.question}>
               {ex.question.length > 56 ? `${ex.question.slice(0, 55)}…` : ex.question}
             </button>
           ))}
         </div>
       )}
       {examples.length === 0 && !answer && (
-        <p className="note">No example questions for this identity: policy permits it none of
-          this workspace's functions. Change identity under GOVERN, Principals.</p>
+        <p className="note">No example questions yet. Either this workspace has no records to ask
+          about, or policy permits your identity none of its functions.</p>
       )}
       <Err e={err} />
       {answer && answer.status === "answered" && (

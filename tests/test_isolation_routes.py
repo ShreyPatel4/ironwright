@@ -26,7 +26,12 @@ from starlette.routing import Mount
 from ironwright import auth
 from ironwright.config import data_root
 from ironwright.ingest import profiler
-from ironwright.platform_api import NOT_FOUND, READ_ONLY_POSTS, create_platform_app
+from ironwright.platform_api import (
+    DEMO_ASK_POSTS,
+    NOT_FOUND,
+    READ_ONLY_POSTS,
+    create_platform_app,
+)
 
 PASSWORD = "correct-horse-9"
 DEMO = "retail"
@@ -307,7 +312,7 @@ def test_every_write_on_a_demo_pack_is_refused_for_a_tenant(world):
         if not template.startswith("/workspaces/{name}") or method in ("GET", "HEAD"):
             continue
         r = _call(c, method, _fill(template, name=DEMO), bearer(a["token"]))
-        if template in READ_ONLY_POSTS:
+        if template in READ_ONLY_POSTS or template in DEMO_ASK_POSTS:
             assert r.status_code != 403, f"{method} {template} is a read"
         else:
             assert r.status_code == 403, f"{method} {template} gave {r.status_code}: {r.text}"

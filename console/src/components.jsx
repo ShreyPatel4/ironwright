@@ -10,6 +10,13 @@ export function Badge({ v }) {
   );
 }
 
+// A shared demo: the server says so per workspace, and would refuse these writes anyway.
+export function ReadOnlyNote({ ws }) {
+  if (!ws?.read_only) return null;
+  return <p className="note">This demo is read only. You can read it and Ask it. To run or change
+    anything, make a workspace from your own files.</p>;
+}
+
 export function Err({ e }) {
   return e ? <div className="err">{String(e.message || e)}</div> : null;
 }

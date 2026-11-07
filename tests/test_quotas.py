@@ -597,7 +597,7 @@ def asking(api, monkeypatch, tmp_path):
     ont.store.con.close()
 
     @contextlib.contextmanager
-    def opened(_pack):
+    def opened(_pack, traced=True):
         o = Ontology(pack, attach_lake=False)
         try:
             yield o
