@@ -1,27 +1,28 @@
 // Same-origin API client. Every answer on screen comes from these calls;
-// nothing is computed client-side except rendering. The session token rides
-// every request and the server decides who that is. The chosen principal
+// nothing is computed client-side except rendering. The session lives in an
+// httpOnly cookie that no script here can read. What the page holds is the CSRF
+// token, in memory only, and it rides every unsafe request. The chosen principal
 // rides along as X-Principal, which only a dev open server listens to.
 let principal = "user:console";
 export const setPrincipal = (p) => { principal = p || "user:console"; };
 export const getPrincipal = () => principal;
 
-function sessionToken() {
-  try { return JSON.parse(localStorage.getItem("iw.session") ?? "null")?.token ?? null; }
-  catch { return null; }
-}
+let csrf = null;
+export const setCsrf = (t) => { csrf = t || null; };
+const SAFE = new Set(["GET", "HEAD", "OPTIONS"]);
 
 async function req(path, opts = {}) {
-  const token = sessionToken();
+  const unsafe = !SAFE.has((opts.method || "GET").toUpperCase());
   const r = await fetch(path, {
+    credentials: "same-origin",
     ...opts,
     headers: { "x-principal": principal,
-               ...(token ? { authorization: `Bearer ${token}` } : {}),
+               ...(unsafe && csrf ? { "x-csrf-token": csrf } : {}),
                ...(opts.headers || {}) },
   });
-  // A stored token the server refused has expired: back to the door.
-  if (r.status === 401 && token) {
-    try { localStorage.removeItem("iw.session"); } catch { /* fine */ }
+  // A session the server refused has ended: back to the door.
+  if (r.status === 401 && csrf && !opts.quiet) {
+    csrf = null;
     location.reload();
   }
   if (!r.ok) {
@@ -42,12 +43,13 @@ const put = (path, body) =>
   req(path, { method: "PUT", headers: { "content-type": "application/json" },
               body: JSON.stringify(body) });
 const org = (slug) => `/orgs/${encodeURIComponent(slug)}`;
+// The auth audit: sign in, failures, locks, two-step changes, tokens and people.
+const AUTH_EVENTS = "auth.,mfa.,token.,member.,org.require_mfa";
 
-// A link cannot carry the session token, so the zip comes through fetch and then a
-// click on a throwaway link to the bytes.
+// The cookie rides a fetch, so the file comes through fetch and then a click on a
+// throwaway link to the bytes.
 async function saveFile(path, name) {
-  const token = sessionToken();
-  const r = await fetch(path, { headers: token ? { authorization: `Bearer ${token}` } : {} });
+  const r = await fetch(path, { credentials: "same-origin" });
   if (!r.ok) {
     let detail = r.statusText;
     try { detail = (await r.json()).detail ?? detail; } catch { /* keep statusText */ }
@@ -101,12 +103,34 @@ export const api = {
   authStatus: () => req("/auth/status"),
   login: (email, password) => post("/auth/login", { email, password }),
   signup: (email, password, org_name) => post("/auth/signup", { email, password, org_name }),
-  // The token is passed in because Login calls this before the session is stored.
+  // The CSRF token is passed in because Login calls this before it is stored.
   switchOrg: (slug, token) => req(`/orgs/${encodeURIComponent(slug)}/switch`, {
-    method: "POST", ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}) }),
+    method: "POST", ...(token ? { headers: { "x-csrf-token": token } } : {}) }),
   me: () => req("/auth/me"),
-  sessionWorks: (token) => req("/auth/me", { headers: { authorization: `Bearer ${token}` } }).then(() => true, () => false),
-  logout: () => req("/auth/logout", { method: "POST" }),
+  // Quiet: at boot a missing session is the normal answer, not a reason to reload.
+  restore: () => req("/auth/me", { quiet: true }),
+  sessionWorks: (token) => req("/auth/me", { headers: { authorization: `Bearer ${token}` }, quiet: true }).then(() => true, () => false),
+  logout: () => req("/auth/logout", { method: "POST", quiet: true }),
+  mfa: (ticket, code, recovery_code) => post("/auth/mfa", recovery_code ? { ticket, recovery_code } : { ticket, code }),
+  mfaStatus: () => req("/auth/mfa/status"),
+  mfaEnrol: () => post("/auth/mfa/enrol", {}),
+  mfaConfirm: (code) => post("/auth/mfa/confirm", { code }),
+  mfaDisable: (code) => post("/auth/mfa/disable", { code }),
+  mfaNewRecovery: (code) => post("/auth/mfa/recovery-codes", { code }),
+  resetRequest: (email) => post("/auth/reset-request", { email }),
+  reset: (token, password) => post("/auth/reset", { token, password }),
+  verifyEmail: (token) => post("/auth/verify", { token }),
+  resendVerify: () => post("/auth/verify/resend", {}),
+  sessions: () => req("/auth/sessions"),
+  endSession: (id) => req(`/auth/sessions/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  signOutEverywhere: () => post("/auth/sessions/revoke-all", {}),
+  orgSecurity: (slug) => req(`${org(slug)}/security`),
+  setOrgSecurity: (slug, require_mfa) => put(`${org(slug)}/security`, { require_mfa }),
+  tokens: (slug) => req(`${org(slug)}/tokens`),
+  createToken: (slug, name, scopes) => post(`${org(slug)}/tokens`, { name, scopes }),
+  revokeToken: (slug, id) => req(`${org(slug)}/tokens/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  authAudit: (slug) => req(`${org(slug)}/audit/chain?prefix=${encodeURIComponent(AUTH_EVENTS)}`),
+  exportAudit: (slug) => saveFile(`${org(slug)}/audit/export`, `${slug}-audit.jsonl`),
   sources: (ws) => req(`/workspaces/${ws}/sources`),
   addSources: (ws, body) => post(`/workspaces/${ws}/sources`, body),
   drift: (ws) => req(`/workspaces/${ws}/drift`),

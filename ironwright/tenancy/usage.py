@@ -213,10 +213,10 @@ def export_chain(org_id: str) -> list[dict[str, Any]]:
 def audit_chain(org_id: str, actor: str | None = None, action: str | None = None, limit: int = 500,
                 prefix: str | None = None) -> dict[str, Any]:
     """The verdict always covers the whole chain. Filters narrow what is listed, nothing else.
-    prefix="auth." is the auth audit: sign in, failures, locks, MFA, sessions."""
+    prefix narrows by action, comma separated: "auth.,mfa.,token." is the auth audit."""
     rows, links = _chain_rows(org_id)
     listed = [r for r in rows if actor in (None, r["actor"]) and action in (None, r["action"])
-              and r["action"].startswith(prefix or "")][-limit:]
+              and r["action"].startswith(tuple((prefix or "").split(",")))][-limit:]
     return {**_judge(org_id, rows, links),
             "actors": sorted({r["actor"] for r in rows}), "actions": sorted({r["action"] for r in rows}),
             "rows": [{"seq": r["seq"], "ts": r["ts"], "actor": r["actor"], "action": r["action"],

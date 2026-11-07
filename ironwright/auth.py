@@ -33,7 +33,7 @@ IDLE_SECONDS = service.IDLE_SECONDS
 # route dependencies never reach.
 PUBLIC_ROUTES = frozenset({"/auth/status", "/auth/login", "/auth/signup",
                            "/auth/accept-invite", "/auth/verify", "/auth/reset-request",
-                           "/auth/reset", "/auth/mfa", "/"})
+                           "/auth/reset", "/auth/mfa", "/auth/logout", "/"})
 SESSION_COOKIE = cookies.SESSION_COOKIE
 # All a member can reach while their org requires MFA and they have not set it up.
 MFA_SETUP_ROUTES = frozenset({"/auth/me", "/auth/logout", "/auth/mfa/status", "/auth/mfa/enrol",

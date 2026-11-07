@@ -26,7 +26,7 @@ EMAIL = "tester@example.com"
 PASSWORD = "correct-horse-9"
 # "/" only redirects to the console and carries no data.
 PUBLIC = {"/auth/status", "/auth/login", "/auth/signup", "/auth/accept-invite", "/",
-          "/auth/verify", "/auth/reset-request", "/auth/reset", "/auth/mfa"}
+          "/auth/verify", "/auth/reset-request", "/auth/reset", "/auth/mfa", "/auth/logout"}
 EIGHT_HOURS = 8 * 3600
 
 

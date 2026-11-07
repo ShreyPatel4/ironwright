@@ -112,6 +112,14 @@ def test_logout_by_cookie_needs_csrf_and_clears_the_cookie(client):
     assert client.get("/auth/me").status_code == 401
 
 
+def test_a_dead_session_can_still_clear_its_cookie(client):
+    s = signup(client)
+    service.revoke(s["token"])
+    r = client.post("/auth/logout")
+    assert r.status_code == 200
+    assert f'{auth.SESSION_COOKIE}=""' in r.headers["set-cookie"] or "max-age=0" in r.headers["set-cookie"].lower()
+
+
 def test_bearer_clients_need_no_csrf(client):
     s = signup(client)
     api = fresh(client.app)

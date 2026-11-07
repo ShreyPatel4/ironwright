@@ -164,7 +164,13 @@ def auth_me(request: Request, c: CtxDep) -> dict[str, Any]:
 
 @router.post("/auth/logout")
 def auth_logout(request: Request) -> JSONResponse:
-    tenancy.revoke(cookies.credential(request.headers)[0])
+    """A door, so a dead session can still clear its cookie. A live cookie session
+    still needs its CSRF token, or any page could sign you out."""
+    token, via = cookies.credential(request.headers)
+    if via == "cookie" and auth.session_ctx(token) is not None \
+            and not cookies.csrf_ok(token, request.headers.get(cookies.CSRF_HEADER)):
+        raise HTTPException(403, "this request needs the X-CSRF-Token header; reload the page and try again")
+    tenancy.revoke(token)
     response = JSONResponse({"ok": True})
     cookies.clear(response)
     return response

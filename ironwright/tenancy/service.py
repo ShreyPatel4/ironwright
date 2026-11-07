@@ -217,7 +217,9 @@ def _session_answer(con: Connection, token: str, user_id: str, org_id: str) -> d
     orgs = _orgs_of(con, user_id)
     org = next(o for o in orgs if o["id"] == org_id)
     email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == user_id)).scalar_one()
+    required = con.execute(sa.select(sec.org_security.c.require_mfa).where(sec.org_security.c.org_id == org_id)).scalar()
     return {"token": token, "csrf": cookies.csrf_of(token), "email": email, "org_id": org_id,
+            "mfa_setup_required": bool(required) and not mfa_enabled(con, user_id),
             "org_slug": org["slug"], "user_id": user_id, "role": org["role"], "principal": principal_of(user_id),
             "orgs": [{"slug": o["slug"], "name": o["name"], "role": o["role"]} for o in orgs]}
 
@@ -225,9 +227,10 @@ def _session_answer(con: Connection, token: str, user_id: str, org_id: str) -> d
 def _decoy_answer(con: Connection, email: str, org_name: str, base: str) -> dict[str, Any]:
     """What a signup on a taken email answers: a new account's shape over ids and a token
     nobody stored. No password is checked and no row is written, so it opens nothing.
-    The account's owner keeps their session and never knows."""
+    The account's owner keeps their sessions and gets a mail saying someone tried."""
     user_id, slug, token = _id(), _free_slug(con, base), secrets.token_urlsafe(32)
-    return {"token": token, "csrf": cookies.csrf_of(token), "email": email, "org_id": _id(), "org_slug": slug,
+    return {"token": token, "csrf": cookies.csrf_of(token), "email": email, "org_id": _id(),
+            "mfa_setup_required": False, "org_slug": slug,
             "user_id": user_id, "role": "owner", "principal": principal_of(user_id),
             "orgs": [{"slug": slug, "name": org_name, "role": "owner"}]}
 

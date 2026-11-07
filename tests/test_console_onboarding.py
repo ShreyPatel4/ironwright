@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import cookie_session
 import pytest
 import uvicorn
 
@@ -147,7 +148,7 @@ def log_in(page, stack, email="owner@acme.test"):
 
 
 def session_of(page) -> dict[str, Any]:
-    return json.loads(page.evaluate("localStorage.getItem('iw.session')"))
+    return cookie_session.session_of(page)
 
 
 def upload(page, files=T2_FILES):
@@ -732,4 +733,4 @@ def test_a_returning_customer_who_signs_up_is_told_to_sign_in(browser, stack):
     sign_up(page, stack)
     expect()(page.get_by_text("If this email already has an account, sign in with its password.")).to_be_visible()
     expect()(page.get_by_role("button", name="Enter the console")).to_be_visible()
-    assert page.evaluate("localStorage.getItem('iw.session')") is None
+    assert cookie_session.token_of(page.context) is None

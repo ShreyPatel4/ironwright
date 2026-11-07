@@ -6,7 +6,6 @@ pack. That is the only step the browser does not take or the routes do not serve
 """
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 import threading
@@ -14,6 +13,7 @@ import time
 from collections.abc import Iterator
 from pathlib import Path
 
+import cookie_session
 import httpx
 import pytest
 import uvicorn
@@ -118,8 +118,7 @@ def signup(base: str, label: str) -> dict:
 def open_console(browser, base: str, session: dict):
     context = browser.new_context()
     context.set_default_timeout(20_000)
-    context.add_init_script(f"localStorage.setItem('iw.session', {json.dumps(json.dumps(session))});"
-                            "localStorage.setItem('iw.onboarded', '1');")
+    cookie_session.place(context, base, session)
     page = context.new_page()
     page.goto(f"{base}/console/")
     return page
