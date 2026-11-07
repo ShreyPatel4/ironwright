@@ -275,8 +275,9 @@ def test_upload_refusals_in_the_wizard(browser, tmp_path):
     """Empty, xlsx, header only, 30 MB: what the person reads on screen for each."""
     from playwright.sync_api import expect
     nasty = nasty_files(tmp_path)
-    s = api_signup("refuse")
     for name in ("empty.csv", "book.xlsx", "header-only.csv", "30mb.csv"):
+        # One org per file: an accepted file moves the wizard on, and the next one needs Upload.
+        s = api_signup(f"refuse-{name.split('.')[0]}")
         tab = Tab(browser, session={**s}, onboarded=False)
         page = tab.page
         page.goto(f"{BASE}/console/")
