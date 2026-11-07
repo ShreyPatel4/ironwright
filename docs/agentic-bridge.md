@@ -170,6 +170,49 @@ Free agents are the risk. These controls apply to every agent on every layer:
 | Traces, evals, audit chain | traceability and compliance evidence |
 | `connectors.py` (local, S3, ADBC, CDC) | the source registry, extended to warehouse connectors |
 
+## Where the pipeline runs (placement)
+
+The bridge decides how data gets from source to mart. Placement decides where that work runs. I treat
+placement as its own planner with the same rules: it proposes scored plans, deterministic checks gate
+them, and a human picks.
+
+```mermaid
+flowchart LR
+  I["Estate inventory<br/>clouds, accounts, warehouses,<br/>licenses, IaC, team skills"] --> PP[Placement planner]
+  SG[Source graph<br/>where the bytes live, how many] --> PP
+  GC[Gold contract<br/>freshness, consumers, residency] --> PP
+  PP --> P1["Plan A: cloud-native<br/>e.g. all AWS: S3, Glue/Athena"]
+  PP --> P2["Plan B: open middle<br/>Iceberg on each cloud's storage,<br/>one REST catalog"]
+  PP --> P3["Plan C: the warehouse they own<br/>e.g. Snowflake or Databricks"]
+  P1 & P2 & P3 --> SC{"Score: cost incl. egress,<br/>freshness, team familiarity,<br/>lock-in, compliance"}
+  SC --> H[Human picks a plan]
+  H --> C["Compile the portable pipeline<br/>to the chosen engines"]
+```
+
+Rules:
+1. **Footprint first.** The planner may only use services the org already runs, found in the estate
+   inventory. Adding a new tool or SaaS is a separate escalation a human must approve.
+2. **Data gravity.** Compute goes where most of the bytes are. Only the smaller side moves, and the
+   egress cost is priced into every plan.
+3. **Hard constraints before cost.** Residency, PII and contract rules cut plans out before any scoring.
+4. **Portable by construction.** Agents write the pipeline once as engine-neutral models (SQL parsed
+   and transpiled with SQLGlot, a DAG, contracts, tests). A compiler emits Snowflake, Spark/Databricks,
+   BigQuery, Athena/Glue, Synapse/Fabric or DuckDB. `ironwright/engines.py` already proves one model gives
+   equal results on two engines. That check becomes the gate for every target.
+5. **Open middle for multi-cloud.** When data is spread across clouds, the default sweet spot is Iceberg
+   tables on each cloud's own object store with one shared catalog, so every engine the org already owns
+   reads the same tables without copies.
+6. **Tools are adapters.** Each cloud service or SaaS is an adapter (an MCP server or connector) in a
+   capability registry. Policy decides which adapters an agent may call, per layer.
+7. **Prove before choosing.** For close calls, run a bake-off on a sample on the top two plans and record
+   real cost and time as evidence on the approval card.
+8. **Keep re-checking.** A FinOps loop watches billing and usage and proposes a re-placement through the
+   same promotion gate when the numbers shift.
+
+Phase B6 (after B4): estate inventory, placement planner with scored plans, the portable compiler for
+DuckDB, Snowflake and Spark first, and a sample bake-off. Done when a three-cloud fixture yields three
+scored plans, a human picks one, and the same models pass the equal-results check on the chosen engine.
+
 ## Phases
 
 | Phase | Delivers | Done when |
@@ -179,6 +222,7 @@ Free agents are the risk. These controls apply to every agent on every layer:
 | B3 Warehouse sources | read-only connectors for Postgres, Snowflake, Databricks SQL, BigQuery, Iceberg REST, with sampling | the same fixture runs from a Postgres source in CI |
 | B4 Marts and downstream connectors | mart builder, BI and file and API handoff, freshness SLAs | a declared use case ends in a working consumer |
 | B5 Observe and heal | drift and DQ monitors that reopen items, the run board, human load metrics | a planted drift reopens the right item and escalates |
+| B6 Placement planner (after B4) | estate inventory, placement planner with scored plans, the portable compiler for DuckDB, Snowflake and Spark first, and a sample bake-off | a three-cloud fixture yields three scored plans, a human picks one, and the same models pass the equal-results check on the chosen engine |
 
 Every phase keeps the house rules. Evals gate everything. Every planted problem in a generated bridge
 workspace has a ground-truth eval. Rules decide promotion. The model drafts and narrates.
