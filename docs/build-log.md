@@ -380,6 +380,21 @@ rows. The screen says those numbers instead of bytes, and the delete panel warns
 the latest one holds no tables. A test now exports, deletes the org, and checks every table and row count from
 the zip alone.
 
+## 33. An approval that never woke the graph
+
+**Symptom.** A change sat at Escalated after a real human approval. The card said approved, the run said
+Approved, and the supervisor went straight back to waiting. Nothing reached the live models, which was safe,
+and nothing ever would, which was not.
+
+**Cause.** I resumed with `Command(resume=payload or {})`. LangGraph treats an empty resume value as no
+resume at all, so the approval node ran `interrupt()` again from the top and paused. My settle node reads the
+decision from the card store and ignores the payload, so I had made the payload empty on purpose. The
+supervisor test that walks draft to observed went red on its first run.
+
+**Fix.** The resume carries a fixed non-empty marker that nothing reads. The decision still comes only from
+the card store, and promote checks the approver, the requester and the hash again, so a forged payload still
+gets nowhere. A test resumes with a forged approval payload and stays at Escalated.
+
 ## Smaller ones
 
 - A session-scoped Playwright broke four MCP and upload tests in other files. It keeps an event loop running on the main thread, so their `asyncio.run()` refused to start. Each file passed alone. The browser now lives only as long as its own module.
@@ -418,3 +433,8 @@ the zip alone.
 - `show me customer 1001` was refused as out of scope, not for its id. After stop words the question has one real word, and the router needs two, so resolving the id alone would have fixed nothing. The literal question over the real journey told me that before I wrote the fix. A bare lookup now has its own narrow rule: it names a type, it has no other real word, and the pack has exactly one read of one record of that type.
 - Longest token first picked one record when a question named two. With short integer keys, `customer 1001 and 7` would have answered for 1001 with full confidence. A typed id now has to name exactly one object or it does not resolve, and two keys for one merged object still count as one.
 - My first demo Ask would have written each asker's user id to the demo pack's traces, which every org can read. `_ontology` always traced to the pack's folder, and a span names the principal. The new test reads B's view of the traces after A asks, and the shared folder is searched for A's ids. A visitor on a demo pack now gets no trace there, and the ask log moves under their org.
+- My first bridge routes answered the gate's own "no such resource" for a generated organization's name, because `wt._existing` only knows uploaded workspaces. The isolation sweep's positive control went red: A was stopped at A's own gate. A name that passed the gate and is not an uploaded workspace now shows an empty board, and a missing card says "no such card".
+- My compliance check and the card's masking went by column name only. `select holder as owner_label` passed compliance and put real names on the approval card, and the Map step's renames would do the same in normal use. A test that aliases the holder went red on both. A column now counts as PII when its values are raw PII values from bronze, whatever it is called.
+- The bridge store read the last audit row and then appended, with no lock. Six threads writing at once broke the chain, and eight admins deciding one card at once left more than one decision line. A folder lock (a thread lock plus an flock) now covers the audit append, every transition, the card, the decision and promote.
+- The decide route recorded the decision before building what resumes the run. With the silver draft gone, the card read approved and the run sat at Approved with no route that could wake it. The route now builds the supervisor first, and a test deletes the draft and finds the card undecided.
+- A gold mart could not stage: the sandbox only knew `bronze_<name>`, and gold reads `silver_<table>`. The live models of the layers below now run first on the same sample, and a test takes a mart from draft to promoted over silver it just promoted.

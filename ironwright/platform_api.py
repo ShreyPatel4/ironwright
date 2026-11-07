@@ -38,6 +38,7 @@ from . import workspaces_tenant as wt
 from .asof import router as asof_router
 from .auth import ctx
 from .bi import router as bi_router
+from .bridge.routes import router as bridge_router
 from .config import data_root, demo_ask_log, ensure_tenant, safe_child, write_private
 from .engines import router as engines_router
 from .ingest import journey_routes
@@ -177,6 +178,9 @@ WRITE_ROLES = {
     "/workspaces/{name}/sources": "admin",
     "/workspaces/{name}/sources/{source}/spec": "admin",
     "/workspaces/{name}/approvals/{seq}/decide": "admin",
+    # A run reads a sample of the tenant's rows; a decision promotes a change.
+    "/workspaces/{name}/bridge/runs": "admin",
+    "/workspaces/{name}/bridge/cards/{card_id}/decide": "admin",
     "/workspaces/{name}/escalations/{esc_id}/decide": "admin",
     "/workspaces/{name}/orgpolicy/apply": "admin",
     # These send a workspace's data to a place the caller names.
@@ -837,6 +841,7 @@ def create_platform_app() -> FastAPI:
     app.include_router(settings_router)
     app.include_router(journey_routes.router)
     app.include_router(admin_router)
+    app.include_router(bridge_router)
 
     # console/dist is built (make console) and gitignored, and the hosted image builds its
     # own. Absent, the API still serves, / says how to get it, and `ironwright platform`
