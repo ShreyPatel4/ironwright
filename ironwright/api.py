@@ -50,13 +50,14 @@ BODY_CAP_EXEMPT = frozenset({("POST", "/uploads")})
 LOGIN_ATTEMPTS = 10           # per IP, per window
 LOGIN_WINDOW_S = 60.0
 # Every route that takes a password with no session behind it.
-DOORS = frozenset({"/auth/login", "/auth/signup", "/auth/accept-invite"})
+DOORS = frozenset({"/auth/login", "/auth/signup", "/auth/accept-invite", "/auth/mfa",
+                   "/auth/reset", "/auth/reset-request", "/auth/verify"})
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
 # With the kill switch on, every unsafe request is off unless it is listed here,
 # so a route added later is off by default. These read and change nothing that matters.
-KILL_SWITCH_READS = re.compile(r"/auth/(login|logout)|/functions/[^/]+|/workspaces/[^/]+/"
+KILL_SWITCH_READS = re.compile(r"/auth/(login|logout|mfa|sessions/[^/]+)|/functions/[^/]+|/workspaces/[^/]+/"
                                r"(lake/query|boards/[^/]+/run|governance/check)")
 # The two routes that run tenant SQL.
 SQL_ROUTES = re.compile(r"/workspaces/[^/]+/(lake/query|boards/[^/]+/run)")

@@ -12,6 +12,7 @@ import json
 import os
 import pathlib
 import re
+import uuid
 
 import pytest
 from fastapi.routing import APIRoute
@@ -225,9 +226,14 @@ def _limited(clock=None):
     return lambda ip: TestClient(app, client=(ip, 5000))
 
 
+def _login_body() -> dict:
+    """A new email each time, so the per email lock never answers for the per IP limit."""
+    return {**LOGIN, "email": f"x-{uuid.uuid4().hex[:10]}@example.com"}
+
+
 def _attempts_until_429(client, cap: int = 50) -> int:
     for n in range(1, cap + 1):
-        if client.post("/auth/login", json=LOGIN).status_code == 429:
+        if client.post("/auth/login", json=_login_body()).status_code == 429:
             return n
     raise AssertionError(f"never rate limited in {cap} attempts")
 
@@ -235,20 +241,20 @@ def _attempts_until_429(client, cap: int = 50) -> int:
 def test_login_is_rate_limited_per_ip(platform):
     c = TestClient(platform, client=("10.0.0.1", 5000))
     assert _attempts_until_429(c) > 1
-    r = c.post("/auth/login", json=LOGIN)
+    r = c.post("/auth/login", json=_login_body())
     assert r.status_code == 429 and int(r.headers["retry-after"]) > 0
 
 
 def test_one_ip_being_limited_does_not_lock_out_another():
     client = _limited()
     _attempts_until_429(client("10.0.0.1"))
-    assert client("10.0.0.2").post("/auth/login", json=LOGIN).status_code == 401
+    assert client("10.0.0.2").post("/auth/login", json=_login_body()).status_code == 401
 
 
 def test_a_forged_forwarded_header_does_not_buy_more_attempts(platform):
     c = TestClient(platform, client=("10.0.0.1", 5000))
     _attempts_until_429(c)
-    r = c.post("/auth/login", headers={"x-forwarded-for": "10.9.9.9"}, json=LOGIN)
+    r = c.post("/auth/login", headers={"x-forwarded-for": "10.9.9.9"}, json=_login_body())
     assert r.status_code == 429
 
 
@@ -257,7 +263,7 @@ def test_rate_limit_window_expires():
     client = _limited(lambda: now[0])("10.0.0.1")
     _attempts_until_429(client)
     now[0] += 3600
-    assert client.post("/auth/login", json=LOGIN).status_code == 401
+    assert client.post("/auth/login", json=_login_body()).status_code == 401
 
 
 def test_rate_limit_applies_to_login_only(platform):
@@ -270,8 +276,10 @@ def test_rate_limit_applies_to_login_only(platform):
 
 # POST routes that only read: these stay up. Anything else that writes is off,
 # so a route added later is off by default rather than forgotten.
+# Ending a session is a safety action, so it stays up too.
 READ_ONLY_WRITES = {"/auth/login", "/auth/logout", "/workspaces/retail/lake/query",
-                    "/workspaces/retail/boards/x/run", "/workspaces/retail/governance/check"}
+                    "/workspaces/retail/boards/x/run", "/workspaces/retail/governance/check",
+                    "/auth/sessions/x", "/auth/sessions/revoke-all"}
 
 
 def _routes(routes, prefix=""):

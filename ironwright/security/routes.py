@@ -17,7 +17,7 @@ from .. import auth
 from ..tenancy import ROLES, Ctx, quotas
 from ..tenancy import service as tenancy
 from ..tenancy.models import at_least
-from . import cookies
+from . import cookies, ratelimit
 
 router = APIRouter()
 CtxDep = Annotated[Ctx, Depends(auth.ctx)]
@@ -79,6 +79,8 @@ def auth_signup(body: SignupBody, request: Request) -> JSONResponse:
 def auth_login(body: LoginBody, request: Request) -> JSONResponse:
     try:
         return opened(tenancy.login(body.email, body.password, auth._now(), seen(request)))
+    except ratelimit.Locked as e:
+        raise HTTPException(429, ratelimit.LOCKED_DETAIL) from e
     except tenancy.BadCredentials as e:
         raise HTTPException(401, "that email and password do not match") from e
 
@@ -89,6 +91,8 @@ def auth_accept_invite(body: AcceptInviteBody, request: Request) -> JSONResponse
         return opened(tenancy.accept_invite(body.token, body.password, auth._now(), seen(request)))
     except tenancy.NoSuchInvite as e:
         raise HTTPException(404, "that invite is not valid") from e
+    except ratelimit.Locked as e:
+        raise HTTPException(429, ratelimit.LOCKED_DETAIL) from e
     except tenancy.BadCredentials as e:
         raise HTTPException(401, "that email and password do not match") from e
     except tenancy.Invalid as e:
@@ -132,7 +136,7 @@ def auth_end_session(session_id: str, c: CtxDep) -> dict[str, bool]:
 
 @router.post("/auth/sessions/revoke-all")
 def auth_sign_out_everywhere(c: CtxDep) -> JSONResponse:
-    tenancy.revoke_all(c.user_id)
+    tenancy.revoke_all(c.user_id, c.principal, auth._now())
     response = JSONResponse({"ok": True})
     cookies.clear(response)
     return response

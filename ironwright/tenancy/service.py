@@ -37,7 +37,7 @@ from ..config import (
     workspaces_root,
 )
 from ..packs import list_packs
-from ..security import cookies
+from ..security import cookies, ratelimit
 from ..security import store as sec
 from . import db, usage
 from .models import DEV_ORG_ID, DEV_ORG_SLUG, ROLES, Ctx, at_least, principal_of
@@ -246,6 +246,7 @@ def signup(email: str, password: str, org_name: str, now: float,
                                                     name=org_name, created_at=now))
                 con.execute(db.memberships.insert().values(org_id=org_id, user_id=user_id,
                                                            role="owner"))
+                usage.audit(con, org_id, principal_of(user_id), "auth.signup", _where(seen), now)
                 return _session_answer(con, _open_session(con, user_id, org_id, now, seen),
                                        user_id, org_id)
         except IntegrityError:
@@ -253,20 +254,49 @@ def signup(email: str, password: str, org_name: str, now: float,
     raise EmailTaken
 
 
+def audit_user(con: Connection, user_id: str, actor: str, action: str, detail: dict[str, Any],
+               now: float) -> None:
+    """An auth event goes into the chain of every org the user is in: each org's admins
+    see what happens to their people."""
+    for org in _orgs_of(con, user_id):
+        usage.audit(con, org["id"], actor, action, detail, now)
+
+
+def _where(seen: dict[str, str] | None) -> dict[str, str]:
+    return {"ip": (seen or {}).get("ip", "")}
+
+
+def failed_sign_in(email: str, user_id: str | None, now: float, seen: dict[str, str] | None) -> None:
+    """Count it toward the lock and write it down, in a transaction of its own."""
+    locked = ratelimit.fail(email, now)
+    if user_id is None:
+        return
+    with sec.engine().begin() as con:
+        audit_user(con, user_id, "anonymous", "auth.fail", _where(seen), now)
+        if locked:
+            audit_user(con, user_id, "anonymous", "auth.lock", {**_where(seen), "minutes": 15}, now)
+
+
 def login(email: str, password: str, now: float, seen: dict[str, str] | None = None) -> dict[str, Any]:
+    """Locked emails are refused before any password is checked, known or not."""
     try:
         email = clean_email(email)
     except Invalid:
         email = ""
+    ratelimit.check(email, now)
     with sec.engine().begin() as con:
         user = con.execute(sa.select(db.users).where(db.users.c.email == email)).mappings().first()
-        if not verify_password(password, user["pw_hash"] if user else _NOBODY) or not user:
-            raise BadCredentials
-        orgs = _orgs_of(con, user["id"])
-        if not orgs:
-            raise BadCredentials
-        return _session_answer(con, _open_session(con, user["id"], orgs[0]["id"], now, seen),
-                               user["id"], orgs[0]["id"])
+        good = verify_password(password, user["pw_hash"] if user else _NOBODY) and user is not None
+        orgs = _orgs_of(con, user["id"]) if good else []
+        if orgs:
+            answer = _session_answer(con, _open_session(con, user["id"], orgs[0]["id"], now, seen),
+                                     user["id"], orgs[0]["id"])
+            audit_user(con, user["id"], principal_of(user["id"]), "auth.login", _where(seen), now)
+    if not orgs:
+        failed_sign_in(email, user["id"] if user else None, now, seen)
+        raise BadCredentials
+    ratelimit.clear(email)
+    return answer
 
 
 def resolve(token: str, now: float) -> Ctx | None:
@@ -341,10 +371,11 @@ def revoke_session(user_id: str, sid: str) -> bool:
         return True
 
 
-def revoke_all(user_id: str) -> None:
+def revoke_all(user_id: str, actor: str, now: float) -> None:
     """Sign out everywhere."""
     with sec.engine().begin() as con:
         _end(con, db.sessions.c.user_id == user_id)
+        audit_user(con, user_id, actor, "auth.signout_all", {}, now)
 
 
 def role_in(user_id: str, slug: str) -> str | None:
@@ -382,8 +413,23 @@ def invite(slug: str, email: str, role: str, now: float, actor: str = "system") 
     return token
 
 
+class _WrongPassword(BadCredentials):
+    def __init__(self, email: str, user_id: str) -> None:
+        super().__init__()
+        self.email, self.user_id = email, user_id
+
+
 def accept_invite(token: str, password: str, now: float, seen: dict[str, str] | None = None) -> dict[str, Any]:
-    """A new email sets its password here. A known email must prove the one it has."""
+    """A new email sets its password here. A known email must prove the one it has, and
+    a wrong one counts toward the lock like any sign in."""
+    try:
+        return _accept_invite(token, password, now, seen)
+    except _WrongPassword as e:
+        failed_sign_in(e.email, e.user_id, now, seen)
+        raise BadCredentials from None
+
+
+def _accept_invite(token: str, password: str, now: float, seen: dict[str, str] | None) -> dict[str, Any]:
     hashed = _token_hash(token)
     with sec.engine().begin() as con:
         row = con.execute(sa.select(db.invites).where(db.invites.c.token_hash == hashed)).mappings().first()
@@ -397,8 +443,9 @@ def accept_invite(token: str, password: str, now: float, seen: dict[str, str] | 
             raise NoSuchInvite
         user = con.execute(sa.select(db.users).where(db.users.c.email == row["email"])).mappings().first()
         if user:
+            ratelimit.check(row["email"], now)
             if not verify_password(password, user["pw_hash"]):
-                raise BadCredentials
+                raise _WrongPassword(row["email"], user["id"])
             user_id = user["id"]
         else:
             _check_password(password)

@@ -9,6 +9,7 @@ sweep reads the gate's exact bytes as "this caller was stopped at the door".
 """
 from __future__ import annotations
 
+import json
 import time
 from typing import Annotated, Any
 
@@ -89,8 +90,17 @@ def remove_member(slug: str, user_id: str, c: CtxDep) -> dict[str, bool]:
 
 @router.get("/orgs/{slug}/audit/chain")
 def audit_chain(slug: str, c: CtxDep, actor: str | None = None, action: str | None = None,
-                limit: Annotated[int, Query(ge=1, le=1000)] = 500) -> dict[str, Any]:
-    return usage.audit_chain(_org(slug, c, "admin"), actor or None, action or None, limit)
+                limit: Annotated[int, Query(ge=1, le=1000)] = 500, prefix: str | None = None) -> dict[str, Any]:
+    return usage.audit_chain(_org(slug, c, "admin"), actor or None, action or None, limit, prefix or None)
+
+
+@router.get("/orgs/{slug}/audit/export")
+def audit_export(slug: str, c: CtxDep) -> Response:
+    """The whole chain as JSON lines, hashes included, for an auditor or a SIEM."""
+    lines = usage.export_chain(_org(slug, c, "admin"))
+    body = "".join(json.dumps(x, sort_keys=True) + "\n" for x in lines)
+    return Response(body, media_type="application/x-ndjson",
+                    headers={"content-disposition": f'attachment; filename="{slug}-audit.jsonl"'})
 
 
 @router.post("/orgs/{slug}/exports", status_code=202)
