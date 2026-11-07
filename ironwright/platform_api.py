@@ -17,7 +17,7 @@ from typing import Annotated, Any
 
 import duckdb
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict
 
@@ -27,11 +27,11 @@ import re
 
 from . import ask as ask_mod
 from . import auth as auth_mod
+from . import basepath, sqlguard, verification
 from . import boards as boards_mod
 from . import discovery as discovery_mod
 from . import escalation as escalation_mod
 from . import orgpolicy as orgpolicy_mod
-from . import sqlguard, verification
 from . import training as training_mod
 from . import workspaces as org_mod
 from . import workspaces_tenant as wt
@@ -50,7 +50,7 @@ from .ontology.runtime import Ontology
 from .otel_export import router as otel_router
 from .packs import list_packs, load_pack
 from .scenario.spec import SpecError
-from .tenancy import DEV_ORG_ID, ROLES, Ctx, byokey, quotas
+from .tenancy import DEV_ORG_ID, ROLES, Ctx, byokey, quotas, visitor
 from .tenancy import service as tenancy
 from .tenancy.models import at_least
 from .tenancy.routes_admin import router as admin_router
@@ -236,14 +236,23 @@ def _guard_select_only(sql: str) -> str:
         raise HTTPException(422, str(e)) from e
 
 
+def console_page(scope: Any) -> HTMLResponse:
+    """The console's index, told where it lives. The build names its assets relative to
+    the page, and a <base href> fixes what "relative" means, with or without a trailing
+    slash and under any prefix. The page names hashed assets, so a browser has to check
+    it each time or it keeps asking for an old build."""
+    base = f"{basepath.of(scope)}/console/"
+    html = (CONSOLE_DIST / "index.html").read_text().replace("<head>", f'<head><base href="{base}">', 1)
+    return HTMLResponse(html, headers={"cache-control": "no-cache"})
+
+
 class ConsoleFiles(StaticFiles):
-    """The page names hashed assets, so a browser has to check the page each time or it
-    keeps asking for an old build. The assets themselves can stay cached."""
+    """The assets themselves can stay cached. The page goes through console_page."""
 
     async def get_response(self, path: str, scope: Any) -> Any:
         response = await super().get_response(path, scope)
-        if pathlib.PurePath(path).name in ("", "index.html"):
-            response.headers["cache-control"] = "no-cache"
+        if pathlib.PurePath(path).name in ("", "index.html") and response.status_code == 200:
+            return console_page(scope)
         return response
 
 
@@ -334,6 +343,8 @@ def _pending_approvals(ont: Ontology) -> list[dict[str, Any]]:
 
 def create_platform_app() -> FastAPI:
     byokey.check_startup()
+    auth_mod.signup_mode()  # a mode nobody knows stops the boot, not the first signup
+    visitor.demo_org()
     # Generated docs would be public routes outside the gate, so they stay off.
     app = FastAPI(title="ironwright platform",
                   description="One spine over every workspace: runs, approvals, audit, verification.",
@@ -454,11 +465,25 @@ def create_platform_app() -> FastAPI:
     @app.get("/auth/status")
     def auth_status() -> dict[str, Any]:
         return {"seeded": auth_mod.seeded(), "dev_open": auth_mod.dev_open(),
+                "signup": auth_mod.signup_mode(), "demo": visitor.demo_org() is not None,
                 "note": "Every API route needs a session. Sign up to make an org, "
                         "or accept an invite to join one."}
 
+    @app.post("/auth/demo")
+    def auth_demo() -> dict[str, Any]:
+        slug = visitor.demo_org()
+        if slug is None:
+            raise HTTPException(404, "this server has no demo org")
+        return visitor.visit(slug, auth_mod._now())
+
     @app.post("/auth/signup", status_code=201)
     def auth_signup(body: SignupBody) -> dict[str, Any]:
+        mode = auth_mod.signup_mode()
+        if mode == "invite":
+            raise HTTPException(403, "new orgs are by invite here. Ask an org owner for an invite, "
+                                     "or try the demo.")
+        if mode == "closed":
+            raise HTTPException(403, "signups are closed here")
         try:
             return tenancy.signup(body.email, body.password, body.org_name, auth_mod._now())
         except tenancy.Invalid as e:
@@ -475,6 +500,8 @@ def create_platform_app() -> FastAPI:
 
     @app.post("/auth/accept-invite")
     def auth_accept_invite(body: AcceptInviteBody) -> dict[str, Any]:
+        if auth_mod.signup_mode() == "closed":
+            raise HTTPException(403, "signups are closed here, invites included")
         try:
             return tenancy.accept_invite(body.token, body.password, auth_mod._now())
         except tenancy.NoSuchInvite as e:
@@ -842,6 +869,11 @@ def create_platform_app() -> FastAPI:
     # own. Absent, the API still serves, / says how to get it, and `ironwright platform`
     # says what to run.
     if CONSOLE_DIST.exists():
+        # Next.js strips a trailing slash before it rewrites, so the page answers without one.
+        @app.get("/console", include_in_schema=False)
+        def console_no_slash(request: Request) -> HTMLResponse:
+            return console_page(request.scope)
+
         app.mount("/console", ConsoleFiles(directory=CONSOLE_DIST, html=True), name="console")
 
         @app.get("/", include_in_schema=False)
@@ -849,6 +881,7 @@ def create_platform_app() -> FastAPI:
             return RedirectResponse("/console/")
     else:
         @app.get("/", include_in_schema=False)
+        @app.get("/console", include_in_schema=False)
         def no_console() -> dict[str, str]:
             return {"console": "not built here. Run make console, then restart this server."}
 

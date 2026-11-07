@@ -19,21 +19,34 @@ from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from .config import setting
 from .tenancy import service
 from .tenancy.models import DEV_ORG_ID, DEV_ORG_SLUG, DEV_USER_ID, Ctx
 
 CONSOLE_PRINCIPAL = "user:console"
 IDLE_SECONDS = service.IDLE_SECONDS
-# "/" only redirects to the console. The console itself is a mount, which
-# route dependencies never reach.
+# "/" only redirects to the console, and "/console" is the console page without its
+# slash. The console itself is a mount, which route dependencies never reach.
 PUBLIC_ROUTES = frozenset({"/auth/status", "/auth/login", "/auth/signup",
-                           "/auth/accept-invite", "/"})
+                           "/auth/accept-invite", "/auth/demo", "/", "/console"})
+SIGNUP_MODES = ("open", "invite", "closed")
 
 _now = time.time
 
 
 def dev_open() -> bool:
     return os.environ.get("IRONWRIGHT_DEV_OPEN") == "1"
+
+
+def signup_mode() -> str:
+    """IRONWRIGHT_SIGNUP: open makes orgs, invite lets only the invited in, closed lets
+    nobody new in. Signing in always works. Prod defaults to invite, everything else to open."""
+    raw = (setting("SIGNUP") or "").strip().lower()
+    if not raw:
+        return "invite" if setting("ENV", "local") == "prod" else "open"
+    if raw not in SIGNUP_MODES:
+        raise ValueError(f"IRONWRIGHT_SIGNUP must be one of {', '.join(SIGNUP_MODES)}, not {raw!r}")
+    return raw
 
 
 def is_agent(principal: str) -> bool:

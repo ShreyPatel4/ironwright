@@ -1,0 +1,39 @@
+// ironwright-platform: the hosted product on Cloudflare Containers.
+// Mounted at coconutlabs.org/projects/ironwright/app/ by a Vercel rewrite (coconutlabs-site.patch).
+// Secrets go in with `wrangler secret put`, never here. README.md has the checklist.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ironwright-platform",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  // The coconutlabs.org zone is DNS only, so a route would never fire. workers.dev plus the rewrite.
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "containers": [
+    {
+      "class_name": "IronwrightPlatform",
+      "image": "../../Dockerfile",
+      "image_build_context": "../..",
+      // 1 vCPU, 6 GiB: the API, the job worker and a full pipeline run side by side.
+      "instance_type": "standard-2",
+      // One named instance ("main"). Two would split the data root.
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "IRONWRIGHT", "class_name": "IronwrightPlatform" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["IronwrightPlatform"] }],
+  "vars": {
+    "IRONWRIGHT_ENV": "prod",
+    "IRONWRIGHT_BASE_PATH": "/projects/ironwright/app",
+    // The browser's origin behind the rewrite. At the root of workers.dev the request is same origin.
+    "IRONWRIGHT_CONSOLE_ORIGIN": "https://coconutlabs.org",
+    "IRONWRIGHT_SIGNUP": "invite",
+    "IRONWRIGHT_DEMO_ORG": "ironwright-demo",
+    "IRONWRIGHT_STATE_URI": "s3://ironwright-state/prod/state",
+    "IRONWRIGHT_LAKE_URI": "s3://ironwright-state/prod/lake",
+    // R2 speaks S3 with region "auto".
+    "AWS_REGION": "auto"
+  }
+}

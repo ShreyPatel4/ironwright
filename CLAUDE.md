@@ -16,15 +16,16 @@ make site                       # assemble site/ (landing, demo/, film/, films/,
 make preview                    # serve site/ on :8002
 make media                      # re-render intro + six use-case films at 60fps into media/ (slow)
 make deploy                     # wrangler pages deploy site (needs Cloudflare login)
-node deploy/route-worker/test.mjs   # checks the coconutlabs.org/ironwright path route
+make cf-check                   # the platform image under /projects/ironwright/app, smoked
 ```
 
 ## Site and deploys
 
 - The public home is `coconutlabs.org/projects/ironwright` (house policy: projects live as
-  routes, never subdomains). The standalone showcase build in `web/` still works locally and the
-  route Worker in `deploy/route-worker` remains an option for serving it under a path. Keep every
-  link relative and every directory URL ending in a slash, or path serving breaks.
+  routes, never subdomains). The hosted product is at `coconutlabs.org/projects/ironwright/app/`:
+  a Vercel rewrite to the `ironwright-platform` Worker and its container (`deploy/cloudflare/`).
+  Keep every link relative and every directory URL ending in a slash, or path serving breaks.
+  Next.js strips a trailing slash before it rewrites, so the app also answers without one.
 - `main` deploys production, `staging` deploys a preview behind Cloudflare Access, PRs get previews.
 - Rendered MP4s are committed in `media/`. Films are generated from `web/films/specs/*.json`, which
   `scripts/film_specs.py` builds from each pack's real export. Never hand-edit numbers for a real pack.
@@ -70,5 +71,5 @@ explaining a flow.
 - `scripts/` bundle, build_intro, film_specs, build_films, build_site
 - `console/` the operator console (Vite + React source; dist/ is gitignored, `make console` builds it)
 - `media/` rendered MP4s and posters (committed)
-- `deploy/` Cloudflare Pages, route Worker, narration Worker, free tier and AWS notes
+- `deploy/` Cloudflare Pages, the hosted platform (`deploy/cloudflare`), narration Worker, free tier and AWS notes
 - `docs/` architecture, roadmap, kickoff prompts, interview walkthrough, build log

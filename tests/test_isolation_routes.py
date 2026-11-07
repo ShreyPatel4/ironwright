@@ -48,6 +48,8 @@ UNSCOPED = {
     "/auth/login": "the door",
     "/auth/signup": "the door",
     "/auth/accept-invite": "the door",
+    "/auth/demo": "the demo door: a fresh viewer in the one named demo org, never another org",
+    "/console": "the console page without its slash, static",
     "/auth/me": "answers for the caller's own session",
     "/auth/logout": "acts on the caller's own session",
     "/workspaces": "filtered by ctx; the canary sweep proves it",

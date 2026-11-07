@@ -51,6 +51,10 @@ jobs:
         run: |
           pytest -q -rs tests/e2e/test_refresh_console.py | tee refresh.txt
           ! grep -q SKIPPED refresh.txt
+      - name: The wizard under coconutlabs.org's path, behind a rewrite like Vercel's
+        run: |
+          pytest -q -rs tests/e2e/test_wizard_under_prefix.py | tee prefix.txt
+          ! grep -q SKIPPED prefix.txt
 
   # The hosted stack from the outside: build the image, boot api + postgres +
   # object store, walk it, then prove where the data landed. The same store also
@@ -178,6 +182,24 @@ jobs:
       - if: always()
         run: docker compose down -v
 
+  # The Cloudflare container's shape on compose: the image started the way the Worker starts
+  # it (worker and API in one), under coconutlabs.org's prefix, then smoked. Deploying is
+  # deploy-cloudflare.yml's job, by hand. Nothing here talks to Cloudflare.
+  cf-check:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - run: make cf-check
+
   site:
     needs: test
     runs-on: ubuntu-latest
@@ -204,20 +226,3 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy site --project-name ironwright --branch ${{ github.head_ref || github.ref_name }}
-
-  route-worker:
-    needs: site
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Deploy the coconutlabs.org/ironwright route
-        if: ${{ env.CF_TOKEN != '' }}
-        env:
-          CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: deploy/route-worker
-          command: deploy
