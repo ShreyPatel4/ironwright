@@ -38,6 +38,7 @@ from . import workspaces_tenant as wt
 from .asof import router as asof_router
 from .auth import ctx
 from .bi import router as bi_router
+from .bridge.routes import router as bridge_router
 from .config import data_root, demo_ask_log, ensure_tenant, safe_child, write_private
 from .engines import router as engines_router
 from .ingest import journey_routes
@@ -174,6 +175,8 @@ WRITE_ROLES = {
     "/workspaces": "admin",
     "/workspaces/{name}": "admin",
     "/workspaces/{name}/silver/draft": "admin",
+    "/workspaces/{name}/gold": "admin",
+    "/workspaces/{name}/gold/draft": "admin",
     "/workspaces/{name}/sources": "admin",
     "/workspaces/{name}/sources/{source}/spec": "admin",
     "/workspaces/{name}/approvals/{seq}/decide": "admin",
@@ -836,6 +839,7 @@ def create_platform_app() -> FastAPI:
     app.include_router(ontology_router)
     app.include_router(settings_router)
     app.include_router(journey_routes.router)
+    app.include_router(bridge_router)
     app.include_router(admin_router)
 
     # console/dist is built (make console) and gitignored, and the hosted image builds its
