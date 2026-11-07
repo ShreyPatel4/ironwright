@@ -204,3 +204,24 @@ def test_an_org_that_requires_two_step_sends_a_member_to_set_it_up(browser, site
     them.get_by_label("code from the app").fill(code_now(theirs))
     them.get_by_role("button", name="Turn it on").click()
     expect()(them.get_by_role("button", name="Settings")).to_be_visible()
+
+
+def test_a_lost_phone_moves_to_a_new_one_with_a_recovery_code(browser, site):  # noqa: F811
+    site.signup()
+    page = fresh(browser)
+    sign_in(page, site.base, "owner@acme.test")
+    settings_security(page)
+    box = page.get_by_test_id("security-mfa")
+    box.get_by_role("button", name="Set it up").click()
+    old = page.get_by_test_id("mfa-secret").inner_text()
+    box.get_by_label("code from the app").fill(code_now(old))
+    box.get_by_role("button", name="Turn it on").click()
+    codes = page.get_by_test_id("recovery-codes").locator("pre").inner_text().split()
+    page.get_by_role("button", name="I saved them").click()
+    box.get_by_label("current code").fill(codes[0])
+    box.get_by_role("button", name="Move to a new phone").click()
+    new = page.get_by_test_id("mfa-secret").inner_text()
+    assert new != old
+    box.get_by_label("code from the app").fill(code_now(new))
+    box.get_by_role("button", name="Turn it on").click()
+    expect()(page.get_by_test_id("recovery-codes")).to_be_visible()
