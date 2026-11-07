@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 
 import httpx
 import pytest
@@ -232,3 +233,29 @@ def test_an_unknown_provider_is_refused(monkeypatch, meta_db):
 def test_the_local_mailbox_is_private(client):
     signup(client)
     assert outbox.file_path().stat().st_mode & 0o077 == 0
+
+
+def test_a_reset_request_never_waits_on_the_provider(client, monkeypatch):
+    """A known email must not answer slower than an unknown one."""
+    import threading
+    release, seen = threading.Event(), threading.Event()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.set()
+        release.wait(10)
+        return httpx.Response(200, json={"id": "m1"})
+
+    signup(client)
+    monkeypatch.setenv("IRONWRIGHT_MAIL", "resend")
+    monkeypatch.setenv("IRONWRIGHT_MAIL_KEY", "re_test_key_123")
+    monkeypatch.setenv("IRONWRIGHT_MAIL_FROM", "Ironwright <no-reply@app.example>")
+    monkeypatch.setattr(outbox, "_transport", httpx.MockTransport(handler))
+    try:
+        started = time.monotonic()
+        r = client.post("/auth/reset-request", json={"email": "owner@a.example"})
+        took = time.monotonic() - started
+        assert r.status_code == 202
+        assert took < 5, f"the answer waited {took:.1f}s on the provider"
+        assert seen.wait(5), "the provider was never called"
+    finally:
+        release.set()

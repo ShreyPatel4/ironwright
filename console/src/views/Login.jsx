@@ -39,6 +39,7 @@ export default function Login({ onEnter }) {
       // An email with an account gets an answer that looks like a sign up and a session
       // that does not work. Say what to do before it bounces back here with no word.
       if (mode === "signup" && !(await api.sessionWorks(s.token))) {
+        await api.logout().catch(() => {});  // clears the cookie the answer set, which opens nothing
         setMode("login");
         setErr(new Error("If this email already has an account, sign in with its password."));
         setBusy(false);

@@ -61,8 +61,16 @@ def opened(answer: dict[str, Any], status: int = 200) -> JSONResponse:
 
 
 @router.get("/auth/status")
-def auth_status() -> dict[str, Any]:
-    return {"seeded": auth.seeded(), "dev_open": auth.dev_open(),
+def auth_status(request: Request) -> dict[str, Any]:
+    """A door, so the console can ask on load whether its cookie is still a session
+    without a 401 in the log when it is not."""
+    token, via = cookies.credential(request.headers)
+    found = auth.session_ctx(token) if via == "cookie" else None
+    session = None
+    if found is not None and not auth.is_service(found.principal):
+        session = {**auth.describe(found), "csrf": cookies.csrf_of(token),
+                   "mfa_setup_required": tenancy.mfa_setup_required(found)}
+    return {"seeded": auth.seeded(), "dev_open": auth.dev_open(), "session": session,
             "note": "Every API route needs a session. Sign up to make an org, "
                     "or accept an invite to join one."}
 
@@ -263,8 +271,9 @@ def auth_mfa_status(c: CtxDep) -> dict[str, Any]:
 
 
 @router.post("/auth/mfa/enrol")
-def auth_mfa_enrol(c: CtxDep) -> dict[str, str]:
-    return _conflicts(lambda: tenancy.mfa_enrol(c.user_id, auth._now()))
+def auth_mfa_enrol(c: CtxDep, body: CodeBody | None = None) -> dict[str, str]:
+    """With two-step already on, a current code or a recovery code moves it to a new phone."""
+    return _conflicts(lambda: tenancy.mfa_enrol(c.user_id, auth._now(), body.code if body else None))
 
 
 @router.post("/auth/mfa/confirm")

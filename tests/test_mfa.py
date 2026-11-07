@@ -272,3 +272,61 @@ def test_nobody_can_turn_mfa_off_while_an_org_requires_it(client, monkeypatch):
     secret = None  # the owner's secret is not needed: the refusal comes first
     r = client.post("/auth/mfa/disable", headers=bearer(owner), json={"code": secret or "123456"})
     assert r.status_code == 409
+
+
+# ----- a lost phone
+
+def test_a_recovery_code_turns_it_off_after_losing_the_phone(client):
+    s = signup(client)
+    _, rotated, codes = enrol(client, s)
+    assert client.post("/auth/mfa/disable", headers=bearer(rotated), json={"code": "nope-nope"}).status_code == 422
+    assert client.post("/auth/mfa/disable", headers=bearer(rotated), json={"code": codes[3]}).status_code == 200
+    assert "token" in login(client).json()
+
+
+def test_a_recovery_code_gets_new_recovery_codes(client):
+    s = signup(client)
+    _, rotated, codes = enrol(client, s)
+    r = client.post("/auth/mfa/recovery-codes", headers=bearer(rotated), json={"code": codes[0]})
+    assert r.status_code == 200 and len(r.json()["recovery_codes"]) == 10
+    assert set(r.json()["recovery_codes"]).isdisjoint(codes)
+
+
+def test_a_new_phone_needs_proof_and_the_old_one_works_until_it_is_confirmed(client, monkeypatch):
+    s = signup(client)
+    old, rotated, codes = enrol(client, s)
+    assert client.post("/auth/mfa/enrol", headers=bearer(rotated), json={"code": "000000"}).status_code == 422
+    r = client.post("/auth/mfa/enrol", headers=bearer(rotated), json={"code": codes[0]})
+    assert r.status_code == 200, r.text
+    new = r.json()["secret"]
+    later(monkeypatch, 30)
+    ticket = login(client).json()["ticket"]
+    assert client.post("/auth/mfa", json={"ticket": ticket, "code": code_for(old)}).status_code == 200
+    me = client.post("/auth/login", json={"email": "owner@a.example", "password": PASSWORD}).json()
+    session = client.post("/auth/mfa", json={"ticket": me["ticket"], "recovery_code": codes[1]}).json()
+    done = client.post("/auth/mfa/confirm", headers=bearer(session), json={"code": code_for(new)})
+    assert done.status_code == 200, done.text
+    later(monkeypatch, 60)
+    ticket = login(client).json()["ticket"]
+    assert client.post("/auth/mfa", json={"ticket": ticket, "code": code_for(old)}).status_code == 401
+
+
+def test_a_ticket_from_before_the_lock_cannot_finish(client):
+    s = signup(client)
+    secret, _, _ = enrol(client, s)
+    ticket = login(client).json()["ticket"]
+    for _ in range(10):
+        client.post("/auth/login", json={"email": "owner@a.example", "password": "wrong-password-1"})
+    r = client.post("/auth/mfa", json={"ticket": ticket, "code": code_for(secret, skew=1)})
+    assert r.status_code == 429
+
+
+def test_a_reset_burns_waiting_tickets(client):
+    s = signup(client)
+    secret, _, _ = enrol(client, s)
+    ticket = login(client).json()["ticket"]
+    with store.engine().begin() as con:
+        user_id = s["user_id"]
+        token = service._new_link(con, "reset", user_id, auth._now())
+    assert client.post("/auth/reset", json={"token": token, "password": "a-brand-new-secret-7"}).status_code == 200
+    assert client.post("/auth/mfa", json={"ticket": ticket, "code": code_for(secret, skew=1)}).status_code == 401

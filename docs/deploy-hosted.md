@@ -113,6 +113,12 @@ that is not in this table.
 | `IRONWRIGHT_DEV_OPEN` | off | `1` removes the login. Tests and demo-check only. Never on a reachable server. |
 | `IRONWRIGHT_KILL_SWITCH` | off | `1` turns off Ask and actions. Reads and health routes stay up. |
 | `IRONWRIGHT_CONSOLE_ORIGIN` | none | One origin allowed to call the API from a browser. Unset means same-origin only. |
+| `IRONWRIGHT_BASE_PATH` | `/` | The path prefix the app is served under. C2's deploy owns it. The session cookie's Path follows it, and so do links in mail. |
+| `IRONWRIGHT_PUBLIC_URL` | `http://<host>:<port>` | The origin links in mail start with, like `https://coconutlabs.org`. Links never come from the request's Host header. |
+| `IRONWRIGHT_MAIL` | `file` | `file` writes mail to `<data>/outbox/mail.jsonl`, mode 0600, which is the local inbox. `resend` sends through Resend. |
+| `IRONWRIGHT_MAIL_KEY` | none | Secret. The Resend API key. |
+| `IRONWRIGHT_MAIL_FROM` | none | The From line, like `Ironwright <no-reply@coconutlabs.org>`. |
+| `IRONWRIGHT_COOKIE_SECURE` | `1` | `0` drops Secure from the session cookie, for plain http on a LAN name. Browsers keep Secure cookies on localhost without it. |
 | `IRONWRIGHT_METRICS_TOKEN` | none | Secret. The bearer token `GET /metrics` asks for. Unset means nobody can scrape. See `docs/operations.md`. |
 
 ### Storage
@@ -148,7 +154,7 @@ The warehouse layout on object storage is fixed by contract 2:
 | `IRONWRIGHT_LLM_MODEL` | per provider | Model name. |
 | `IRONWRIGHT_OLLAMA_URL` | `http://localhost:11434` | Ollama address. |
 | `IRONWRIGHT_PRINCIPAL` | `agent:mcp-client` | The identity the MCP server acts as. |
-| `IRONWRIGHT_SECRET_KEY` | none | Secret. The Fernet key that seals each org's own model key. Required on `staging` and `prod`. A malformed one stops the server anywhere. Make one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Changing it makes stored keys unreadable, and those orgs get the template until an admin stores theirs again. |
+| `IRONWRIGHT_SECRET_KEY` | none | Secret. The Fernet key that seals each org's own model key and each person's two-step sign in secret. Required on `staging` and `prod`. A malformed one stops the server anywhere. Make one with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`. Changing it makes stored keys unreadable, and those orgs get the template until an admin stores theirs again. Two-step sign in secrets go unreadable too, so people sign in with a recovery code and set it up again. |
 | `ANTHROPIC_API_KEY` | none | Secret. Needed for `anthropic`. |
 | `OPENAI_API_KEY` | none | Secret. Needed for `openai`. |
 | `CF_ACCOUNT_ID` | none | Needed for `cloudflare`. |

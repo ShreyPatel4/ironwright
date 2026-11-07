@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -88,11 +89,20 @@ def send(to: str, subject: str, text: str) -> None:
     sink(to, subject, text)
 
 
-def deliver(messages: list[tuple[str, str, str]]) -> None:
-    """After commit. A provider failure is logged and never answered: a reset request for
-    an email must look the same whether or not a mail went out."""
+def _send_all(messages: list[tuple[str, str, str]]) -> None:
     for to, subject, text in messages:
         try:
             send(to, subject, text)
         except (MailError, httpx.HTTPError) as e:
             log.error("mail not sent: %s", e)
+
+
+def deliver(messages: list[tuple[str, str, str]]) -> None:
+    """After commit. A provider failure is logged and never answered: a reset request for
+    an email must look the same whether or not a mail went out. So must its timing, so a
+    provider is called off the request thread, and the answer never waits on it. The
+    local file is written at once, which keeps the local inbox in order."""
+    if (setting("MAIL") or "file").strip().lower() == "file":
+        _send_all(messages)
+    elif messages:
+        threading.Thread(target=_send_all, args=(messages,), daemon=True, name="mail").start()

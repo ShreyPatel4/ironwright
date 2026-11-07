@@ -4,19 +4,26 @@ Real routes, both backends."""
 from __future__ import annotations
 
 import re
+import shutil
+from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
+import yaml
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from ironwright import auth
+from ironwright import workspaces_tenant as wt
+from ironwright.config import ensure_tenant
+from ironwright.platform_api import NOT_FOUND
 from ironwright.security import store, tokens
 from ironwright.tenancy import usage
 
 PASSWORD = "correct-horse-9"
 ALL = ["read", "ask", "run", "act:request"]
 SCOPE_REFUSAL = "this API token's scopes do not allow this"
+FIXTURE = Path(__file__).parent / "fixtures" / "tenant_ws"
 
 
 @pytest.fixture()
@@ -191,3 +198,53 @@ def test_a_token_dies_with_its_org(client):
     assert client.post(f"/orgs/{owner['org_slug']}/delete", headers=bearer(owner),
                        json={"confirm": owner["org_slug"]}).status_code in (200, 202)
     assert client.get("/workspaces", headers=bearer(t)).status_code == 401
+
+
+# ----- each write scope doing its job on a workspace the org owns
+
+@pytest.fixture()
+def claims(client):
+    """A real tenant workspace, run green, so the scopes meet real handlers."""
+    owner = signup(client)
+    root = ensure_tenant(owner["org_id"])
+    shutil.copytree(FIXTURE / "uploads" / "fixture", root / "uploads" / "fixture")
+    models = {layer: {f.name: f.read_text() for f in (FIXTURE / "models" / layer).glob("*.sql")}
+              for layer in ("silver", "gold")}
+    wt.create_workspace(owner["org_id"], "claims", yaml.safe_load((FIXTURE / "workspace.yaml").read_text()),
+                        models=models, ontology=yaml.safe_load((FIXTURE / "ontology.yaml").read_text()),
+                        policies=yaml.safe_load((FIXTURE / "policies.yaml").read_text()))
+    assert wt.run_workspace(owner["org_id"], "claims")["passed"]
+    return owner
+
+
+def test_run_runs_the_workspace(client, claims):
+    t = make(client, claims, ["run"])
+    r = client.post("/workspaces/claims/runs", headers=bearer(t), json={})
+    assert r.status_code == 200, r.text
+    assert r.json()["workspace"] == "claims" and r.json()["evals"]["passed"] is True
+
+
+def test_run_queues_a_job_under_the_token(client, claims):
+    t = make(client, claims, ["run"])
+    r = client.post("/jobs", headers=bearer(t), json={"kind": "run", "workspace": "claims"})
+    assert r.status_code == 200, r.text
+    owner_view = client.get(f"/jobs/{r.json()['id']}", headers=bearer(claims)).json()
+    assert owner_view["created_by"] == f"service:{t['id']}"
+
+
+def test_ask_gets_a_real_answer_spoken_as_the_token(client, claims):
+    t = make(client, claims, ["ask"])
+    r = client.post("/workspaces/claims/ask", headers=bearer(t), json={"question": "how many claims are there"})
+    assert r.status_code == 200, r.text
+    assert r.json()["principal"] == f"service:{t['id']}" and r.json()["status"] in ("answered", "refused")
+
+
+def test_act_request_passes_the_gate_and_reaches_the_handler(client, claims):
+    """Tenant workspaces have no governed action route yet, so the handler answers that
+    in its own words. What this proves is that the scope and the gate let it through."""
+    t = make(client, claims, ["act:request"])
+    r = client.post("/workspaces/claims/actions/close_claim", headers=bearer(t), json={"params": {}})
+    assert r.json()["detail"] not in (SCOPE_REFUSAL, NOT_FOUND)
+    without = make(client, claims, ["read"], name="reader")
+    r = client.post("/workspaces/claims/actions/close_claim", headers=bearer(without), json={"params": {}})
+    assert r.status_code == 403 and r.json()["detail"] == SCOPE_REFUSAL

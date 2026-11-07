@@ -194,8 +194,7 @@ export default function App() {
 
   useEffect(() => {
     try { localStorage.removeItem("iw.session"); } catch { /* fine */ }
-    // A dev open server answers for its fixed dev org with no account: that is not a sign in.
-    api.restore().then((me) => { if (me.email) signIn(me); }, () => {}).finally(() => setBooted(true));
+    api.authStatus().then((s) => { if (s.session) signIn(s.session); }, () => {}).finally(() => setBooted(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

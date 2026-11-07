@@ -50,8 +50,9 @@ user_flags = sa.Table(
 user_mfa = sa.Table(
     "user_mfa", metadata,
     sa.Column("user_id", sa.String(32), primary_key=True),
-    sa.Column("sealed", sa.Text, nullable=False),
-    sa.Column("enabled_at", sa.Float),          # null while enrolment waits for a first code
+    sa.Column("sealed", sa.Text, nullable=False),     # the secret sign in checks; "" before the first
+    sa.Column("pending", sa.Text),                    # a new secret waiting for its first code
+    sa.Column("enabled_at", sa.Float),
     sa.Column("last_step", sa.BigInteger, nullable=False),
     sa.Column("recovery", sa.Text, nullable=False),  # json list of sha256 hashes
 )

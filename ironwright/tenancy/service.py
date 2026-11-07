@@ -187,10 +187,18 @@ def _sweep_sessions(con: Connection, now: float) -> None:
         sec.session_info.c.token_hash.not_in(sa.select(db.sessions.c.token_hash))))
 
 
+def _age_of(con: Connection, token: str) -> float | None:
+    """When the session behind this token signed in, if it is one."""
+    return con.execute(sa.select(sec.session_info.c.created_at)
+                       .where(sec.session_info.c.token_hash == _token_hash(token or ""))).scalar()
+
+
 def _open_session(con: Connection, user_id: str, org_id: str, now: float,
-                  seen: dict[str, str] | None = None) -> str:
+                  seen: dict[str, str] | None = None, since: float | None = None) -> str:
     """A new id every time. The session the request came in on, if any, goes: that is
-    the rotation on sign in and org switch. Other devices stay signed in."""
+    the rotation on sign in and org switch. Other devices stay signed in. A rotation
+    that is not a sign in passes since, so the 12 hour cap still counts from the
+    password and switching orgs cannot stretch it."""
     seen = seen or {}
     if seen.get("replacing"):
         _end(con, db.sessions.c.token_hash == _token_hash(seen["replacing"]))
@@ -201,7 +209,7 @@ def _open_session(con: Connection, user_id: str, org_id: str, now: float,
                                             org_id=org_id, expires_at=now + IDLE_SECONDS,
                                             last_seen=now))
     con.execute(sec.session_info.insert().values(
-        token_hash=hashed, sid=secrets.token_hex(16), user_id=user_id, org_id=org_id, created_at=now,
+        token_hash=hashed, sid=secrets.token_hex(16), user_id=user_id, org_id=org_id, created_at=since or now,
         ip=(seen.get("ip") or "")[:64], user_agent=(seen.get("user_agent") or "")[:256]))
     return token
 
@@ -372,6 +380,7 @@ def reset_password(token: str, password: str, now: float) -> None:
         email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == user_id)).scalar_one()
         con.execute(db.users.update().where(db.users.c.id == user_id).values(pw_hash=pw_hash))
         _end(con, db.sessions.c.user_id == user_id)
+        con.execute(sec.mfa_tickets.delete().where(sec.mfa_tickets.c.user_id == user_id))
         _mark_verified(con, user_id, now)
         audit_user(con, user_id, principal_of(user_id), "auth.password_reset", {}, now)
     ratelimit.clear(email)
@@ -519,7 +528,8 @@ def switch(ctx: Ctx, slug: str, now: float, seen: dict[str, str] | None = None) 
         org_id = next((o["id"] for o in _orgs_of(con, ctx.user_id) if o["slug"] == slug), None)
         if org_id is None:
             return None
-        return _session_answer(con, _open_session(con, ctx.user_id, org_id, now, seen),
+        since = _age_of(con, (seen or {}).get("replacing", ""))
+        return _session_answer(con, _open_session(con, ctx.user_id, org_id, now, seen, since),
                                ctx.user_id, org_id)
 
 
@@ -1040,6 +1050,7 @@ def complete_mfa(ticket: str, code: str | None, recovery: str | None, now: float
             raise BadCredentials
         user_id = row["user_id"]
         email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == user_id)).scalar_one()
+        ratelimit.check(email, now)  # a ticket from before the lock does not get round it
         held = _mfa_row(con, user_id)
         step = used = None
         if held and held["enabled_at"] is not None:
@@ -1077,17 +1088,21 @@ def mfa_status(user_id: str) -> dict[str, Any]:
                 "required_by": _requiring_orgs(con, user_id)}
 
 
-def mfa_enrol(user_id: str, now: float) -> dict[str, str]:
-    """A secret waiting for its first code. It counts for nothing until confirmed."""
+def mfa_enrol(user_id: str, now: float, code: str | None = None) -> dict[str, str]:
+    """A secret waiting for its first code. It counts for nothing until confirmed. With
+    two-step already on, this is a new phone: it takes a current code or a recovery
+    code, and the old secret keeps working until the new one is confirmed."""
     secret = mfa.new_secret()
     sealed = mfa.seal(user_id, secret)
     with sec.engine().begin() as con:
-        if mfa_enabled(con, user_id):
-            raise Conflict("two-step sign in is already on; turn it off first to start again")
         email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == user_id)).scalar_one()
-        con.execute(sec.user_mfa.delete().where(sec.user_mfa.c.user_id == user_id))
-        con.execute(sec.user_mfa.insert().values(user_id=user_id, sealed=sealed, enabled_at=None,
-                                                 last_step=0, recovery="[]"))
+        if mfa_enabled(con, user_id):
+            _prove(con, user_id, code, now)
+            con.execute(sec.user_mfa.update().where(sec.user_mfa.c.user_id == user_id).values(pending=sealed))
+        else:
+            con.execute(sec.user_mfa.delete().where(sec.user_mfa.c.user_id == user_id))
+            con.execute(sec.user_mfa.insert().values(user_id=user_id, sealed="", pending=sealed, enabled_at=None,
+                                                     last_step=0, recovery="[]"))
     return {"secret": mfa.b32(secret), "otpauth_uri": mfa.uri(secret, email)}
 
 
@@ -1097,30 +1112,41 @@ def mfa_confirm(ctx: Ctx, code: str, now: float, seen: dict[str, str] | None = N
     codes = mfa.recovery_codes()
     with sec.engine().begin() as con:
         row = _mfa_row(con, ctx.user_id)
-        if row is None or row["enabled_at"] is not None:
+        if row is None or not row["pending"]:
             raise Conflict("start setting up two-step sign in first")
-        secret = mfa.unseal(ctx.user_id, row["sealed"])
+        secret = mfa.unseal(ctx.user_id, row["pending"])
         step = mfa.match(secret, code, now, 0) if secret else None
         if step is None:
             raise Invalid("that code does not match; check the time on your phone and try the next one")
         con.execute(sec.user_mfa.update().where(sec.user_mfa.c.user_id == ctx.user_id).values(
-            enabled_at=now, last_step=step, recovery=json.dumps([mfa.code_hash(c) for c in codes])))
+            sealed=row["pending"], pending=None, enabled_at=now, last_step=step,
+            recovery=json.dumps([mfa.code_hash(c) for c in codes])))
+        since = _age_of(con, (seen or {}).get("replacing", ""))
         _end(con, db.sessions.c.user_id == ctx.user_id)
         audit_user(con, ctx.user_id, ctx.principal, "mfa.enable", {}, now)
-        session = _session_answer(con, _open_session(con, ctx.user_id, ctx.org_id, now, seen),
+        session = _session_answer(con, _open_session(con, ctx.user_id, ctx.org_id, now, seen, since),
                                   ctx.user_id, ctx.org_id)
     return {"session": session, "recovery_codes": codes}
 
 
 def _prove(con: Connection, user_id: str, code: str | None, now: float) -> dict[str, Any]:
+    """A current code, or a recovery code, which is spent. Someone who lost their phone
+    has only the second, and needs it to turn two-step off or move it to a new phone."""
     row = _mfa_row(con, user_id)
     if row is None or row["enabled_at"] is None:
         raise Conflict("two-step sign in is not on")
     secret = mfa.unseal(user_id, row["sealed"])
     step = mfa.match(secret, code or "", now, row["last_step"]) if secret else None
-    if step is None:
+    if step is not None:
+        con.execute(sec.user_mfa.update().where(sec.user_mfa.c.user_id == user_id).values(last_step=step))
+        return row
+    left = json.loads(row["recovery"])
+    used = mfa.code_hash(code or "")
+    if used not in left:
         raise Invalid("that code does not match")
-    con.execute(sec.user_mfa.update().where(sec.user_mfa.c.user_id == user_id).values(last_step=step))
+    con.execute(sec.user_mfa.update().where(sec.user_mfa.c.user_id == user_id)
+                .values(recovery=json.dumps([h for h in left if h != used])))
+    audit_user(con, user_id, principal_of(user_id), "mfa.recovery_used", {}, now)
     return row
 
 

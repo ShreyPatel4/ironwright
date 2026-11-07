@@ -107,8 +107,6 @@ export const api = {
   switchOrg: (slug, token) => req(`/orgs/${encodeURIComponent(slug)}/switch`, {
     method: "POST", ...(token ? { headers: { "x-csrf-token": token } } : {}) }),
   me: () => req("/auth/me"),
-  // Quiet: at boot a missing session is the normal answer, not a reason to reload.
-  restore: () => req("/auth/me", { quiet: true }),
   sessionWorks: (token) => req("/auth/me", { headers: { authorization: `Bearer ${token}` }, quiet: true }).then(() => true, () => false),
   logout: () => req("/auth/logout", { method: "POST", quiet: true }),
   mfa: (ticket, code, recovery_code) => post("/auth/mfa", recovery_code ? { ticket, recovery_code } : { ticket, code }),

@@ -134,6 +134,21 @@ def test_an_authorization_header_never_falls_back_to_the_cookie(client):
     assert r.status_code == 401
 
 
+def test_status_says_whether_the_cookie_is_a_session_without_a_401(client):
+    assert client.get("/auth/status").json()["session"] is None
+    s = signup(client)
+    got = client.get("/auth/status")
+    assert got.status_code == 200
+    assert got.json()["session"]["user_id"] == s["user_id"] and got.json()["session"]["csrf"] == s["csrf"]
+    service.revoke(s["token"])
+    assert client.get("/auth/status").json()["session"] is None
+
+
+def test_status_never_answers_for_a_bearer(client):
+    s = signup(fresh(client.app))
+    assert client.get("/auth/status", headers={"Authorization": f"Bearer {s['token']}"}).json()["session"] is None
+
+
 def test_me_hands_a_cookie_session_its_csrf_token(client):
     s = signup(client)
     assert client.get("/auth/me").json()["csrf"] == s["csrf"]
@@ -192,6 +207,25 @@ def test_the_session_dies_after_12_hours_however_busy(client, monkeypatch):
     monkeypatch.setattr(auth, "_now", lambda: start + 12 * HOUR)
     assert client.get("/auth/me").status_code == 401
     assert service.resolve(s["token"], start + 12 * HOUR) is None
+
+
+def test_switching_orgs_cannot_stretch_the_12_hours(client, monkeypatch):
+    s = signup(client)
+    other = fresh(client.app)
+    b = signup(other, email="b@b.example", org="Beta Org")
+    r = other.post(f"/orgs/{b['org_slug']}/invites", headers=csrf(other, b),
+                   json={"email": "owner@a.example", "role": "member"})
+    fresh(client.app).post("/auth/accept-invite", json={"token": r.json()["token"], "password": PASSWORD})
+    start = auth._now()
+    s = login(client)
+    for hours in (5, 10):  # busy, so the idle window never closes
+        monkeypatch.setattr(auth, "_now", lambda h=hours: start + h * HOUR)
+        assert client.get("/auth/me").status_code == 200
+    monkeypatch.setattr(auth, "_now", lambda: start + 11 * HOUR)
+    moved = client.post(f"/orgs/{b['org_slug']}/switch", headers=csrf(client, s))
+    assert moved.status_code == 200, moved.text
+    monkeypatch.setattr(auth, "_now", lambda: start + 12 * HOUR + 1)
+    assert client.get("/auth/me").status_code == 401
 
 
 # ----- sessions list and sign out everywhere
