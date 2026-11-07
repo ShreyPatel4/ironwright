@@ -111,6 +111,12 @@ jobs:
           python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 120 --verify smoke-state.json
           read -r _ org ws < <(grep '^tenant ' smoke.txt)
           docker compose exec -T api test -f "/data/tenants/$org/workspaces/$ws/workspace.yaml"
+      # The demo packs are not snapshotted. They come back from code, on a catalog that
+      # still holds their tables, and a tenant reads their evals again.
+      - name: The demo packs rebuild from code on the empty disk
+        run: |
+          docker compose exec -T api ironwright run --pack all
+          python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 30 --verify smoke-state.json --packs retail insurance_claims
       - if: failure()
         run: docker compose logs --no-color --tail 200
       - if: always()

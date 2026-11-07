@@ -181,9 +181,13 @@ def what_org_a_sees(base: str, a: dict[str, Any], ids: dict[str, str]) -> dict[s
             "audit_chain": get(f"/orgs/{a['org_slug']}/audit/chain")}
 
 
-def verify(base: str, path: pathlib.Path) -> None:
+def verify(base: str, path: pathlib.Path, packs: list[str]) -> None:
     saved = json.loads(path.read_text())
     a, ids = saved["org_a"], saved["ids"]
+    for pack in packs:
+        status, raw = call(base, f"/workspaces/{pack}/reports/evals", token=a["token"])
+        step(f"evals {pack} after the rebuild", status == 200 and json.loads(raw).get("passed") is True,
+             raw[:200] if status != 200 else "")
     status, raw = call(base, "/auth/me", token=a["token"])
     step("org a's session outlived the restart", status == 200 and json.loads(raw)["org_id"] == a["org_id"], status)
     now = what_org_a_sees(base, a, ids)
@@ -196,7 +200,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--base", default="http://127.0.0.1:8000")
     ap.add_argument("--wait", type=float, default=180, help="seconds to wait for /readyz")
-    ap.add_argument("--packs", nargs="+", default=list(PACKS))
+    ap.add_argument("--packs", nargs="+", help=f"demo packs to read evals from (default {' '.join(PACKS)}; "
+                    "with --verify, none unless named)")
     ap.add_argument("--operator", default=OPERATOR, help="command prefix that runs python inside the API's environment")
     ap.add_argument("--job-seconds", type=float, default=300, help="seconds to wait for each job")
     ap.add_argument("--state", type=pathlib.Path, help="write what org a sees here, for --verify after a restart")
@@ -206,8 +211,9 @@ def main() -> None:
 
     wait_ready(base, args.wait)
     if args.verify:
-        verify(base, args.verify)
+        verify(base, args.verify, args.packs or [])
         return
+    args.packs = args.packs or list(PACKS)
     step("/healthz", call(base, "/healthz")[0] == 200)
     status, raw = call(base, "/console/")
     step("console is built in", status == 200 and b"<html" in raw.lower(), status)

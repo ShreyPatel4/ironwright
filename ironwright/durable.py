@@ -413,7 +413,11 @@ def _pull(org_id: str, manifest: dict[str, Any]) -> dict[str, list]:
         shutil.rmtree(old, ignore_errors=True)
         for rel in list(index):
             st = (target / rel).stat()
-            index[rel] = [st.st_size, st.st_mtime_ns, index[rel][0]]
+            sig = _signature(target / rel, st)
+            if sig is None:
+                index.pop(rel)
+            else:
+                index[rel] = [*sig, index[rel][0]]
         return index
     finally:
         shutil.rmtree(staging, ignore_errors=True)
@@ -486,10 +490,10 @@ def _scan(org_id: str, root: Path, index: dict[str, list],
                 raise DurableError(f"the manifest cannot carry this file name: {rel!r}") from None
             st = path.stat()
             mode = st.st_mode & 0o777
-            live = _is_live_db(path)
+            sig = _signature(path, st)
             cached = index.get(rel)
-            if not live and cached and len(cached) == 3 and cached[:2] == [st.st_size, st.st_mtime_ns]:
-                files[rel] = {"sha256": cached[2], "size": st.st_size, "mode": mode}
+            if sig is not None and cached and cached[:-1] == sig:
+                files[rel] = {"sha256": cached[-1], "size": st.st_size, "mode": mode}
                 new_index[rel] = cached
                 continue
             tmp = tmp_dir / f"snap-{uuid.uuid4().hex}"
@@ -504,11 +508,27 @@ def _scan(org_id: str, root: Path, index: dict[str, list],
                     s.put(_key(org_id, f"blobs/{sha}"), tmp)
                     known.add(sha)
                 files[rel] = {"sha256": sha, "size": tmp.stat().st_size, "mode": mode}
-                if not live:
-                    new_index[rel] = [st.st_size, st.st_mtime_ns, sha]
+                if sig is not None:
+                    new_index[rel] = [*sig, sha]
             finally:
                 tmp.unlink(missing_ok=True)
     return files, new_index
+
+
+def _signature(path: Path, st: os.stat_result) -> list[int] | None:
+    """What says a file is unchanged since its hash was taken. A database counts its WAL
+    too, since a commit can move only the WAL. A DuckDB file with a pending WAL is never
+    taken as unchanged: it has to be checkpointed first."""
+    sig = [st.st_size, st.st_mtime_ns]
+    if not _is_live_db(path):
+        return sig
+    if path.suffix == ".duckdb":
+        return None if _wal_pending(path) else sig
+    try:
+        wal = path.with_name(f"{path.name}-wal").stat()
+        return [*sig, wal.st_size, wal.st_mtime_ns]
+    except FileNotFoundError:
+        return [*sig, 0, 0]
 
 
 def _local_files(root: Path) -> list[Path]:

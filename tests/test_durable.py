@@ -384,6 +384,42 @@ def test_a_sqlite_file_is_sent_as_a_consistent_snapshot(env):
     back.close()
 
 
+def test_an_unchanged_database_is_not_copied_again_and_a_changed_one_is(env, monkeypatch):
+    import duckdb
+
+    config.ensure_tenant(ORG_A)
+    run = config.tenant_dir(ORG_A) / "workspaces" / "acme" / "run"
+    config.private_dir(run)
+    d = duckdb.connect(str(run / "ontology.duckdb"))
+    d.execute("create table t(x int)")
+    d.close()
+    s = sqlite3.connect(run / "checkpoints.sqlite")
+    s.execute("pragma journal_mode=wal")
+    s.execute("create table t(x)")
+    s.commit()
+    durable.persist(ORG_A)
+    copied: list[str] = []
+    real = durable._snapshot
+
+    def spy(path, dest):
+        copied.append(path.name)
+        return real(path, dest)
+
+    monkeypatch.setattr(durable, "_snapshot", spy)
+    durable.persist(ORG_A)
+    assert copied == []
+    s.execute("insert into t values (7)")
+    s.commit()  # only the -wal moves
+    durable.persist(ORG_A)
+    assert copied == ["checkpoints.sqlite"]
+    s.close()
+    wipe(env)
+    durable.ensure_hydrated(ORG_A)
+    back = sqlite3.connect(run / "checkpoints.sqlite")
+    assert back.execute("select x from t").fetchall() == [(7,)]
+    back.close()
+
+
 # ---------------------------------------------------------------- the org lock
 
 def test_the_org_lock_is_reentrant_in_one_thread(env):
