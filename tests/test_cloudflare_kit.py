@@ -7,6 +7,7 @@ workflow that only a person can start.
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import shutil
@@ -190,14 +191,28 @@ def _run_start(tmp_path, api_life: float, worker_life: float, built: bool = Fals
     log = tmp_path / "calls.log"
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "IRONWRIGHT_DATA": str(data),
            "IW_LOG": str(log), "API_LIFE": str(api_life), "WORKER_LIFE": str(worker_life)}
+    import signal
+    bash, script = _bash5(), _start_script()
+    # Output goes to a file, not a pipe: the stub sleeps inherit it and outlive bash, so a pipe
+    # would time the longest stub, not bash. Its own session lets us end the stubs after.
+    out = tmp_path / "out.txt"
     began = time.monotonic()
-    done = subprocess.run([_bash5(), "-c", _start_script()], env=env, timeout=60, capture_output=True, text=True, check=False)
-    return done, time.monotonic() - began, log.read_text().split(), data
+    with out.open("w") as sink:
+        proc = subprocess.Popen([bash, "-c", script], env=env, stdout=sink, stderr=subprocess.STDOUT,
+                                start_new_session=True)
+        try:
+            code = proc.wait(timeout=60)
+        finally:
+            took = time.monotonic() - began
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+    done = subprocess.CompletedProcess(proc.args, code, out.read_text(), "")
+    return done, took, (log.read_text().split() if log.exists() else []), data
 
 
 def test_the_container_lives_past_the_demo_build_and_dies_with_the_api(tmp_path):
     done, took, calls, data = _run_start(tmp_path, api_life=3, worker_life=30)
-    assert done.returncode == 1, done.stderr
+    assert done.returncode == 1, done.stdout
     assert took >= 2.5, "the end of the demo build must not stop the container"
     assert took < 20, "the api died, so the container should have gone too"
     assert sorted(calls) == ["run", "serve-platform", "worker"]

@@ -344,7 +344,9 @@ def _pending_approvals(ont: Ontology) -> list[dict[str, Any]]:
 def create_platform_app() -> FastAPI:
     byokey.check_startup()
     auth_mod.signup_mode()  # a mode nobody knows stops the boot, not the first signup
-    visitor.demo_org()
+    demo_slug = visitor.demo_org()
+    if demo_slug:
+        visitor.reserve(demo_slug, auth_mod._now())
     # Generated docs would be public routes outside the gate, so they stay off.
     app = FastAPI(title="ironwright platform",
                   description="One spine over every workspace: runs, approvals, audit, verification.",

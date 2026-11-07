@@ -115,7 +115,7 @@ that is not in this table.
 | `IRONWRIGHT_CONSOLE_ORIGIN` | none | One origin allowed to call the API from a browser. Unset means same-origin only. |
 | `IRONWRIGHT_BASE_PATH` | none | A prefix the server also answers under, such as `/projects/ironwright/app` behind coconutlabs.org's rewrite. The root keeps working. See `deploy/cloudflare/README.md`. |
 | `IRONWRIGHT_SIGNUP` | `open`, `invite` on `prod` | `open` lets anyone make an org, `invite` lets only the invited in, `closed` lets nobody new in. Signing in always works. |
-| `IRONWRIGHT_DEMO_ORG` | none | An org slug. Set, `POST /auth/demo` gives each visitor their own viewer seat in that org, with no password. The org is made on first use if nobody seeded it. |
+| `IRONWRIGHT_DEMO_ORG` | none | An org slug. Set, `POST /auth/demo` gives each visitor their own viewer seat in that org, with no password. The server makes the org at boot if it is missing, so no signup can take the slug. Naming an org that already exists opens it to every visitor as a viewer. |
 | `IRONWRIGHT_METRICS_TOKEN` | none | Secret. The bearer token `GET /metrics` asks for. Unset means nobody can scrape. See `docs/operations.md`. |
 
 ### Storage

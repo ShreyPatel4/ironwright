@@ -22,7 +22,7 @@ export const START = [
 
 // Set only when the app did not. The app sends its own CSP; a second one would intersect.
 const EDGE_HEADERS = {
-  "strict-transport-security": "max-age=31536000; includeSubDomains",
+  "strict-transport-security": "max-age=31536000",  // this app only: never policy for the whole zone
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
   "referrer-policy": "no-referrer",

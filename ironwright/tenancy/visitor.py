@@ -51,6 +51,18 @@ def _org_id(con: Connection, slug: str, now: float) -> str:
     return org_id
 
 
+def reserve(slug: str, now: float) -> None:
+    """Make the demo org when the server starts, if nobody seeded it. Signup picks a free slug,
+    so after this nobody can sign up into the slug visitors land in."""
+    for _ in range(3):
+        try:
+            with db.engine().begin() as con:
+                _org_id(con, slug, now)
+            return
+        except IntegrityError:
+            continue
+
+
 def visit(slug: str, now: float) -> dict[str, Any]:
     for _ in range(3):  # two first visitors racing to make the org: the loser joins it
         try:

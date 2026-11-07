@@ -201,3 +201,16 @@ def test_prod_refuses_a_bad_signup_mode_at_boot(monkeypatch):
 def test_staging_is_not_held_to_prod(monkeypatch):
     monkeypatch.setenv("IRONWRIGHT_ENV", "staging")
     hosted.check_posture()
+
+
+def test_nobody_can_sign_up_into_the_demo_slug(monkeypatch):
+    """The door makes its org when the server starts, so an open signup named like it gets
+    another slug, and visitors never land in an org a stranger owns."""
+    monkeypatch.setenv("IRONWRIGHT_SIGNUP", "open")
+    monkeypatch.setenv("IRONWRIGHT_DEMO_ORG", "ironwright-demo")
+    c = _client()
+    squat = c.post("/auth/signup", json={"email": "s@example.com", "password": PASSWORD,
+                                         "org_name": "Ironwright Demo"}).json()
+    assert squat["org_slug"] != "ironwright-demo"
+    seat = c.post("/auth/demo").json()
+    assert seat["org_slug"] == "ironwright-demo" and seat["org_id"] != squat["org_id"]

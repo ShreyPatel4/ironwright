@@ -41,6 +41,7 @@ test("the root of the workers.dev host is forwarded too", async () => {
 test("every answer carries the edge security headers", async () => {
   const r = await handle(page("/console/"), fakeStub("healthy"), ctx());
   assert.match(r.headers.get("strict-transport-security"), /max-age=\d+/);
+  assert.doesNotMatch(r.headers.get("strict-transport-security"), /includeSubDomains/i, "not ours to set for the zone");
   assert.equal(r.headers.get("x-content-type-options"), "nosniff");
   assert.equal(r.headers.get("x-frame-options"), "DENY");
   assert.ok(r.headers.get("permissions-policy"));
