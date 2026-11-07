@@ -37,10 +37,14 @@ from ..config import (
     workspaces_root,
 )
 from ..packs import list_packs
+from ..security import cookies
+from ..security import store as sec
 from . import db, usage
 from .models import DEV_ORG_ID, DEV_ORG_SLUG, ROLES, Ctx, at_least, principal_of
 
 IDLE_SECONDS = 8 * 3600
+# However busy a session is, it ends this long after sign in (enterprise-security.md item 2).
+ABSOLUTE_SECONDS = 12 * 3600
 INVITE_SECONDS = 7 * 24 * 3600
 # A session only rewrites last_seen this often, so reads stay reads.
 TOUCH_SECONDS = 60
@@ -163,23 +167,48 @@ def _orgs_of(con: Connection, user_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def _open_session(con: Connection, user_id: str, org_id: str, now: float) -> str:
-    """Rotate: this user's older sessions go, and so does anything expired."""
-    con.execute(db.sessions.delete().where(
-        sa.or_(db.sessions.c.user_id == user_id, db.sessions.c.expires_at <= now)))
+def _sweep_sessions(con: Connection, now: float) -> None:
+    """Expired sessions go, and so does any info row whose session is gone."""
+    con.execute(db.sessions.delete().where(sa.or_(
+        db.sessions.c.expires_at <= now,
+        db.sessions.c.token_hash.in_(sa.select(sec.session_info.c.token_hash)
+                                     .where(sec.session_info.c.created_at <= now - ABSOLUTE_SECONDS)))))
+    con.execute(sec.session_info.delete().where(
+        sec.session_info.c.token_hash.not_in(sa.select(db.sessions.c.token_hash))))
+
+
+def _open_session(con: Connection, user_id: str, org_id: str, now: float,
+                  seen: dict[str, str] | None = None) -> str:
+    """A new id every time. The session the request came in on, if any, goes: that is
+    the rotation on sign in and org switch. Other devices stay signed in."""
+    seen = seen or {}
+    if seen.get("replacing"):
+        _end(con, db.sessions.c.token_hash == _token_hash(seen["replacing"]))
+    _sweep_sessions(con, now)
     token = secrets.token_urlsafe(32)
-    con.execute(db.sessions.insert().values(token_hash=_token_hash(token), user_id=user_id,
+    hashed = _token_hash(token)
+    con.execute(db.sessions.insert().values(token_hash=hashed, user_id=user_id,
                                             org_id=org_id, expires_at=now + IDLE_SECONDS,
                                             last_seen=now))
+    con.execute(sec.session_info.insert().values(
+        token_hash=hashed, sid=secrets.token_hex(16), user_id=user_id, org_id=org_id, created_at=now,
+        ip=(seen.get("ip") or "")[:64], user_agent=(seen.get("user_agent") or "")[:256]))
     return token
+
+
+def _end(con: Connection, where: Any) -> None:
+    """End sessions and their info rows together."""
+    hashes = sa.select(db.sessions.c.token_hash).where(where)
+    con.execute(sec.session_info.delete().where(sec.session_info.c.token_hash.in_(hashes)))
+    con.execute(db.sessions.delete().where(where))
 
 
 def _session_answer(con: Connection, token: str, user_id: str, org_id: str) -> dict[str, Any]:
     orgs = _orgs_of(con, user_id)
     org = next(o for o in orgs if o["id"] == org_id)
     email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == user_id)).scalar_one()
-    return {"token": token, "email": email, "org_id": org_id, "org_slug": org["slug"],
-            "user_id": user_id, "role": org["role"], "principal": principal_of(user_id),
+    return {"token": token, "csrf": cookies.csrf_of(token), "email": email, "org_id": org_id,
+            "org_slug": org["slug"], "user_id": user_id, "role": org["role"], "principal": principal_of(user_id),
             "orgs": [{"slug": o["slug"], "name": o["name"], "role": o["role"]} for o in orgs]}
 
 
@@ -187,13 +216,14 @@ def _decoy_answer(con: Connection, email: str, org_name: str, base: str) -> dict
     """What a signup on a taken email answers: a new account's shape over ids and a token
     nobody stored. No password is checked and no row is written, so it opens nothing.
     The account's owner keeps their session and never knows."""
-    user_id, slug = _id(), _free_slug(con, base)
-    return {"token": secrets.token_urlsafe(32), "email": email, "org_id": _id(), "org_slug": slug,
+    user_id, slug, token = _id(), _free_slug(con, base), secrets.token_urlsafe(32)
+    return {"token": token, "csrf": cookies.csrf_of(token), "email": email, "org_id": _id(), "org_slug": slug,
             "user_id": user_id, "role": "owner", "principal": principal_of(user_id),
             "orgs": [{"slug": slug, "name": org_name, "role": "owner"}]}
 
 
-def signup(email: str, password: str, org_name: str, now: float) -> dict[str, Any]:
+def signup(email: str, password: str, org_name: str, now: float,
+           seen: dict[str, str] | None = None) -> dict[str, Any]:
     """The answer cannot say whether an email has an account, and neither can the slow
     part of the work: the password is hashed before anyone looks the email up."""
     email = clean_email(email)
@@ -206,7 +236,7 @@ def signup(email: str, password: str, org_name: str, now: float) -> dict[str, An
     # A lost race on the email or the slug lands here again and resolves itself.
     for _ in range(5):
         try:
-            with db.engine().begin() as con:
+            with sec.engine().begin() as con:
                 if con.execute(sa.select(db.users.c.id).where(db.users.c.email == email)).first():
                     return _decoy_answer(con, email, org_name, base)
                 user_id, org_id = _id(), _id()
@@ -216,26 +246,26 @@ def signup(email: str, password: str, org_name: str, now: float) -> dict[str, An
                                                     name=org_name, created_at=now))
                 con.execute(db.memberships.insert().values(org_id=org_id, user_id=user_id,
                                                            role="owner"))
-                return _session_answer(con, _open_session(con, user_id, org_id, now),
+                return _session_answer(con, _open_session(con, user_id, org_id, now, seen),
                                        user_id, org_id)
         except IntegrityError:
             continue
     raise EmailTaken
 
 
-def login(email: str, password: str, now: float) -> dict[str, Any]:
+def login(email: str, password: str, now: float, seen: dict[str, str] | None = None) -> dict[str, Any]:
     try:
         email = clean_email(email)
     except Invalid:
         email = ""
-    with db.engine().begin() as con:
+    with sec.engine().begin() as con:
         user = con.execute(sa.select(db.users).where(db.users.c.email == email)).mappings().first()
         if not verify_password(password, user["pw_hash"] if user else _NOBODY) or not user:
             raise BadCredentials
         orgs = _orgs_of(con, user["id"])
         if not orgs:
             raise BadCredentials
-        return _session_answer(con, _open_session(con, user["id"], orgs[0]["id"], now),
+        return _session_answer(con, _open_session(con, user["id"], orgs[0]["id"], now, seen),
                                user["id"], orgs[0]["id"])
 
 
@@ -244,10 +274,11 @@ def resolve(token: str, now: float) -> Ctx | None:
     if not token:
         return None
     hashed = _token_hash(token)
-    with db.engine().begin() as con:
+    with sec.engine().begin() as con:
         row = con.execute(
-            sa.select(db.sessions, db.orgs.c.slug, db.memberships.c.role)
+            sa.select(db.sessions, db.orgs.c.slug, db.memberships.c.role, sec.session_info.c.created_at)
             .join(db.orgs, db.orgs.c.id == db.sessions.c.org_id)
+            .join(sec.session_info, sec.session_info.c.token_hash == db.sessions.c.token_hash, isouter=True)
             .join(db.memberships, sa.and_(db.memberships.c.org_id == db.sessions.c.org_id,
                                           db.memberships.c.user_id == db.sessions.c.user_id),
                   isouter=True)
@@ -255,8 +286,9 @@ def resolve(token: str, now: float) -> Ctx | None:
         ).mappings().first()
         if row is None:
             return None
-        if row["expires_at"] <= now:
-            con.execute(db.sessions.delete().where(db.sessions.c.token_hash == hashed))
+        if (row["expires_at"] <= now or row["created_at"] is None
+                or now - row["created_at"] >= ABSOLUTE_SECONDS):
+            _end(con, db.sessions.c.token_hash == hashed)
             return None
         if row["role"] is None:
             return None
@@ -269,7 +301,7 @@ def resolve(token: str, now: float) -> Ctx | None:
 
 def describe(ctx: Ctx) -> dict[str, Any]:
     """The Ctx plus what the console shows about it."""
-    with db.engine().connect() as con:
+    with sec.engine().connect() as con:
         email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == ctx.user_id)).scalar()
         orgs = _orgs_of(con, ctx.user_id)
     return {**ctx.__dict__, "email": email,
@@ -277,12 +309,46 @@ def describe(ctx: Ctx) -> dict[str, Any]:
 
 
 def revoke(token: str) -> None:
-    with db.engine().begin() as con:
-        con.execute(db.sessions.delete().where(db.sessions.c.token_hash == _token_hash(token)))
+    with sec.engine().begin() as con:
+        _end(con, db.sessions.c.token_hash == _token_hash(token))
+
+
+def list_sessions(user_id: str, current: str, now: float) -> list[dict[str, Any]]:
+    """Every live session of this user, in every org. The id is not the token."""
+    info = sec.session_info
+    with sec.engine().connect() as con:
+        rows = con.execute(
+            sa.select(info.c.sid, info.c.token_hash, info.c.created_at, info.c.ip, info.c.user_agent,
+                      db.sessions.c.last_seen, db.orgs.c.slug)
+            .join(db.sessions, db.sessions.c.token_hash == info.c.token_hash)
+            .join(db.orgs, db.orgs.c.id == db.sessions.c.org_id)
+            .where(info.c.user_id == user_id, db.sessions.c.expires_at > now,
+                   info.c.created_at > now - ABSOLUTE_SECONDS)
+            .order_by(info.c.created_at.desc())).mappings().all()
+    mine = _token_hash(current) if current else ""
+    return [{"id": r["sid"], "org_slug": r["slug"], "created_at": r["created_at"], "last_seen": r["last_seen"],
+             "ip": r["ip"], "user_agent": r["user_agent"], "current": r["token_hash"] == mine} for r in rows]
+
+
+def revoke_session(user_id: str, sid: str) -> bool:
+    """False when no session of this user has that id, someone else's included."""
+    info = sec.session_info
+    with sec.engine().begin() as con:
+        hashed = con.execute(sa.select(info.c.token_hash).where(info.c.sid == sid, info.c.user_id == user_id)).scalar()
+        if hashed is None:
+            return False
+        _end(con, db.sessions.c.token_hash == hashed)
+        return True
+
+
+def revoke_all(user_id: str) -> None:
+    """Sign out everywhere."""
+    with sec.engine().begin() as con:
+        _end(con, db.sessions.c.user_id == user_id)
 
 
 def role_in(user_id: str, slug: str) -> str | None:
-    with db.engine().connect() as con:
+    with sec.engine().connect() as con:
         return con.execute(
             sa.select(db.memberships.c.role)
             .join(db.orgs, db.orgs.c.id == db.memberships.c.org_id)
@@ -290,12 +356,12 @@ def role_in(user_id: str, slug: str) -> str | None:
         ).scalar()
 
 
-def switch(ctx: Ctx, slug: str, now: float) -> dict[str, Any] | None:
-    with db.engine().begin() as con:
+def switch(ctx: Ctx, slug: str, now: float, seen: dict[str, str] | None = None) -> dict[str, Any] | None:
+    with sec.engine().begin() as con:
         org_id = next((o["id"] for o in _orgs_of(con, ctx.user_id) if o["slug"] == slug), None)
         if org_id is None:
             return None
-        return _session_answer(con, _open_session(con, ctx.user_id, org_id, now),
+        return _session_answer(con, _open_session(con, ctx.user_id, org_id, now, seen),
                                ctx.user_id, org_id)
 
 
@@ -305,7 +371,7 @@ def invite(slug: str, email: str, role: str, now: float, actor: str = "system") 
     if role not in ROLES:
         raise Invalid(f"role must be one of {', '.join(ROLES)}")
     token = secrets.token_urlsafe(32)
-    with usage.engine().begin() as con:
+    with sec.engine().begin() as con:
         org_id = con.execute(sa.select(db.orgs.c.id).where(db.orgs.c.slug == slug)).scalar_one()
         con.execute(db.invites.delete().where(db.invites.c.org_id == org_id,
                                               db.invites.c.email == email))
@@ -316,10 +382,10 @@ def invite(slug: str, email: str, role: str, now: float, actor: str = "system") 
     return token
 
 
-def accept_invite(token: str, password: str, now: float) -> dict[str, Any]:
+def accept_invite(token: str, password: str, now: float, seen: dict[str, str] | None = None) -> dict[str, Any]:
     """A new email sets its password here. A known email must prove the one it has."""
     hashed = _token_hash(token)
-    with usage.engine().begin() as con:
+    with sec.engine().begin() as con:
         row = con.execute(sa.select(db.invites).where(db.invites.c.token_hash == hashed)).mappings().first()
         if row is None:
             raise NoSuchInvite
@@ -350,7 +416,7 @@ def accept_invite(token: str, password: str, now: float) -> dict[str, Any]:
             ).values(role=row["role"]))
         con.execute(db.invites.delete().where(db.invites.c.token_hash == hashed))
         usage.audit(con, row["org_id"], principal_of(user_id), "member.join", {"user_id": user_id, "role": row["role"]}, now)
-        return _session_answer(con, _open_session(con, user_id, row["org_id"], now),
+        return _session_answer(con, _open_session(con, user_id, row["org_id"], now, seen),
                                user_id, row["org_id"])
 
 
@@ -359,14 +425,14 @@ def seed_operator(email: str, password: str, now: float) -> None:
     email = clean_email(email)
     _check_password(password)
     pw_hash = hash_password(password)
-    with db.engine().begin() as con:
+    with sec.engine().begin() as con:
         if not con.execute(sa.select(db.orgs.c.id).where(db.orgs.c.id == DEV_ORG_ID)).first():
             con.execute(db.orgs.insert().values(id=DEV_ORG_ID, slug=DEV_ORG_SLUG, name="Dev org",
                                                 created_at=now))
         user_id = con.execute(sa.select(db.users.c.id).where(db.users.c.email == email)).scalar()
         if user_id:
             con.execute(db.users.update().where(db.users.c.id == user_id).values(pw_hash=pw_hash))
-            con.execute(db.sessions.delete().where(db.sessions.c.user_id == user_id))
+            _end(con, db.sessions.c.user_id == user_id)
         else:
             user_id = _id()
             con.execute(db.users.insert().values(id=user_id, email=email, pw_hash=pw_hash,
@@ -400,14 +466,14 @@ def can_see_workspace(ctx: Ctx, name: str) -> bool:
 
 
 def any_users() -> bool:
-    with db.engine().connect() as con:
+    with sec.engine().connect() as con:
         return con.execute(sa.select(db.users.c.id).limit(1)).first() is not None
 
 
 # ---------------------------------------------------------------- members
 
 def list_members(org_id: str, now: float) -> dict[str, Any]:
-    with usage.engine().connect() as con:
+    with sec.engine().connect() as con:
         people = con.execute(
             sa.select(db.users.c.id, db.users.c.email, db.memberships.c.role)
             .join(db.memberships, db.memberships.c.user_id == db.users.c.id)
@@ -454,7 +520,7 @@ def _may_manage(con: Connection, org_id: str, target: str, actor_id: str) -> str
 def set_role(org_id: str, target: str, role: str, actor_id: str, actor: str, now: float) -> None:
     if role not in ROLES:
         raise Invalid(f"role must be one of {', '.join(ROLES)}")
-    with usage.engine().begin() as con:
+    with sec.engine().begin() as con:
         _lock_org(con, org_id)
         held = _may_manage(con, org_id, target, actor_id)
         if role == "owner" and _role_there(con, org_id, actor_id) != "owner":
@@ -465,25 +531,29 @@ def set_role(org_id: str, target: str, role: str, actor_id: str, actor: str, now
             raise LastOwner
         con.execute(db.memberships.update().where(db.memberships.c.org_id == org_id,
                                                   db.memberships.c.user_id == target).values(role=role))
+        # Rotation on a role change: the member signs in again and gets a new session id.
+        _end(con, sa.and_(db.sessions.c.org_id == org_id, db.sessions.c.user_id == target))
         usage.audit(con, org_id, actor, "member.role", {"user_id": target, "from": held, "to": role}, now)
 
 
 def _drop_if_no_org_left(con: Connection, user_id: str) -> None:
     """Nobody with no org can log in, and the email would stay taken for good."""
     if con.execute(sa.select(db.memberships.c.org_id).where(db.memberships.c.user_id == user_id).limit(1)).first() is None:
-        con.execute(db.sessions.delete().where(db.sessions.c.user_id == user_id))
+        _end(con, db.sessions.c.user_id == user_id)
+        for table in sec.USER_TABLES:
+            con.execute(table.delete().where(table.c.user_id == user_id))
         con.execute(db.users.delete().where(db.users.c.id == user_id))
 
 
 def remove_member(org_id: str, target: str, actor_id: str, actor: str, now: float) -> None:
-    with usage.engine().begin() as con:
+    with sec.engine().begin() as con:
         _lock_org(con, org_id)
         held = _may_manage(con, org_id, target, actor_id)
         if held == "owner" and _owners(con, org_id) == 1:
             raise LastOwner
         con.execute(db.memberships.delete().where(db.memberships.c.org_id == org_id,
                                                   db.memberships.c.user_id == target))
-        con.execute(db.sessions.delete().where(db.sessions.c.org_id == org_id, db.sessions.c.user_id == target))
+        _end(con, sa.and_(db.sessions.c.org_id == org_id, db.sessions.c.user_id == target))
         _drop_if_no_org_left(con, target)
         usage.audit(con, org_id, actor, "member.remove", {"user_id": target, "role": held}, now)
 
@@ -554,7 +624,7 @@ def export_org(org_id: str, principal: str, job_id: str, check_cancel: Callable[
     from .. import workspaces_tenant as wt
 
     user_id = principal.removeprefix("user:")
-    with usage.engine().connect() as con:
+    with sec.engine().connect() as con:
         if org_id == DEV_ORG_ID or _role_there(con, org_id, user_id) != "owner":
             raise Forbidden("only an org owner can export")
     folder = private_dir(tenant_dir(org_id) / "exports")
@@ -611,7 +681,7 @@ def mark_deleting(org_id: str, principal: str, now: float) -> bool:
     if org_id == DEV_ORG_ID:
         raise Forbidden("the dev org cannot be deleted")
     JobStore()  # its tables exist before this transaction needs them
-    with usage.engine().begin() as con:
+    with sec.engine().begin() as con:
         _lock_org(con, org_id)
         if con.execute(sa.select(org_lifecycle.c.org_id).where(org_lifecycle.c.org_id == org_id)).first():
             return False
@@ -633,13 +703,13 @@ def enqueue_deletion(org_id: str, principal: str, store: Any) -> str:
 
 def pending_deletions() -> list[str]:
     """For an operator: orgs still marked, because the job is waiting or it failed."""
-    with usage.engine().connect() as con:
+    with sec.engine().connect() as con:
         return list(con.execute(sa.select(org_lifecycle.c.org_id).order_by(org_lifecycle.c.requested_at)).scalars())
 
 
 def resume_deletion(org_id: str, store: Any) -> str:
     """Nobody is left in the org to retry, so a failed delete comes back through here."""
-    with usage.engine().connect() as con:
+    with sec.engine().connect() as con:
         by = con.execute(sa.select(org_lifecycle.c.requested_by).where(org_lifecycle.c.org_id == org_id)).scalar()
     if by is None:
         raise NotDeleting(org_id)
@@ -674,7 +744,7 @@ def _forget_org(org_id: str, request: Any, now: float) -> None:
     from ..jobs.store import JobStore, job_runtime, jobs
 
     JobStore()
-    with usage.engine().begin() as con:
+    with sec.engine().begin() as con:
         _lock_org(con, org_id)
         people = set(json.loads(request["member_ids"]))
         people |= set(con.execute(sa.select(db.memberships.c.user_id)
@@ -705,7 +775,7 @@ def delete_org_data(org_id: str, now: float) -> dict[str, str]:
     must not log after this returns: the job's log folder and its row are gone."""
     if not ORG_ID.fullmatch(org_id) or org_id == DEV_ORG_ID:
         raise NotDeleting(org_id)
-    with usage.engine().connect() as con:
+    with sec.engine().connect() as con:
         request = con.execute(sa.select(org_lifecycle).where(org_lifecycle.c.org_id == org_id)).mappings().first()
     if request is None:
         raise NotDeleting(org_id)

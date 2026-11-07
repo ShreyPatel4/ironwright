@@ -310,15 +310,25 @@ def test_activity_slides_the_idle_window(client, token, monkeypatch):
     start = auth._now()
     monkeypatch.setattr(auth, "_now", lambda: start + EIGHT_HOURS - 60)
     assert client.get("/workspaces", headers=bearer(token)).status_code == 200
-    monkeypatch.setattr(auth, "_now", lambda: start + 2 * EIGHT_HOURS - 120)
+    # Past 8 hours from sign in, alive because it was used. The 12 hour cap is in test_auth_sessions.
+    monkeypatch.setattr(auth, "_now", lambda: start + EIGHT_HOURS + 3600)
     assert client.get("/workspaces", headers=bearer(token)).status_code == 200
 
 
-def test_login_rotates_the_previous_token(client, token):
-    again = client.post("/auth/login", json={"email": EMAIL, "password": PASSWORD}).json()["token"]
+def test_login_rotates_the_session_it_came_in_on(client, token):
+    again = client.post("/auth/login", json={"email": EMAIL, "password": PASSWORD},
+                        headers=bearer(token)).json()["token"]
     assert again != token
     assert client.get("/workspaces", headers=bearer(token)).status_code == 401
     assert client.get("/workspaces", headers=bearer(again)).status_code == 200
+
+
+def test_a_login_from_another_device_leaves_this_one_signed_in(client, token):
+    """One session per user was the rule before sign out everywhere existed. Now each
+    device has its own, and the sessions list can end any of them."""
+    again = client.post("/auth/login", json={"email": EMAIL, "password": PASSWORD}).json()["token"]
+    assert again != token
+    assert client.get("/workspaces", headers=bearer(token)).status_code == 200
 
 
 def test_login_only_rotates_its_own_account(client, token):

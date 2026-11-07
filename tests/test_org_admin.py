@@ -65,6 +65,12 @@ def join(c, owner, email, role) -> dict:
     return r.json()
 
 
+def relogin(c, who) -> dict:
+    r = c.post("/auth/login", json={"email": who["email"], "password": PASSWORD})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 def members(c, who, slug=None) -> dict:
     r = c.get(f"/orgs/{slug or who['org_slug']}/members", headers=bearer(who))
     assert r.status_code == 200, r.text
@@ -119,6 +125,9 @@ def test_an_owner_changes_a_role_and_it_applies_at_once(client):
     r = set_role(client, owner, who, "admin")
     assert r.status_code == 200, r.text
     assert role_of(client, owner, who["user_id"]) == "admin"
+    # A role change ends the member's sessions, so the new role comes with a new session id.
+    assert client.post("/workspaces", headers=bearer(who), json={"name": "now-ok"}).status_code == 401
+    who = relogin(client, who)
     assert client.post("/workspaces", headers=bearer(who), json={"name": "now-ok"}).status_code == 201
 
 
@@ -701,6 +710,7 @@ def test_a_demoted_owner_loses_the_download(client):
     _tenant_workspace(owner["org_id"])
     job_id, _ = _export(client, owner)
     assert set_role(client, owner, second, "member").status_code == 200
+    second = relogin(client, second)
     r = client.get(f"/orgs/{owner['org_slug']}/exports/{job_id}/download", headers=bearer(second))
     assert r.status_code == 403
 

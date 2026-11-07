@@ -1,4 +1,8 @@
-"""Request identity: from a bearer token to a Ctx, through the tenancy store.
+"""Request identity: from a session cookie or a bearer token to a Ctx, through the tenancy store.
+
+A browser carries the httpOnly session cookie and must send X-CSRF-Token on every
+unsafe request. An API client sends Authorization: Bearer and needs no CSRF token,
+because nothing ambient carries it. An Authorization header never falls back to the cookie.
 
 ctx() is the one FastAPI dependency that says who is calling and for which org.
 The principal is user:<user_id> and comes from the session and nowhere else. An
@@ -19,6 +23,7 @@ from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from .security import cookies
 from .tenancy import service
 from .tenancy.models import DEV_ORG_ID, DEV_ORG_SLUG, DEV_USER_ID, Ctx
 
@@ -28,6 +33,8 @@ IDLE_SECONDS = service.IDLE_SECONDS
 # route dependencies never reach.
 PUBLIC_ROUTES = frozenset({"/auth/status", "/auth/login", "/auth/signup",
                            "/auth/accept-invite", "/"})
+SESSION_COOKIE = cookies.SESSION_COOKIE
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 _now = time.time
 
@@ -52,8 +59,9 @@ def seeded() -> bool:
 
 
 def bearer_token(headers: Headers) -> str:
-    scheme, _, token = headers.get("authorization", "").partition(" ")
-    return token.strip() if scheme.lower() == "bearer" else ""
+    """The request's session token: the bearer, or the cookie when no Authorization
+    header was sent. Middleware that only needs to know the org reads this."""
+    return cookies.credential(headers)[0]
 
 
 def session_ctx(token: str) -> Ctx | None:
@@ -69,9 +77,13 @@ def ctx(request: Request) -> Ctx:
     """Who is calling, and for which org. The one dependency; see contract 1."""
     if dev_open():
         return _dev_ctx(request)
-    found = getattr(request.state, "ctx", None) or session_ctx(bearer_token(request.headers))
+    token, via = cookies.credential(request.headers)
+    found = getattr(request.state, "ctx", None) or session_ctx(token)
     if found is None:
         raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
+    if via == "cookie" and request.method not in SAFE_METHODS \
+            and not cookies.csrf_ok(token, request.headers.get(cookies.CSRF_HEADER)):
+        raise HTTPException(403, "this request needs the X-CSRF-Token header; reload the page and try again")
     request.state.ctx = found
     return found
 

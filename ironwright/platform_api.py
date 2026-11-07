@@ -50,7 +50,8 @@ from .ontology.runtime import Ontology
 from .otel_export import router as otel_router
 from .packs import list_packs, load_pack
 from .scenario.spec import SpecError
-from .tenancy import DEV_ORG_ID, ROLES, Ctx, byokey, quotas
+from .security.routes import router as auth_router
+from .tenancy import DEV_ORG_ID, Ctx, byokey, quotas
 from .tenancy import service as tenancy
 from .tenancy.models import at_least
 from .tenancy.routes_admin import router as admin_router
@@ -98,27 +99,6 @@ class PolicyCheckBody(BaseModel):
 class BoardBody(BaseModel):
     title: str
     tiles: list[dict[str, Any]]
-
-
-class LoginBody(BaseModel):
-    email: str
-    password: str
-
-
-class SignupBody(BaseModel):
-    email: str
-    password: str
-    org_name: str
-
-
-class InviteBody(BaseModel):
-    email: str
-    role: str = "member"
-
-
-class AcceptInviteBody(BaseModel):
-    token: str
-    password: str
 
 
 class CreateOrgBody(BaseModel):
@@ -188,6 +168,8 @@ WRITE_ROLES = {
     "/orgs/{slug}/members/{user_id}": "admin",  # the service keeps admins off owners
     "/orgs/{slug}/switch": "viewer",
     "/auth/logout": "viewer",
+    "/auth/sessions/{session_id}": "viewer",
+    "/auth/sessions/revoke-all": "viewer",
 }
 
 
@@ -450,74 +432,6 @@ def create_platform_app() -> FastAPI:
             return boards_mod.run(_pack(name), slug)
         except FileNotFoundError:
             raise HTTPException(404, f"no board {slug}")
-
-    @app.get("/auth/status")
-    def auth_status() -> dict[str, Any]:
-        return {"seeded": auth_mod.seeded(), "dev_open": auth_mod.dev_open(),
-                "note": "Every API route needs a session. Sign up to make an org, "
-                        "or accept an invite to join one."}
-
-    @app.post("/auth/signup", status_code=201)
-    def auth_signup(body: SignupBody) -> dict[str, Any]:
-        try:
-            return tenancy.signup(body.email, body.password, body.org_name, auth_mod._now())
-        except tenancy.Invalid as e:
-            raise HTTPException(422, str(e)) from e
-        except tenancy.EmailTaken as e:
-            raise HTTPException(409, "that email already has an account; sign in instead") from e
-
-    @app.post("/auth/login")
-    def auth_login(body: LoginBody) -> dict[str, Any]:
-        try:
-            return tenancy.login(body.email, body.password, auth_mod._now())
-        except tenancy.BadCredentials as e:
-            raise HTTPException(401, "that email and password do not match") from e
-
-    @app.post("/auth/accept-invite")
-    def auth_accept_invite(body: AcceptInviteBody) -> dict[str, Any]:
-        try:
-            return tenancy.accept_invite(body.token, body.password, auth_mod._now())
-        except tenancy.NoSuchInvite as e:
-            raise HTTPException(404, "that invite is not valid") from e
-        except tenancy.BadCredentials as e:
-            raise HTTPException(401, "that email and password do not match") from e
-        except tenancy.Invalid as e:
-            raise HTTPException(422, str(e)) from e
-
-    @app.get("/auth/me")
-    def auth_me(request: Request, c: CtxDep) -> dict[str, Any]:
-        # A dev open server has no need of a token, but one it was handed still
-        # has to be alive, or a client would never learn it logged out.
-        token = auth_mod.bearer_token(request.headers)
-        if token:
-            c = auth_mod.session_ctx(token)
-            if c is None:
-                raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
-        return auth_mod.describe(c)
-
-    @app.post("/auth/logout")
-    def auth_logout(request: Request) -> dict[str, Any]:
-        tenancy.revoke(auth_mod.bearer_token(request.headers))
-        return {"ok": True}
-
-    @app.post("/orgs/{slug}/switch")
-    def org_switch(slug: str, c: CtxDep) -> dict[str, Any]:
-        answer = tenancy.switch(c, slug, auth_mod._now())
-        if answer is None:
-            raise HTTPException(404, NOT_FOUND)
-        return answer
-
-    @app.post("/orgs/{slug}/invites", status_code=201)
-    def org_invite(slug: str, body: InviteBody, c: CtxDep) -> dict[str, Any]:
-        mine = tenancy.role_in(c.user_id, slug)
-        if body.role in ROLES and not at_least(mine, body.role):
-            raise HTTPException(403, "you cannot invite someone above your own role")
-        quotas.check_seat(slug, body.email, auth_mod._now())
-        try:
-            return {"token": tenancy.invite(slug, body.email, body.role, auth_mod._now(), c.principal),
-                    "email": body.email.strip().lower(), "role": body.role, "org_slug": slug}
-        except tenancy.Invalid as e:
-            raise HTTPException(422, str(e)) from e
 
     @app.get("/platform/map")
     def get_platform_map() -> dict[str, Any]:
@@ -837,6 +751,7 @@ def create_platform_app() -> FastAPI:
     app.include_router(settings_router)
     app.include_router(journey_routes.router)
     app.include_router(admin_router)
+    app.include_router(auth_router)
 
     # console/dist is built (make console) and gitignored, and the hosted image builds its
     # own. Absent, the API still serves, / says how to get it, and `ironwright platform`

@@ -203,14 +203,15 @@ def test_activity_slides_the_expiry_and_it_survives_a_new_app(client, monkeypatc
     start = auth._now()
     monkeypatch.setattr(auth, "_now", lambda: start + 8 * HOUR - 60)
     assert client.get("/auth/me", headers=bearer(s["token"])).status_code == 200
-    monkeypatch.setattr(auth, "_now", lambda: start + 16 * HOUR - 120)
+    monkeypatch.setattr(auth, "_now", lambda: start + 9 * HOUR)  # past 8 from sign in, inside the 12 hour cap
     with TestClient(create_platform_app()) as restarted:
         assert restarted.get("/auth/me", headers=bearer(s["token"])).status_code == 200
 
 
 def test_login_rotates_and_logout_revokes(client):
     s = signup(client)
-    again = client.post("/auth/login", json={"email": "owner@a.example", "password": PASSWORD}).json()
+    again = client.post("/auth/login", json={"email": "owner@a.example", "password": PASSWORD},
+                        headers=bearer(s["token"])).json()
     assert client.get("/auth/me", headers=bearer(s["token"])).status_code == 401
     assert client.post("/auth/logout", headers=bearer(again["token"])).status_code == 200
     assert client.get("/auth/me", headers=bearer(again["token"])).status_code == 401
@@ -308,7 +309,7 @@ def test_accepting_never_lowers_a_role_someone_already_has(client):
     owner = signup(client)
     admin = join(client, owner, "m@a.example", "admin")
     join(client, owner, "m@a.example", "viewer")
-    assert client.get("/auth/me", headers=bearer(admin["token"])).status_code == 401  # rotated
+    assert client.get("/auth/me", headers=bearer(admin["token"])).status_code == 200  # another device stays in
     s = client.post("/auth/login", json={"email": "m@a.example", "password": PASSWORD}).json()
     assert s["role"] == "admin"
 
