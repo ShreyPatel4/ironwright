@@ -65,6 +65,12 @@ def join(c, owner, email, role) -> dict:
     return r.json()
 
 
+def relogin(c, who) -> dict:
+    r = c.post("/auth/login", json={"email": who["email"], "password": PASSWORD})
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
 def members(c, who, slug=None) -> dict:
     r = c.get(f"/orgs/{slug or who['org_slug']}/members", headers=bearer(who))
     assert r.status_code == 200, r.text
@@ -119,6 +125,9 @@ def test_an_owner_changes_a_role_and_it_applies_at_once(client):
     r = set_role(client, owner, who, "admin")
     assert r.status_code == 200, r.text
     assert role_of(client, owner, who["user_id"]) == "admin"
+    # A role change ends the member's sessions, so the new role comes with a new session id.
+    assert client.post("/workspaces", headers=bearer(who), json={"name": "now-ok"}).status_code == 401
+    who = relogin(client, who)
     assert client.post("/workspaces", headers=bearer(who), json={"name": "now-ok"}).status_code == 201
 
 
@@ -291,6 +300,13 @@ def chain(c, who, **params) -> dict:
     return r.json()
 
 
+def _blank_chain(org_id):
+    """Signup writes the first auth event. These tests count rows, so they start from none."""
+    with usage.engine().begin() as con:
+        for t in (usage.org_audit_chain, usage.org_audit):
+            con.execute(t.delete().where(t.c.org_id == org_id))
+
+
 def _events(org_id, n=4, actor="user:x"):
     with usage.engine().begin() as con:
         for i in range(n):
@@ -299,6 +315,7 @@ def _events(org_id, n=4, actor="user:x"):
 
 def test_the_chain_verifies_when_nothing_was_touched(client):
     owner = signup(client)
+    _blank_chain(owner["org_id"])
     _events(owner["org_id"])
     got = chain(client, owner)
     assert got["verified"] is True and got["broken_at"] is None
@@ -338,6 +355,7 @@ def test_a_row_slipped_in_without_a_link_breaks_the_chain(client):
 
 def test_rows_from_before_the_chain_are_counted_and_not_called_verified(client):
     owner = signup(client)
+    _blank_chain(owner["org_id"])
     with usage.engine().begin() as con:
         con.execute(usage.org_audit.insert().values(org_id=owner["org_id"], ts=NOON, actor="user:old",
                                                     action="old.event", detail="{}"))
@@ -349,6 +367,7 @@ def test_rows_from_before_the_chain_are_counted_and_not_called_verified(client):
 
 def test_filters_narrow_the_rows_and_not_the_verdict(client):
     owner = signup(client)
+    _blank_chain(owner["org_id"])
     _events(owner["org_id"], 2, actor="user:x")
     _events(owner["org_id"], 1, actor="user:y")
     with usage.engine().begin() as con:
@@ -374,6 +393,7 @@ def test_one_orgs_chain_is_its_own(client):
 
 def test_concurrent_writers_do_not_fork_the_chain(client):
     owner = signup(client)
+    _blank_chain(owner["org_id"])
     threads = [threading.Thread(target=_events, args=(owner["org_id"], 3, f"user:{n}")) for n in range(4)]
     for t in threads:
         t.start()
@@ -701,6 +721,7 @@ def test_a_demoted_owner_loses_the_download(client):
     _tenant_workspace(owner["org_id"])
     job_id, _ = _export(client, owner)
     assert set_role(client, owner, second, "member").status_code == 200
+    second = relogin(client, second)
     r = client.get(f"/orgs/{owner['org_slug']}/exports/{job_id}/download", headers=bearer(second))
     assert r.status_code == 403
 

@@ -8,7 +8,6 @@ CI runs this in the demo job, where a skip fails the job.
 """
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import socket
@@ -20,6 +19,7 @@ import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 
+import cookie_session
 import pytest
 import yaml
 
@@ -135,7 +135,7 @@ class Org:
         self.page.get_by_label("password").fill(PASSWORD)
         self.page.get_by_role("button", name="Create the org").click()
         self.page.get_by_role("button", name="Go to the console").wait_for()
-        self.session = json.loads(self.page.evaluate("localStorage.getItem('iw.session')"))
+        self.session = cookie_session.session_of(self.page)
 
     def api(self, method: str, path: str, **kw) -> dict:
         r = self.context.request.fetch(f"{self.base}{path}", method=method, timeout=SLOW,

@@ -6,19 +6,21 @@ import Usage from "./Usage.jsx";
 import ModelKey from "./ModelKey.jsx";
 import OrgAudit from "./OrgAudit.jsx";
 import OrgData from "./OrgData.jsx";
+import Security from "./Security.jsx";
 
 /* Your org's settings. The tabs follow your role as the server has it now, not as
    it was at sign in. Every route checks again, so hiding a tab is only manners. */
 const TABS = [
   ["members", "Members", "admin", Members],
   ["usage", "Usage", "viewer", Usage],
+  ["security", "Security", "viewer", Security],
   ["key", "Model key", "admin", ModelKey],
   ["audit", "Audit", "admin", OrgAudit],
   ["data", "Your data", "owner", OrgData],
 ];
 const RANK = ["viewer", "member", "admin", "owner"];
 
-export default function Settings({ onGone }) {
+export default function Settings({ onGone, onRotated, onSignedOut }) {
   const [me, setMe] = useState(null);
   const [active, setActive] = useState(null);
   const [gone, setGone] = useState(false);
@@ -53,7 +55,8 @@ export default function Settings({ onGone }) {
                   onClick={() => setActive(k)} role="tab">{label}</button>
         ))}
       </div>
-      <Active me={me} onDeleted={() => setGone(true)} slug={me.org_slug} />
+      <Active me={me} onDeleted={() => setGone(true)} onRotated={onRotated} onSignedOut={onSignedOut}
+              slug={me.org_slug} />
     </>
   );
 }

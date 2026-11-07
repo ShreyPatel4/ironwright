@@ -90,7 +90,7 @@ flowchart LR
 | Signup on a taken email opens nothing | anonymous getting into an account by signing up for it | `tests/test_security_mt.py::test_signup_on_a_taken_email_writes_nothing_and_hands_out_no_session` |
 | Login answers alike for an unknown email and a wrong password | the same, at the other door | `tests/test_security_mt.py::test_login_answers_alike_for_an_unknown_email_and_a_wrong_password`, `tests/test_security_mt.py::test_login_does_the_same_slow_work_for_an_unknown_email_and_a_wrong_password` |
 | Per-IP limit on login, signup and accept-invite, on the socket address | password guessing, and bulk email checks | `tests/test_posture.py::test_login_is_rate_limited_per_ip`, `tests/test_posture.py::test_a_forged_forwarded_header_does_not_buy_more_attempts` |
-| Sessions travel as a bearer header, never a cookie, so a browser attaches nothing on its own | cross-site request forgery | `tests/test_security_mt.py::test_no_door_sets_a_cookie`, `tests/test_security_mt.py::test_a_session_token_in_a_cookie_is_not_a_credential` |
+| The session cookie is httpOnly, Secure and SameSite=Lax, and every unsafe cookie request needs the session's CSRF token | cross-site request forgery, token theft by script | `tests/test_security_mt.py::test_every_door_sets_only_the_httponly_session_cookie`, `tests/test_auth_sessions.py::test_a_cookie_session_cannot_write_without_the_csrf_token`, `tests/test_security_mt.py::test_a_session_token_in_a_cookie_is_not_a_credential` |
 | Foreign origin writes refused, one named CORS origin or none | a web page writing or reading across sites | `tests/test_posture.py::test_foreign_origin_cannot_write_even_without_preflight`, `tests/test_posture.py::test_no_cross_origin_is_allowed_by_default`, `tests/test_posture.py::test_configured_console_origin_is_the_only_one_allowed` |
 | CSP, nosniff, no-referrer | injected script, which is what could read a stored token | `tests/test_posture.py::test_csp_lets_the_console_and_bi_frame_work_and_nothing_else`, `tests/test_posture.py::test_security_headers_on_every_answer` |
 | An escalation is raised as the session, and goes to whoever asked | a member getting a grant for, or blaming, someone else | `tests/test_security_mt.py::test_an_escalation_is_raised_as_the_session_whatever_the_body_says`, `tests/test_security_mt.py::test_a_grant_is_decided_as_the_session_and_goes_to_who_asked` |
@@ -120,16 +120,19 @@ flowchart LR
 | MCP tools are only ontology functions and actions, on stdio, always `agent:*` | an MCP client reaching past the governed surface, or acting as a person | `tests/test_posture.py::test_mcp_exposes_exactly_the_ontology_functions_and_actions`, `tests/test_posture.py::test_mcp_caller_cannot_pick_its_identity_or_approve`, `tests/test_posture.py::test_mcp_refuses_to_run_as_anything_but_an_agent`, `tests/test_posture.py::test_mcp_runs_on_stdio_and_binds_nothing` |
 | The MCP SDK is pinned to major version 2 | installing the old major line | `tests/test_security_mt.py::test_mcp_is_pinned_to_2_and_the_lock_agrees` |
 
-## Why there is no CSRF token
+## The CSRF token
 
-The ticket asks for one if the console uses cookies. It does not. The console keeps its token in
-`localStorage` and sends it as `Authorization: Bearer`. A browser never attaches that header on its
-own, so a forged request arrives with no session and gets a 401. No route sets a cookie, and no
-route reads one. So there is nothing to mark Secure, HttpOnly or SameSite either.
+Since wave 6 the console uses a cookie (docs/enterprise-security.md item 1). The session is an
+`iw_session` cookie: httpOnly, so no script on the page can read it, Secure, and SameSite=Lax,
+scoped to the base path. A browser attaches it on its own, so every unsafe request that comes in
+on the cookie must carry `X-CSRF-Token`, which is derived from the session and handed to the
+console in the sign in answer and by `/auth/status`. A forged cross-site request has the cookie
+and not the token, and gets a 403. The origin guard still refuses foreign origins first.
 
-The cost is that any script on the console origin can read the token. CSP is the control there. If
-a later change moves sessions to cookies, this section stops being true, and
-`tests/test_security_mt.py::test_no_door_sets_a_cookie` goes red to say so.
+API clients send `Authorization: Bearer` and need no CSRF token, because nothing ambient carries
+it. An Authorization header never falls back to the cookie.
+`tests/test_security_mt.py::test_every_door_sets_only_the_httponly_session_cookie` goes red if a
+door stops setting exactly that cookie.
 
 ## What the kill switch does
 

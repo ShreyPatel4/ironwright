@@ -56,4 +56,5 @@ build-backend = "setuptools.build_meta"
 include = ["ironwright*"]
 
 [tool.setuptools.package-data]
-"ironwright" = ["packs/*/*.py", "packs/*/*.yaml", "packs/*/models/*/*.sql", "scenario/examples/*.yaml"]
+"ironwright" = ["packs/*/*.py", "packs/*/*.yaml", "packs/*/models/*/*.sql", "scenario/examples/*.yaml",
+                "security/breached-100k.txt.gz"]

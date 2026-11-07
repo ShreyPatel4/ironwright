@@ -124,7 +124,9 @@ def test_login_does_the_same_slow_work_for_an_unknown_email_and_a_wrong_password
 
 # ------------------------------------------------------------ session transport
 
-def test_no_door_sets_a_cookie(hosted):
+def test_every_door_sets_only_the_httponly_session_cookie(hosted):
+    """enterprise-security.md item 1 moved the session from localStorage to a cookie.
+    It must be the one cookie, and a script must never be able to read it."""
     made = signup(hosted, email="crumbs@a.example")
     logged_in = hosted.post("/auth/login", json={"email": "crumbs@a.example", "password": PASSWORD})
     invite = hosted.post(f"/orgs/{made.json()['org_slug']}/invites", headers=bearer(logged_in.json()["token"]),
@@ -132,8 +134,10 @@ def test_no_door_sets_a_cookie(hosted):
     accepted = hosted.post("/auth/accept-invite", json={"token": invite.json()["token"], "password": PASSWORD})
     for answer in (made, logged_in, accepted):
         assert answer.status_code in (200, 201), answer.text
-        assert "set-cookie" not in answer.headers
-    assert not hosted.cookies
+        cookies = answer.headers.get_list("set-cookie")
+        assert len(cookies) == 1 and cookies[0].startswith("iw_session="), cookies
+        low = cookies[0].lower()
+        assert "httponly" in low and "secure" in low and "samesite=lax" in low
 
 
 def test_a_session_token_in_a_cookie_is_not_a_credential(hosted):

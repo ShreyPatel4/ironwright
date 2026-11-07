@@ -112,11 +112,16 @@ def test_a_plan_change_applies_and_is_audited(org):
     assert row["detail"] == {"from": "free", "to": "team"}
 
 
+def _changes(rows):
+    """The org's chain also holds auth events, signup first. These tests count the rest."""
+    return [r for r in rows if not r["action"].startswith("auth.")]
+
+
 def test_an_unknown_plan_is_refused_and_changes_nothing(org):
     with pytest.raises(ValueError, match="no plan"):
         quotas.set_plan(org, "enterprise", "operator:shrey", NOON)
     assert quotas.plan_of(org) == "free"
-    assert usage.audit_log(org) == []
+    assert _changes(usage.audit_log(org)) == []
 
 
 def test_the_dev_org_has_no_limits(meta_db):
@@ -502,7 +507,7 @@ def test_with_no_key_stored_the_routes_say_so_plainly(api, secret):
     assert c.get(_key_path(a), headers=bearer(a)).json() == {"provider": None}
     gone = c.delete(_key_path(a), headers=bearer(a))
     assert gone.status_code == 200 and gone.json() == {"removed": False}
-    assert usage.audit_log(a["org_id"]) == []
+    assert _changes(usage.audit_log(a["org_id"])) == []
 
 
 def test_a_server_with_no_secret_refuses_the_key_in_plain_words(api, monkeypatch):
@@ -577,7 +582,7 @@ def test_every_key_and_plan_change_is_audited_without_the_key(api, secret):
     quotas.set_plan(a["org_id"], "team", "operator:test", NOON)
     r = c.get(f"/orgs/{a['org_slug']}/audit", headers=bearer(a))
     assert r.status_code == 200 and CANARY not in r.text
-    rows = r.json()
+    rows = _changes(r.json())
     assert [x["action"] for x in rows] == ["llm_key.set", "llm_key.set", "llm_key.remove", "plan.change"]
     assert rows[0]["actor"] == a["principal"]
     assert rows[0]["detail"] == {"provider": "anthropic", "last4": "Zq42"}

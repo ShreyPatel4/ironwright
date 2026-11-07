@@ -23,7 +23,9 @@ import Onboarding from "./views/Onboarding.jsx";
 import Login from "./views/Login.jsx";
 import Join from "./views/onboarding/Join.jsx";
 import Settings from "./views/settings/Settings.jsx";
-import { setPrincipal, getPrincipal } from "./api.js";
+import Security from "./views/settings/Security.jsx";
+import { ResetPassword, VerifyEmail } from "./views/Links.jsx";
+import { setCsrf, setPrincipal, getPrincipal } from "./api.js";
 
 const VIEWS = [
   ["data", "Sources", Sources],
@@ -126,11 +128,13 @@ function NewOrganization({ onCreated, startOpen = false }) {
 
 const KIND_LABEL = { pack: "demo company", organization: "your organization" };
 
-// An invite link is /console/#invite=<token>. A fragment never reaches a server log.
-function inviteToken() {
-  const m = /^#invite=(.+)$/.exec(location.hash);
+// An invite link is /console/#invite=<token>, and reset and verify links work the same
+// way. A fragment never reaches a server log.
+function linkToken(kind) {
+  const m = new RegExp(`^#${kind}=(.+)$`).exec(location.hash);
   return m ? decodeURIComponent(m[1]) : null;
 }
+const inviteToken = () => linkToken("invite");
 
 function onboarded() {
   try { return localStorage.getItem("iw.onboarded") === "1"; } catch { return true; }
@@ -147,47 +151,50 @@ export default function App() {
   const [welcome, setWelcome] = useState(() => !onboarded());
   const [invite, setInvite] = useState(inviteToken);
   const [orgFormOpen, setOrgFormOpen] = useState(false);
-  const [session, setSession] = useState(() => {
-    try {
-      const s = JSON.parse(localStorage.getItem("iw.session") ?? "null");
-      if (s?.principal) setPrincipal(s.principal);
-      return s;
-    } catch { return null; }
-  });
+  const [reset, setReset] = useState(() => linkToken("reset"));
+  const [verify, setVerify] = useState(() => linkToken("verify"));
+  // The session is an httpOnly cookie. Nothing about it is kept in the page or in
+  // storage: on load the server says who this is, or nobody.
+  const [session, setSession] = useState(null);
+  const [booted, setBooted] = useState(false);
   const who = session?.principal ?? null;
 
   function signIn(s) {
-    try { localStorage.setItem("iw.session", JSON.stringify(s)); } catch { /* fine */ }
-    setSession(s);
+    // The token in the answer is for API clients. The console drops it.
+    const { token: _dropped, ...kept } = s;
+    setCsrf(s.csrf);
+    setPrincipal(s.principal);
+    setSession(kept);
+  }
+  function forget() {
+    try {
+      localStorage.removeItem("iw.session");  // left by a console from before cookies
+      localStorage.removeItem("iw.last");
+      localStorage.removeItem("iw.onboarded");
+    } catch { /* fine */ }
+    setCsrf(null);
+    setSession(null); setWsName(null); setView(null); setWelcome(true);
   }
   function signOut() {
-    if (session?.token) api.logout().catch(() => {});
-    try {
-      localStorage.removeItem("iw.session");
-      localStorage.removeItem("iw.last");
-      localStorage.removeItem("iw.onboarded");
-    } catch { /* fine */ }
-    setSession(null); setWsName(null); setView(null); setWelcome(true);
+    if (session) api.logout().catch(() => {});
+    forget();
   }
-
-  // The org is gone and so is the session, so there is no one to tell the server about.
+  // The org is gone and so is the session. Logout still clears the dead cookie.
   function orgGone() {
-    try {
-      localStorage.removeItem("iw.session");
-      localStorage.removeItem("iw.last");
-      localStorage.removeItem("iw.onboarded");
-    } catch { /* fine */ }
-    setSession(null); setWsName(null); setView(null); setWelcome(true);
+    api.logout().catch(() => {});
+    forget();
   }
 
-  // Sessions live in the server process; after a restart a stored token is
-  // dead and the door must ask again instead of trusting localStorage.
+  // A mailed link opened in a tab that already shows the console changes only the hash.
   useEffect(() => {
-    if (!session?.token) return;
-    api.me().catch(() => {
-      try { localStorage.removeItem("iw.session"); } catch { /* fine */ }
-      setSession(null); setWsName(null); setView(null);
-    });
+    const read = () => { setReset(linkToken("reset")); setVerify(linkToken("verify")); setInvite(inviteToken()); };
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, []);
+
+  useEffect(() => {
+    try { localStorage.removeItem("iw.session"); } catch { /* fine */ }
+    api.authStatus().then((s) => { if (s.session) signIn(s.session); }, () => {}).finally(() => setBooted(true));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -200,7 +207,8 @@ export default function App() {
     } catch (e) { setErr(e); return []; }
   }, []);
   // Workspaces need a session, so the first load waits for one.
-  useEffect(() => { if (session?.token) refresh(); }, [refresh, session?.token]);
+  const setupFirst = !!session?.mfa_setup_required;
+  useEffect(() => { if (session && !setupFirst) refresh(); }, [refresh, session?.org_id, session?.user_id, setupFirst]);
   const [devOpen, setDevOpen] = useState(false);
   useEffect(() => { api.authStatus().then((s) => setDevOpen(!!s.dev_open)).catch(() => {}); }, []);
   const devBadge = devOpen && (
@@ -238,6 +246,24 @@ export default function App() {
     if ((id === "byod" || id === "map") && retail) { setWsName(retail.name); setView("platform"); }
   }
 
+  if (reset) {
+    return (
+      <main style={{ margin: "0 auto" }}>
+        {devBadge}
+        <ResetPassword token={reset} onDone={() => { history.replaceState(null, "", location.pathname); setReset(null); }} />
+      </main>
+    );
+  }
+
+  if (verify) {
+    return (
+      <main style={{ margin: "0 auto" }}>
+        {devBadge}
+        <VerifyEmail token={verify} onDone={() => { history.replaceState(null, "", location.pathname); setVerify(null); }} />
+      </main>
+    );
+  }
+
   if (invite) {
     return (
       <main style={{ margin: "0 auto" }}>
@@ -250,8 +276,25 @@ export default function App() {
     );
   }
 
+  if (!booted) return <main style={{ margin: "0 auto" }}>{devBadge}</main>;
+
   if (!session) {
     return <main style={{ margin: "0 auto" }}>{devBadge}<Login onEnter={signIn} /></main>;
+  }
+
+  // The org requires two-step sign in and this account has not set it up. The server
+  // refuses everything else, so the console shows the one screen that works.
+  if (setupFirst) {
+    return (
+      <main style={{ margin: "0 auto", maxWidth: 720 }}>
+        {devBadge}
+        <h2>Set up two-step sign in</h2>
+        <p className="sub">Your org <span className="mono">{session.org_slug}</span> requires it.
+          Everything else opens once it is on.</p>
+        <Security me={session} onRotated={signIn} required />
+        <p className="note"><a href="#signout" onClick={(e) => { e.preventDefault(); signOut(); }}>sign out</a></p>
+      </main>
+    );
   }
 
   if (welcome && workspaces) {
@@ -310,7 +353,7 @@ export default function App() {
       </nav>
       <main>
         <Err e={err} />
-        {view === "settings" && <Settings onGone={orgGone} />}
+        {view === "settings" && <Settings onGone={orgGone} onRotated={signIn} onSignedOut={forget} />}
         {!ws && view !== "settings" && workspaces && (
           <>
             <h2>Workspaces</h2>

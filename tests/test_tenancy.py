@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 import stat
+import uuid
 
 import pytest
 import sqlalchemy as sa
@@ -203,14 +204,15 @@ def test_activity_slides_the_expiry_and_it_survives_a_new_app(client, monkeypatc
     start = auth._now()
     monkeypatch.setattr(auth, "_now", lambda: start + 8 * HOUR - 60)
     assert client.get("/auth/me", headers=bearer(s["token"])).status_code == 200
-    monkeypatch.setattr(auth, "_now", lambda: start + 16 * HOUR - 120)
+    monkeypatch.setattr(auth, "_now", lambda: start + 9 * HOUR)  # past 8 from sign in, inside the 12 hour cap
     with TestClient(create_platform_app()) as restarted:
         assert restarted.get("/auth/me", headers=bearer(s["token"])).status_code == 200
 
 
 def test_login_rotates_and_logout_revokes(client):
     s = signup(client)
-    again = client.post("/auth/login", json={"email": "owner@a.example", "password": PASSWORD}).json()
+    again = client.post("/auth/login", json={"email": "owner@a.example", "password": PASSWORD},
+                        headers=bearer(s["token"])).json()
     assert client.get("/auth/me", headers=bearer(s["token"])).status_code == 401
     assert client.post("/auth/logout", headers=bearer(again["token"])).status_code == 200
     assert client.get("/auth/me", headers=bearer(again["token"])).status_code == 401
@@ -308,7 +310,7 @@ def test_accepting_never_lowers_a_role_someone_already_has(client):
     owner = signup(client)
     admin = join(client, owner, "m@a.example", "admin")
     join(client, owner, "m@a.example", "viewer")
-    assert client.get("/auth/me", headers=bearer(admin["token"])).status_code == 401  # rotated
+    assert client.get("/auth/me", headers=bearer(admin["token"])).status_code == 200  # another device stays in
     s = client.post("/auth/login", json={"email": "m@a.example", "password": PASSWORD}).json()
     assert s["role"] == "admin"
 
@@ -359,6 +361,11 @@ DOORS = [
 ]
 
 
+def _fresh(body: dict) -> dict:
+    """A new email each time, so the per email lock never answers for the per IP limit."""
+    return {**body, "email": f"x-{uuid.uuid4().hex[:10]}@a.example"} if "@" in body.get("email", "") else body
+
+
 def _served(now):
     """harden() is what `ironwright platform` serves, and it owns the limiter."""
     from ironwright.api import harden
@@ -372,18 +379,18 @@ def test_door_routes_are_rate_limited_per_ip(meta_db, path, body):
     now = [1000.0]
     served = _served(now)
     c = served("10.0.0.1")
-    assert 429 not in [c.post(path, json=body).status_code for _ in range(LOGIN_ATTEMPTS)]
-    limited = c.post(path, json=body)
+    assert 429 not in [c.post(path, json=_fresh(body)).status_code for _ in range(LOGIN_ATTEMPTS)]
+    limited = c.post(path, json=_fresh(body))
     assert limited.status_code == 429 and int(limited.headers["retry-after"]) >= 1
-    assert served("10.0.0.2").post(path, json=body).status_code != 429
+    assert served("10.0.0.2").post(path, json=_fresh(body)).status_code != 429
     now[0] += LOGIN_WINDOW_S + 1
-    assert c.post(path, json=body).status_code != 429
+    assert c.post(path, json=_fresh(body)).status_code != 429
 
 
 @pytest.mark.parametrize("path,body", DOORS)
 def test_a_forwarded_header_cannot_dodge_the_limit(meta_db, path, body):
     c = _served([1000.0])("10.0.0.1")
-    codes = [c.post(path, json=body, headers={"X-Forwarded-For": f"10.1.1.{i}"}).status_code
+    codes = [c.post(path, json=_fresh(body), headers={"X-Forwarded-For": f"10.1.1.{i}"}).status_code
              for i in range(LOGIN_ATTEMPTS + 1)]
     assert codes[-1] == 429
 
@@ -404,5 +411,5 @@ def test_the_app_has_one_limiter_and_harden_owns_it(meta_db):
     from ironwright.platform_api import create_platform_app
     with TestClient(create_platform_app()) as bare:
         body = {"email": "x@a.example", "password": "wrong-password"}
-        assert {bare.post("/auth/login", json=body).status_code
+        assert {bare.post("/auth/login", json=_fresh(body)).status_code
                 for _ in range(LOGIN_ATTEMPTS + 2)} == {401}

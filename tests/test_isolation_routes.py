@@ -50,6 +50,18 @@ UNSCOPED = {
     "/auth/accept-invite": "the door",
     "/auth/me": "answers for the caller's own session",
     "/auth/logout": "acts on the caller's own session",
+    "/auth/sessions": "lists the caller's own sessions",
+    "/auth/sessions/revoke-all": "ends the caller's own sessions",
+    "/auth/verify": "the door: a link token in the body",
+    "/auth/verify/resend": "mails the caller's own address",
+    "/auth/reset-request": "the door: answers the same for every email",
+    "/auth/reset": "the door: a link token in the body",
+    "/auth/mfa": "the door: a ticket in the body",
+    "/auth/mfa/status": "the caller's own two-step state",
+    "/auth/mfa/enrol": "the caller's own two-step state",
+    "/auth/mfa/confirm": "the caller's own two-step state",
+    "/auth/mfa/disable": "the caller's own two-step state",
+    "/auth/mfa/recovery-codes": "the caller's own two-step state",
     "/workspaces": "filtered by ctx; the canary sweep proves it",
     "/jobs": "filtered by ctx; world queues a canary job, and the POST body is checked in the handler",
     "/uploads": "POST only, and it answers with what the caller just stored",
@@ -70,7 +82,16 @@ def _a_profiled_upload(c, a):
     return {"upload_id": made.json()["id"]}
 
 
+def _a_second_session(c, a):
+    """Another device of A's, so ending it leaves the sweep's own token alive."""
+    r = c.post("/auth/login", json={"email": A_EMAIL, "password": PASSWORD})
+    assert r.status_code == 200, r.text
+    listed = c.get("/auth/sessions", headers=bearer(a["token"])).json()
+    return {"session_id": next(s["id"] for s in listed if not s["current"])}
+
+
 SELF_SCOPED: dict[str, object] = {
+    "/auth/sessions/{session_id}": _a_second_session,
     "/jobs/{job_id}": _a_job,
     "/jobs/{job_id}/log": _a_job,
     "/jobs/{job_id}/cancel": _a_job,

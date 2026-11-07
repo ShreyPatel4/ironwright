@@ -200,10 +200,23 @@ def verify_chain(org_id: str) -> dict[str, Any]:
     return _judge(org_id, *_chain_rows(org_id))
 
 
-def audit_chain(org_id: str, actor: str | None = None, action: str | None = None, limit: int = 500) -> dict[str, Any]:
-    """The verdict always covers the whole chain. Filters narrow what is listed, nothing else."""
+def export_chain(org_id: str) -> list[dict[str, Any]]:
+    """Every row with its link, oldest first, then the verdict. Anyone holding the file
+    can recompute each hash with _link and see what we see."""
     rows, links = _chain_rows(org_id)
-    listed = [r for r in rows if actor in (None, r["actor"]) and action in (None, r["action"])][-limit:]
+    out = [{"seq": r["seq"], "ts": r["ts"], "actor": r["actor"], "action": r["action"], "detail": _detail(r["detail"]),
+            "prev_hash": links[r["seq"]]["prev_hash"] if r["seq"] in links else None,
+            "hash": links[r["seq"]]["hash"] if r["seq"] in links else None} for r in rows]
+    return [*out, {"org_id": org_id, **_judge(org_id, rows, links)}]
+
+
+def audit_chain(org_id: str, actor: str | None = None, action: str | None = None, limit: int = 500,
+                prefix: str | None = None) -> dict[str, Any]:
+    """The verdict always covers the whole chain. Filters narrow what is listed, nothing else.
+    prefix narrows by action, comma separated: "auth.,mfa.,token." is the auth audit."""
+    rows, links = _chain_rows(org_id)
+    listed = [r for r in rows if actor in (None, r["actor"]) and action in (None, r["action"])
+              and r["action"].startswith(tuple((prefix or "").split(",")))][-limit:]
     return {**_judge(org_id, rows, links),
             "actors": sorted({r["actor"] for r in rows}), "actions": sorted({r["action"] for r in rows}),
             "rows": [{"seq": r["seq"], "ts": r["ts"], "actor": r["actor"], "action": r["action"],

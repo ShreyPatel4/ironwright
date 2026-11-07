@@ -1,4 +1,8 @@
-"""Request identity: from a bearer token to a Ctx, through the tenancy store.
+"""Request identity: from a session cookie or a bearer token to a Ctx, through the tenancy store.
+
+A browser carries the httpOnly session cookie and must send X-CSRF-Token on every
+unsafe request. An API client sends Authorization: Bearer and needs no CSRF token,
+because nothing ambient carries it. An Authorization header never falls back to the cookie.
 
 ctx() is the one FastAPI dependency that says who is calling and for which org.
 The principal is user:<user_id> and comes from the session and nowhere else. An
@@ -19,6 +23,7 @@ from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from .security import cookies, tokens
 from .tenancy import service
 from .tenancy.models import DEV_ORG_ID, DEV_ORG_SLUG, DEV_USER_ID, Ctx
 
@@ -27,7 +32,14 @@ IDLE_SECONDS = service.IDLE_SECONDS
 # "/" only redirects to the console. The console itself is a mount, which
 # route dependencies never reach.
 PUBLIC_ROUTES = frozenset({"/auth/status", "/auth/login", "/auth/signup",
-                           "/auth/accept-invite", "/"})
+                           "/auth/accept-invite", "/auth/verify", "/auth/reset-request",
+                           "/auth/reset", "/auth/mfa", "/auth/logout", "/"})
+SESSION_COOKIE = cookies.SESSION_COOKIE
+# All a member can reach while their org requires MFA and they have not set it up.
+MFA_SETUP_ROUTES = frozenset({"/auth/me", "/auth/logout", "/auth/mfa/status", "/auth/mfa/enrol",
+                              "/auth/mfa/confirm", "/auth/sessions", "/auth/sessions/{session_id}",
+                              "/auth/sessions/revoke-all", "/orgs/{slug}/switch"})
+SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 _now = time.time
 
@@ -52,12 +64,21 @@ def seeded() -> bool:
 
 
 def bearer_token(headers: Headers) -> str:
-    scheme, _, token = headers.get("authorization", "").partition(" ")
-    return token.strip() if scheme.lower() == "bearer" else ""
+    """The request's session token: the bearer, or the cookie when no Authorization
+    header was sent. Middleware that only needs to know the org reads this."""
+    return cookies.credential(headers)[0]
 
 
 def session_ctx(token: str) -> Ctx | None:
+    """A session or an org API token. Middleware that only needs the org reads this."""
+    if tokens.is_token(token):
+        got = tokens.resolve(token, _now())
+        return got[0] if got else None
     return service.resolve(token, _now())
+
+
+def is_service(principal: str) -> bool:
+    return principal.startswith("service:")
 
 
 def _dev_ctx(request: Request) -> Ctx:
@@ -69,9 +90,26 @@ def ctx(request: Request) -> Ctx:
     """Who is calling, and for which org. The one dependency; see contract 1."""
     if dev_open():
         return _dev_ctx(request)
-    found = getattr(request.state, "ctx", None) or session_ctx(bearer_token(request.headers))
-    if found is None:
+    token, via = cookies.credential(request.headers)
+    template = getattr(request.scope.get("route"), "path", None)
+    if via == "bearer" and tokens.is_token(token):
+        got = tokens.resolve(token, _now())
+        if got is None:
+            raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
+        found, scopes = got
+        if not tokens.allows(scopes, request.method, template):
+            raise HTTPException(403, tokens.REFUSAL)
+        request.state.ctx = found
+        return found
+    found = getattr(request.state, "ctx", None) if via else None
+    found = found if found and not is_service(found.principal) else session_ctx(token)
+    if found is None or is_service(found.principal):
         raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
+    if via == "cookie" and request.method not in SAFE_METHODS \
+            and not cookies.csrf_ok(token, request.headers.get(cookies.CSRF_HEADER)):
+        raise HTTPException(403, "this request needs the X-CSRF-Token header; reload the page and try again")
+    if template not in MFA_SETUP_ROUTES and service.mfa_setup_required(found):
+        raise HTTPException(403, "your org requires two-step sign in. Set it up in Settings, Security")
     request.state.ctx = found
     return found
 

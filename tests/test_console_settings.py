@@ -16,6 +16,7 @@ import time
 import zipfile
 from pathlib import Path
 
+import cookie_session
 import httpx
 import pytest
 import sqlalchemy as sa
@@ -119,9 +120,7 @@ def open_settings(browser, stack, session):
     """A fresh context with this session in it, past the welcome tour."""
     context = browser.new_context(accept_downloads=True)
     context.set_default_timeout(15_000)
-    context.add_init_script(
-        f"localStorage.setItem('iw.session', {json.dumps(json.dumps(session))});"
-        "localStorage.setItem('iw.onboarded', '1');")
+    cookie_session.place(context, stack.base, session)
     page = context.new_page()
     page.goto(f"{stack.base}/console/")
     page.get_by_role("button", name="Settings").click()
@@ -193,15 +192,15 @@ def test_the_last_owner_is_told_why_and_stays(browser, stack):
 
 def test_each_role_sees_only_the_tabs_it_can_use(browser, stack):
     owner = stack.signup()
-    expected = {"admin": ["Members", "Usage", "Model key", "Audit"],
-                "member": ["Usage"], "viewer": ["Usage"]}
+    expected = {"admin": ["Members", "Usage", "Security", "Model key", "Audit"],
+                "member": ["Usage", "Security"], "viewer": ["Usage", "Security"]}
     for role, tabs in expected.items():
         session = stack.join(owner, f"{role}@acme.test", role)
         page = open_settings(browser, stack, session)
         expect()(page.get_by_role("tab")).to_have_text(tabs)  # waits: the tabs follow /auth/me
         page.context.close()
     page = open_settings(browser, stack, owner)
-    expect()(page.get_by_role("tab")).to_have_text(["Members", "Usage", "Model key", "Audit", "Your data"])
+    expect()(page.get_by_role("tab")).to_have_text(["Members", "Usage", "Security", "Model key", "Audit", "Your data"])
 
 
 def test_the_usage_screen_shows_the_real_counts(browser, stack):
@@ -256,9 +255,9 @@ def test_the_audit_screen_verifies_filters_and_shows_a_break(browser, stack):
     page = open_settings(browser, stack, owner)
     tab(page, "Audit")
     expect()(page.get_by_test_id("chain-status")).to_contain_text("intact")
-    expect()(page.get_by_test_id("chain-status")).to_contain_text("3 rows")
+    expect()(page.get_by_test_id("chain-status")).to_contain_text("4 rows")  # signup is the first
     rows = page.locator("tbody tr")
-    expect()(rows).to_have_count(3)
+    expect()(rows).to_have_count(4)
     page.get_by_label("Filter by action").select_option("member.role")
     expect()(rows).to_have_count(1)
     expect()(rows.first).to_contain_text("member.role")
@@ -355,7 +354,7 @@ def test_a_delete_asks_for_the_slug_then_ends_at_the_door_with_nothing_left(brow
     expect()(page.get_by_text("This org is being deleted")).to_be_visible()
     page.get_by_role("button", name="Back to sign in").click()
     expect()(page.get_by_role("button", name="Sign up")).to_be_visible()
-    assert page.evaluate("localStorage.getItem('iw.session')") is None
+    assert cookie_session.token_of(page.context) is None
     deadline = time.monotonic() + 30
     while tenant_dir(owner["org_id"]).exists() or _org_row(owner["org_id"]):
         assert time.monotonic() < deadline, "the worker did not finish the delete"
