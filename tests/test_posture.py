@@ -189,7 +189,7 @@ def test_csp_lets_the_console_and_bi_frame_work_and_nothing_else(platform):
                TestClient(platform).get("/auth/status").headers["content-security-policy"].split(";"))
     assert csp["default-src"] == "'self'"
     assert csp["script-src"] == "'self'"                  # no inline script, ever
-    assert csp["frame-ancestors"] == "'self'"             # only we may frame us
+    assert csp["frame-ancestors"] == "'none'"             # nobody may frame us
     assert csp["frame-src"] == "http: https:"             # the user's BI URL, sandboxed by the console
     assert "https://fonts.googleapis.com" in csp["style-src"]
     assert "unsafe-inline" not in csp["style-src"]

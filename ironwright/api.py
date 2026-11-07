@@ -31,7 +31,7 @@ from urllib.parse import urlsplit
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from starlette.datastructures import Headers, MutableHeaders
+from starlette.datastructures import Headers
 from starlette.responses import JSONResponse
 
 from . import auth, sqlguard
@@ -39,6 +39,7 @@ from .config import setting
 from .obs.middleware import RequestObs
 from .ontology.runtime import ActionError, Ontology
 from .packs import load_pack
+from .security.headers import CORS_HEADERS, SecurityHeaders
 from .tenancy.models import DEV_ORG_ID
 from .tracing import Tracer
 
@@ -50,14 +51,6 @@ LOGIN_ATTEMPTS = 10           # per IP, per window
 LOGIN_WINDOW_S = 60.0
 # Every route that takes a password with no session behind it.
 DOORS = frozenset({"/auth/login", "/auth/signup", "/auth/accept-invite"})
-
-# The console's own needs and nothing more. frame-src is open to http(s) because
-# the BI embed is a URL the user chose, rendered in a sandboxed iframe.
-CSP = ("default-src 'self'; script-src 'self'; "
-       "style-src 'self' https://fonts.googleapis.com; "
-       "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; "
-       "frame-src http: https:; frame-ancestors 'self'; object-src 'none'; "
-       "base-uri 'self'; form-action 'self'")
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 
@@ -78,25 +71,6 @@ def kill_switch_on() -> bool:
 
 def _refuse(status: int, detail: str, headers: dict[str, str] | None = None) -> JSONResponse:
     return JSONResponse({"detail": detail}, status_code=status, headers=headers)
-
-
-class SecurityHeaders:
-    def __init__(self, app) -> None:
-        self.app = app
-
-    async def __call__(self, scope, receive, send) -> None:
-        if scope["type"] != "http":
-            return await self.app(scope, receive, send)
-
-        async def with_headers(message) -> None:
-            if message["type"] == "http.response.start":
-                headers = MutableHeaders(scope=message)
-                headers["content-security-policy"] = CSP
-                headers["x-content-type-options"] = "nosniff"
-                headers["referrer-policy"] = "no-referrer"
-            await send(message)
-
-        await self.app(scope, receive, with_headers)
 
 
 class OriginGuard:
@@ -260,7 +234,7 @@ def harden(app: FastAPI, clock: Callable[[], float] = time.monotonic) -> FastAPI
     app.add_middleware(BodyCap)
     app.add_middleware(OriginGuard, allowed=allowed)
     app.add_middleware(CORSMiddleware, allow_origins=allowed, allow_methods=["GET", "POST", "PUT", "DELETE"],
-                       allow_headers=["authorization", "content-type"])
+                       allow_headers=CORS_HEADERS)
     app.add_middleware(RequestObs)
     app.add_middleware(SecurityHeaders)
     return app
