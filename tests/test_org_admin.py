@@ -300,6 +300,13 @@ def chain(c, who, **params) -> dict:
     return r.json()
 
 
+def _blank_chain(org_id):
+    """Signup writes the first auth event. These tests count rows, so they start from none."""
+    with usage.engine().begin() as con:
+        for t in (usage.org_audit_chain, usage.org_audit):
+            con.execute(t.delete().where(t.c.org_id == org_id))
+
+
 def _events(org_id, n=4, actor="user:x"):
     with usage.engine().begin() as con:
         for i in range(n):
@@ -308,6 +315,7 @@ def _events(org_id, n=4, actor="user:x"):
 
 def test_the_chain_verifies_when_nothing_was_touched(client):
     owner = signup(client)
+    _blank_chain(owner["org_id"])
     _events(owner["org_id"])
     got = chain(client, owner)
     assert got["verified"] is True and got["broken_at"] is None
@@ -347,6 +355,7 @@ def test_a_row_slipped_in_without_a_link_breaks_the_chain(client):
 
 def test_rows_from_before_the_chain_are_counted_and_not_called_verified(client):
     owner = signup(client)
+    _blank_chain(owner["org_id"])
     with usage.engine().begin() as con:
         con.execute(usage.org_audit.insert().values(org_id=owner["org_id"], ts=NOON, actor="user:old",
                                                     action="old.event", detail="{}"))
@@ -358,6 +367,7 @@ def test_rows_from_before_the_chain_are_counted_and_not_called_verified(client):
 
 def test_filters_narrow_the_rows_and_not_the_verdict(client):
     owner = signup(client)
+    _blank_chain(owner["org_id"])
     _events(owner["org_id"], 2, actor="user:x")
     _events(owner["org_id"], 1, actor="user:y")
     with usage.engine().begin() as con:
@@ -383,6 +393,7 @@ def test_one_orgs_chain_is_its_own(client):
 
 def test_concurrent_writers_do_not_fork_the_chain(client):
     owner = signup(client)
+    _blank_chain(owner["org_id"])
     threads = [threading.Thread(target=_events, args=(owner["org_id"], 3, f"user:{n}")) for n in range(4)]
     for t in threads:
         t.start()

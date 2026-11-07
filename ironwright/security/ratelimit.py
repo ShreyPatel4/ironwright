@@ -58,6 +58,18 @@ def fail(email: str, now: float) -> bool:
         return done.rowcount == 1
 
 
+def allow(bucket: str, email: str, limit: int, now: float) -> bool:
+    """A plain per email cap on something that sends mail. False once the window is full."""
+    key = _key(f"{bucket}:{email}")
+    with store.engine().begin() as con:
+        insert = pg_insert if con.dialect.name == "postgresql" else sqlite_insert
+        con.execute(insert(_t).values(key=key, count=0, window_start=now, locked_until=0).on_conflict_do_nothing())
+        con.execute(_t.update().where(_t.c.key == key, _t.c.window_start <= now - WINDOW_SECONDS)
+                    .values(count=0, window_start=now))
+        done = con.execute(_t.update().where(_t.c.key == key, _t.c.count < limit).values(count=_t.c.count + 1))
+        return done.rowcount == 1
+
+
 def clear(email: str) -> None:
     with store.engine().begin() as con:
         con.execute(_t.delete().where(_t.c.key == _key(email)))

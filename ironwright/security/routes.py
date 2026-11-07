@@ -99,6 +99,51 @@ def auth_accept_invite(body: AcceptInviteBody, request: Request) -> JSONResponse
         raise HTTPException(422, str(e)) from e
 
 
+class TokenBody(BaseModel):
+    token: str
+
+
+class EmailBody(BaseModel):
+    email: str
+
+
+class ResetBody(BaseModel):
+    token: str
+    password: str
+
+
+@router.post("/auth/verify")
+def auth_verify(body: TokenBody) -> dict[str, bool]:
+    try:
+        tenancy.verify_email(body.token, auth._now())
+    except tenancy.NoSuchLink:
+        raise HTTPException(404, "that link is not valid; it may have been used or expired") from None
+    return {"ok": True}
+
+
+@router.post("/auth/verify/resend")
+def auth_verify_resend(c: CtxDep) -> dict[str, bool]:
+    tenancy.resend_verify(c.user_id, auth._now())
+    return {"ok": True}
+
+
+@router.post("/auth/reset-request", status_code=202)
+def auth_reset_request(body: EmailBody) -> dict[str, Any]:
+    tenancy.request_reset(body.email, auth._now())
+    return {"ok": True, "detail": "if that email has an account, a reset link is on its way"}
+
+
+@router.post("/auth/reset")
+def auth_reset(body: ResetBody) -> dict[str, bool]:
+    try:
+        tenancy.reset_password(body.token, body.password, auth._now())
+    except tenancy.Invalid as e:
+        raise HTTPException(422, str(e)) from None
+    except tenancy.NoSuchLink:
+        raise HTTPException(404, "that link is not valid; it may have been used or expired") from None
+    return {"ok": True}
+
+
 @router.get("/auth/me")
 def auth_me(request: Request, c: CtxDep) -> dict[str, Any]:
     # A dev open server has no need of a token, but one it was handed still

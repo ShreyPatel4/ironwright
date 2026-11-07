@@ -170,6 +170,7 @@ WRITE_ROLES = {
     "/auth/logout": "viewer",
     "/auth/sessions/{session_id}": "viewer",
     "/auth/sessions/revoke-all": "viewer",
+    "/auth/verify/resend": "viewer",
 }
 
 

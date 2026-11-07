@@ -32,7 +32,8 @@ IDLE_SECONDS = service.IDLE_SECONDS
 # "/" only redirects to the console. The console itself is a mount, which
 # route dependencies never reach.
 PUBLIC_ROUTES = frozenset({"/auth/status", "/auth/login", "/auth/signup",
-                           "/auth/accept-invite", "/"})
+                           "/auth/accept-invite", "/auth/verify", "/auth/reset-request",
+                           "/auth/reset", "/auth/mfa", "/"})
 SESSION_COOKIE = cookies.SESSION_COOKIE
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 

@@ -37,7 +37,7 @@ from ..config import (
     workspaces_root,
 )
 from ..packs import list_packs
-from ..security import cookies, passwords, ratelimit
+from ..security import cookies, outbox, passwords, ratelimit
 from ..security import store as sec
 from . import db, usage
 from .models import DEV_ORG_ID, DEV_ORG_SLUG, ROLES, Ctx, at_least, principal_of
@@ -45,7 +45,10 @@ from .models import DEV_ORG_ID, DEV_ORG_SLUG, ROLES, Ctx, at_least, principal_of
 IDLE_SECONDS = 8 * 3600
 # However busy a session is, it ends this long after sign in (enterprise-security.md item 2).
 ABSOLUTE_SECONDS = 12 * 3600
-INVITE_SECONDS = 7 * 24 * 3600
+# Invite, verify and reset links: single use, 30 minutes, only the hash kept (item 6).
+LINK_SECONDS = 30 * 60
+INVITE_SECONDS = LINK_SECONDS
+RESET_MAILS = 3  # per email per 15 minutes
 # A session only rewrites last_seen this often, so reads stay reads.
 TOUCH_SECONDS = 60
 # Who owns a scenario folder under the data root. Written once, at creation.
@@ -84,6 +87,10 @@ class BadCredentials(Exception):
 
 
 class NoSuchInvite(Exception):
+    pass
+
+
+class NoSuchLink(Exception):
     pass
 
 
@@ -239,22 +246,132 @@ def signup(email: str, password: str, org_name: str, now: float,
     # A lost race on the email or the slug lands here again and resolves itself.
     for _ in range(5):
         try:
-            with sec.engine().begin() as con:
-                if con.execute(sa.select(db.users.c.id).where(db.users.c.email == email)).first():
-                    return _decoy_answer(con, email, org_name, base)
-                user_id, org_id = _id(), _id()
-                con.execute(db.users.insert().values(id=user_id, email=email, pw_hash=pw_hash,
-                                                     created_at=now))
-                con.execute(db.orgs.insert().values(id=org_id, slug=_free_slug(con, base),
-                                                    name=org_name, created_at=now))
-                con.execute(db.memberships.insert().values(org_id=org_id, user_id=user_id,
-                                                           role="owner"))
-                usage.audit(con, org_id, principal_of(user_id), "auth.signup", _where(seen), now)
-                return _session_answer(con, _open_session(con, user_id, org_id, now, seen),
-                                       user_id, org_id)
+            answer, mail = _signup_once(email, pw_hash, org_name, base, now, seen)
         except IntegrityError:
             continue
+        outbox.deliver([mail])
+        return answer
     raise EmailTaken
+
+
+def _signup_once(email: str, pw_hash: str, org_name: str, base: str, now: float,
+                 seen: dict[str, str] | None) -> tuple[dict[str, Any], tuple[str, str, str]]:
+    """The mail goes to the address either way. Only its owner can tell the two apart."""
+    with sec.engine().begin() as con:
+        if con.execute(sa.select(db.users.c.id).where(db.users.c.email == email)).first():
+            return _decoy_answer(con, email, org_name, base), (email, *_taken_mail())
+        user_id, org_id = _id(), _id()
+        con.execute(db.users.insert().values(id=user_id, email=email, pw_hash=pw_hash,
+                                             created_at=now))
+        con.execute(db.orgs.insert().values(id=org_id, slug=_free_slug(con, base),
+                                            name=org_name, created_at=now))
+        con.execute(db.memberships.insert().values(org_id=org_id, user_id=user_id,
+                                                   role="owner"))
+        usage.audit(con, org_id, principal_of(user_id), "auth.signup", _where(seen), now)
+        verify = _new_link(con, "verify", user_id, now)
+        return (_session_answer(con, _open_session(con, user_id, org_id, now, seen), user_id, org_id),
+                (email, *_verify_mail(verify)))
+
+
+def _taken_mail() -> tuple[str, str]:
+    return ("Someone tried to sign up with your email",
+            ("Someone tried to make a new Ironwright account with this email. You already have one, so "
+            f"nothing changed. If it was you, sign in at {outbox.link('')}\n"
+            "If you forgot your password, use the reset link on the sign in page."))
+
+
+def _verify_mail(token: str) -> tuple[str, str]:
+    return ("Confirm your email",
+            (f"Open this link to confirm your email for Ironwright:\n{outbox.link('verify=' + token)}\n"
+            "It works once and expires in 30 minutes."))
+
+
+# ---------------------------------------------------------------- links
+
+def _new_link(con: Connection, kind: str, user_id: str, now: float) -> str:
+    """One live link of a kind per user. A new one replaces the old."""
+    t = sec.auth_links
+    con.execute(t.delete().where(t.c.user_id == user_id, t.c.kind == kind))
+    token = secrets.token_urlsafe(32)
+    con.execute(t.insert().values(token_hash=_token_hash(token), kind=kind, user_id=user_id,
+                                  expires_at=now + LINK_SECONDS))
+    return token
+
+
+def _take_link(con: Connection, kind: str, token: str, now: float) -> str | None:
+    """Single use: whoever deletes the row has it. An expired one goes too."""
+    t = sec.auth_links
+    hashed = _token_hash(token or "")
+    row = con.execute(sa.select(t).where(t.c.token_hash == hashed, t.c.kind == kind)).mappings().first()
+    if row is None:
+        return None
+    gone = con.execute(t.delete().where(t.c.token_hash == hashed)).rowcount == 1
+    return row["user_id"] if gone and row["expires_at"] > now else None
+
+
+def _mark_verified(con: Connection, user_id: str, now: float) -> None:
+    f = sec.user_flags
+    con.execute(f.delete().where(f.c.user_id == user_id))
+    con.execute(f.insert().values(user_id=user_id, email_verified_at=now))
+
+
+def email_verified(con: Connection, user_id: str) -> bool:
+    f = sec.user_flags
+    return con.execute(sa.select(f.c.email_verified_at).where(f.c.user_id == user_id)).scalar() is not None
+
+
+def verify_email(token: str, now: float) -> None:
+    with sec.engine().begin() as con:
+        user_id = _take_link(con, "verify", token, now)
+        if user_id is None:
+            raise NoSuchLink
+        _mark_verified(con, user_id, now)
+        audit_user(con, user_id, principal_of(user_id), "auth.email_verified", {}, now)
+
+
+def resend_verify(user_id: str, now: float) -> None:
+    with sec.engine().begin() as con:
+        email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == user_id)).scalar_one()
+        if email_verified(con, user_id):
+            return
+        token = _new_link(con, "verify", user_id, now)
+    outbox.deliver([(email, *_verify_mail(token))])
+
+
+def request_reset(email: str, now: float) -> None:
+    """Says nothing about whether the email has an account, and mails nobody if not."""
+    try:
+        email = clean_email(email)
+    except Invalid:
+        return
+    if not ratelimit.allow("reset", email, RESET_MAILS, now):
+        return
+    with sec.engine().begin() as con:
+        user_id = con.execute(sa.select(db.users.c.id).where(db.users.c.email == email)).scalar()
+        if user_id is None:
+            return
+        token = _new_link(con, "reset", user_id, now)
+    outbox.deliver([(email, "Reset your password",
+                     (f"Someone asked to reset the password for this Ironwright account. If it was you, "
+                     f"open this link:\n{outbox.link('reset=' + token)}\n"
+                     "It works once and expires in 30 minutes. If it was not you, you can ignore this mail."))])
+
+
+def reset_password(token: str, password: str, now: float) -> None:
+    """The policy first, so a weak password does not spend the link. Every session ends,
+    the lock lifts, and the email counts as verified: the link proved the inbox."""
+    _check_password(password)
+    pw_hash = hash_password(password)
+    with sec.engine().begin() as con:
+        user_id = _take_link(con, "reset", token, now)
+        if user_id is None:
+            raise NoSuchLink
+        email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == user_id)).scalar_one()
+        con.execute(db.users.update().where(db.users.c.id == user_id).values(pw_hash=pw_hash))
+        _end(con, db.sessions.c.user_id == user_id)
+        _mark_verified(con, user_id, now)
+        audit_user(con, user_id, principal_of(user_id), "auth.password_reset", {}, now)
+    ratelimit.clear(email)
 
 
 def audit_user(con: Connection, user_id: str, actor: str, action: str, detail: dict[str, Any],
@@ -337,7 +454,8 @@ def describe(ctx: Ctx) -> dict[str, Any]:
     with sec.engine().connect() as con:
         email = con.execute(sa.select(db.users.c.email).where(db.users.c.id == ctx.user_id)).scalar()
         orgs = _orgs_of(con, ctx.user_id)
-    return {**ctx.__dict__, "email": email,
+        verified = email_verified(con, ctx.user_id)
+    return {**ctx.__dict__, "email": email, "email_verified": verified,
             "orgs": [{"slug": o["slug"], "name": o["name"], "role": o["role"]} for o in orgs]}
 
 
@@ -413,6 +531,10 @@ def invite(slug: str, email: str, role: str, now: float, actor: str = "system") 
                                                email=email, role=role,
                                                expires_at=now + INVITE_SECONDS))
         usage.audit(con, org_id, actor, "member.invite", {"role": role}, now)
+        name = con.execute(sa.select(db.orgs.c.name).where(db.orgs.c.id == org_id)).scalar_one()
+    outbox.deliver([(email, f"You are invited to {name} on Ironwright",
+                     (f"You are invited to join {name} on Ironwright as {role}. Open this link to accept:\n"
+                     f"{outbox.link('invite=' + token)}\nIt works once and expires in 30 minutes."))])
     return token
 
 
@@ -787,6 +909,18 @@ def _remove_files(org_id: str) -> None:
         shutil.rmtree(d)
 
 
+def _forget_mail(org_id: str, request: Any) -> None:
+    """The local mailbox holds invites that name the org and mail to its people. Before the
+    rows go, while the names are still known, take out every line about either. Someone
+    who stays in another org keeps their mail. A hosted provider's sent mail is not ours."""
+    with sec.engine().connect() as con:
+        org = con.execute(sa.select(db.orgs.c.name, db.orgs.c.slug).where(db.orgs.c.id == org_id)).first()
+        gone = [e for uid in json.loads(request["member_ids"])
+                if not con.execute(sa.select(db.memberships.c.org_id).where(db.memberships.c.user_id == uid)).first()
+                for e in con.execute(sa.select(db.users.c.email).where(db.users.c.id == uid)).scalars()]
+    outbox.forget([*(org or ()), *gone])
+
+
 def _forget_org(org_id: str, request: Any, now: float) -> None:
     """Every row, in one transaction, then the tombstone. The tables come from the live
     database and not from a list, so one added later is cleared too. A hosted lake's
@@ -834,6 +968,7 @@ def delete_org_data(org_id: str, now: float) -> dict[str, str]:
             # The lake first. The job's log is in the org's folder, and a failure here must still reach it.
             _remove_lake_prefix(org_id)
             _remove_files(org_id)
+            _forget_mail(org_id, request)
             break
         except OSError:
             if wait is None:
