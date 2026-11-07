@@ -20,6 +20,7 @@ import OrgPolicy from "./views/OrgPolicy.jsx";
 import Training from "./views/Training.jsx";
 import BIEmbed from "./views/BIEmbed.jsx";
 import Onboarding from "./views/Onboarding.jsx";
+import Gold from "./views/Gold.jsx";
 import Login from "./views/Login.jsx";
 import Join from "./views/onboarding/Join.jsx";
 import Settings from "./views/settings/Settings.jsx";
@@ -29,6 +30,7 @@ const VIEWS = [
   ["data", "Sources", Sources],
   ["pipeline", "Pipeline", Pipeline],
   ["loads", "Loads", Loads],
+  ["gold", "Gold", Gold],
   ["explorer", "Data explorer", Explorer],
   ["semantic", "Ontology", Ontology],
   ["discovery", "Discovery", Discovery],
@@ -47,11 +49,13 @@ const VIEWS = [
 ];
 const PACK_GROUPS = [
   ["MAP", ["platform"]],
-  ["DATA", ["data", "pipeline", "loads", "explorer"]],
+  ["DATA", ["data", "pipeline", "loads", "gold", "explorer"]],
   ["SEMANTIC", ["discovery", "semantic", "ask"]],
   ["OPERATE", ["boards", "bi", "agents", "training", "approvals", "audit"]],
   ["GOVERN", ["governance", "principals"]],
 ];
+// A demo pack has no gold contract of its own, so the step shows on a tenant workspace only.
+const WORKSPACE_ONLY = new Set(["gold"]);
 const ORG_GROUPS = [["MAP", ["platform"]], ["ORGANIZATION", ["organization", "orgpolicy"]]];
 
 function NewOrganization({ onCreated, startOpen = false }) {
@@ -279,7 +283,7 @@ export default function App() {
         {ws && groups.map(([g, keys]) => (
           <div key={g}>
             <div className="railgroup">{g}</div>
-            {keys.map((k) => {
+            {keys.filter((k) => !WORKSPACE_ONLY.has(k) || ws.kind === "workspace").map((k) => {
               const [, label] = VIEWS.find(([vk]) => vk === k);
               return <button aria-current={view === k} key={k} onClick={() => setView(k)}>{label}</button>;
             })}

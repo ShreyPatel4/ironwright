@@ -184,6 +184,12 @@ def _pick(cands: list[dict[str, Any]], home: str | None, reach: dict[str, list[s
                                         -c["score"], c["table"]["name"], c["column"]["name"]))
 
 
+def _others(n: int) -> str:
+    if not n:
+        return ""
+    return " 1 other source column also matches." if n == 1 else f" {n} other source columns also match."
+
+
 def _gold_rows(contract: dict[str, Any], sources: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
     for table in contract["dimensions"] + contract["facts"]:
@@ -205,8 +211,7 @@ def _gold_rows(contract: dict[str, Any], sources: dict[str, Any]) -> list[dict[s
             rows.append({**row, "status": "partial" if missing else "covered", "rule": pick["rule"],
                          "source": {"table": pick["table"]["name"], "column": pick["column"]["name"]}, "via": via,
                          "lineage": _lineage(pick, ref), "missing": missing,
-                         "reason": f"Matched by {pick['rule']}." + (f" {others} other source columns also match."
-                                                                     if others else "")})
+                         "reason": f"Matched by {pick['rule']}." + _others(others)})
     return rows
 
 
