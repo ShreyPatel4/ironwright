@@ -11,8 +11,9 @@ flowchart LR
   W --> P
   A --> M[("S3 store: versitygw or R2<br/>Iceberg warehouse")]
   W --> M
-  A --- V[("data volume<br/>uploads, workspaces, ontology, traces")]
+  A --- V[("data volume, a cache<br/>uploads, workspaces, ontology, traces")]
   W --- V
+  V -. "hydrate and persist<br/>tenants/&lt;org&gt;/" .-> M
   I["bucket-init<br/>creates the bucket, exits"] --> M
 ```
 
@@ -67,6 +68,8 @@ flowchart LR
   P --> C["Operator creates the workspace<br/>from the proposal"]
   C --> R["Run job<br/>on the worker"]
   R --> I["Org b gets 404<br/>on all of it"]
+  I --> O["Ontology proposed<br/>and accepted"]
+  O --> Q["Ask a question"]
 ```
 
 Two of those steps are not what a tenant will finally do:
@@ -76,8 +79,9 @@ Two of those steps are not what a tenant will finally do:
 - **The scenario workspace.** `POST /jobs` only takes a workspace the org can already see, and an org
   has none before its first profile. So the script makes one first.
 
-Ask is not in the walk yet. It comes after wave 2, because the read and Ask routes only know the demo
-packs today. That is also why the script reads the run's evals from the job, not from `/reports`.
+The script reads the run's evals from the job, not from `/reports`, because `/reports` only knows the
+demo packs. With `--state FILE` it also saves what org a can see, and `--verify FILE` checks all of it
+again later. CI uses that pair to prove a wiped disk loses nothing (see "Durable state" below).
 
 ## Health routes
 
@@ -119,7 +123,8 @@ that is not in this table.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `IRONWRIGHT_DATA` | `./data`, `/data` in the image | Root for uploads, workspaces, ontology stores and traces. This must be a persistent volume. |
+| `IRONWRIGHT_DATA` | `./data`, `/data` in the image | Root for uploads, workspaces, ontology stores and traces. With `IRONWRIGHT_STATE_URI` set it can be an ephemeral disk. Without it, this must be a persistent volume. |
+| `IRONWRIGHT_STATE_URI` | none, `s3://ironwright-lake/state` in compose | `s3://bucket/prefix` (or `file:///path`) snapshots every org's `tenants/<org_id>/` folder after each write and pulls it back on a fresh disk. Uses the same S3 endpoint and keys as the lake. Unset means today's behaviour: the disk is the only copy. |
 | `IRONWRIGHT_DB_URL` | `sqlite:///<data>/meta.sqlite` | Metadata store. It also holds the Iceberg catalog when the lake is on object storage. `postgres://` URLs are accepted as they are. |
 | `IRONWRIGHT_LAKE_URI` | none | `s3://bucket/prefix` puts the Iceberg warehouse on object storage. Unset means local disk. |
 | `IRONWRIGHT_S3_ENDPOINT` | none | Endpoint for an S3 store like R2 or the compose gateway. Unset means AWS. |
@@ -162,6 +167,85 @@ The warehouse layout on object storage is fixed by contract 2:
 | `POSTGRES_PASSWORD` | `ironwright-local` | Password for the compose Postgres. |
 | `OBJECTSTORE_ACCESS_KEY` | `ironwright` | Key for the compose object store. |
 | `OBJECTSTORE_SECRET_KEY` | `ironwright-local` | Secret for the compose object store. |
+
+## Durable state
+
+Cloudflare Containers have no persistent disk. Sleep, restart and redeploy all wipe it.
+Postgres keeps the metadata and the Iceberg catalog, and `IRONWRIGHT_LAKE_URI` keeps the Iceberg
+data files in the bucket. Everything else an org owns sits under `tenants/<org_id>/` on the disk:
+uploads, `workspace.yaml`, models, `ontology.yaml`, `policies.yaml`, the DuckDB ontology store with
+its audit log, job logs and traces. With `IRONWRIGHT_STATE_URI` set I treat that disk as a cache of
+the object store.
+
+```mermaid
+sequenceDiagram
+  participant R as request or job
+  participant D as durable.py
+  participant L as local disk
+  participant S as object store
+  R->>D: ctx() or job claim names org
+  alt this disk has no marker for the org
+    D->>S: manifest.json (else manifest.prev.json)
+    D->>S: blobs/<sha256> for every file
+    D->>L: write to .durable/staging, check every hash
+    D->>L: swap staging in as tenants/<org_id>, write marker
+  end
+  R->>L: the route or job reads and writes
+  R->>D: 2xx on a write, or job done
+  D->>L: hold the org lock, checkpoint DuckDB, snapshot SQLite
+  D->>S: blobs whose hash is new
+  D->>S: manifest.tmp.json, copy current to prev, copy tmp to current
+  D-->>R: the answer goes out after this
+```
+
+How it works, in `ironwright/durable.py`:
+
+- **Hydrate is lazy and per org.** `ctx()` and the worker's claim hydrate an org the first time a
+  disk sees it. Nothing happens at boot. If the store does not answer, the request gets a 503. An
+  org is never served empty because the store was down.
+- **Hydrate is all or nothing.** Every blob lands in `.durable/staging/` and has its hash checked.
+  Only then does the folder swap in. If the current generation is broken, I fall back to the one
+  before it. If neither is whole, nothing changes on disk.
+- **Persist sends only what changed.** Bodies are stored by sha256, so a file that did not change
+  is never sent again. A size and mtime index means an unchanged upload is not even re-read.
+- **One writer per org.** A `flock` per org lives on the shared disk, so the API and the worker
+  never persist the same org at once. A job holds the lock from claim to finish. A write request
+  that finds the org held hands its persist to a background thread. The job persists when it
+  finishes, and that covers the request's change too.
+- **Live files are copied safely.** A DuckDB store is checkpointed first, and skipped this round if
+  a writer is mid-flight. A SQLite file is copied with SQLite's backup API. `.wal`, `-wal`, `-shm`
+  and `-journal` sidecars are never sent.
+- **Crash safety.** A manifest is written to a temp key and then copied into place. The previous
+  manifest is kept as `manifest.prev.json`, with its blobs. Blobs nothing points at are deleted.
+- **Isolation.** Every key is built from an org id that matched the org id rule. A manifest is
+  untrusted on the way in. A path that climbs, a blob that is not a plain sha256, or a manifest that
+  names another org is refused, and the org is not hydrated. Tests prove one org's hydrate never
+  reads another org's prefix.
+- **Deleting an org deletes its snapshot.** The `org_delete` job removes `tenants/<org_id>/` from
+  the store.
+
+The demo packs are not snapshotted. They are rebuilt from code (`ironwright run --pack all`). Scenario
+workspaces (`POST /workspaces {name, size, seed}`) live outside `tenants/` and are not snapshotted
+either. They are synthetic and regenerate from their seed.
+
+Limits, said plainly:
+
+- **One instance.** The lock is a file lock on one disk. Run the API and the worker as one
+  container, or two processes sharing one volume, as compose and Railway do. Two instances on
+  two disks would overwrite each other's manifests.
+- **RPO is the last completed operation.** A write is persisted before its answer goes out, and a
+  job before it is marked done. The exception is a write while a job holds the org: it answers
+  first, and the job's own persist or the background thread carries it a moment later. A crash in the middle of an operation loses that operation. A
+  persist that fails (the store is down) is logged as `durable.persist_failed` and the next write
+  carries the change.
+- **A busy DuckDB store keeps its last copy.** If a reader holds the file while a job finishes, that
+  round keeps the previous copy of the store, and the next write sends it.
+- **Cold start costs a download.** An org's first request on a fresh disk waits for its folder. A
+  big org takes longer.
+
+CI proves it on compose: after the smoke walk it removes the api and worker and their volume, starts
+them on an empty disk, and checks the workspace, the Ask answer, the job log and the audit chain all
+come back unchanged.
 
 ## Why the compose store is not MinIO
 
