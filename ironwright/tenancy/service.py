@@ -37,7 +37,7 @@ from ..config import (
     workspaces_root,
 )
 from ..packs import list_packs
-from ..security import cookies, ratelimit
+from ..security import cookies, passwords, ratelimit
 from ..security import store as sec
 from . import db, usage
 from .models import DEV_ORG_ID, DEV_ORG_SLUG, ROLES, Ctx, at_least, principal_of
@@ -120,8 +120,11 @@ def clean_email(email: str) -> str:
 
 
 def _check_password(password: str) -> None:
-    if len(password) < 8:
-        raise Invalid("a password needs at least 8 characters")
+    """Where a password is set. Never at sign in, so nobody is locked out by a new rule."""
+    try:
+        passwords.check(password)
+    except passwords.Weak as e:
+        raise Invalid(str(e)) from None
 
 
 def hash_password(password: str) -> str:
