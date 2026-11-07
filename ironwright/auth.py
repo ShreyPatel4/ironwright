@@ -19,6 +19,7 @@ from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from . import durable
 from .tenancy import service
 from .tenancy.models import DEV_ORG_ID, DEV_ORG_SLUG, DEV_USER_ID, Ctx
 
@@ -68,11 +69,13 @@ def _dev_ctx(request: Request) -> Ctx:
 def ctx(request: Request) -> Ctx:
     """Who is calling, and for which org. The one dependency; see contract 1."""
     if dev_open():
-        return _dev_ctx(request)
-    found = getattr(request.state, "ctx", None) or session_ctx(bearer_token(request.headers))
-    if found is None:
-        raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
-    request.state.ctx = found
+        found = _dev_ctx(request)
+    else:
+        found = getattr(request.state, "ctx", None) or session_ctx(bearer_token(request.headers))
+        if found is None:
+            raise HTTPException(401, "no session", headers={"WWW-Authenticate": "Bearer"})
+        request.state.ctx = found
+    durable.hydrate_for(request, found.org_id)  # a fresh disk gets this org back first
     return found
 
 

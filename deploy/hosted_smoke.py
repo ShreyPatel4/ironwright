@@ -12,9 +12,14 @@ not what a tenant will finally do, and each says so as it runs:
   - POST /jobs only takes a workspace the org can already see, and an org has none
     before its first profile. So the walk makes a scenario workspace first.
 
-Ask comes after wave 2 lands. The demo packs must be built first (`ironwright run
---pack all` in the container), because a tenant can only read them. The last line
-is `tenant <org_id> <slug>`, for CI to find the tenant's tables.
+After the run the walk proposes and accepts an ontology, then asks a question. The demo
+packs must be built first (`ironwright run --pack all` in the container), because a
+tenant can only read them. The last line is `tenant <org_id> <slug>`, for CI to find
+the tenant's tables.
+
+--state FILE writes what org a can see to FILE. After the disk is wiped and the api and
+worker restart, `--verify FILE` reads it all again and fails on any difference. That is
+the durable state proof (docs/deploy-hosted.md).
 """
 from __future__ import annotations
 
@@ -99,7 +104,10 @@ def run_job(base: str, token: str, kind: str, workspace: str, params: dict[str, 
     """Queue it, and poll until the worker is done. Nothing in the API runs it."""
     status, raw = call(base, "/jobs", {"kind": kind, "workspace": workspace, "params": params}, token=token)
     step(f"{kind} job queued", status == 200, raw[:200] if status != 200 else "")
-    job_id = json.loads(raw)["id"]
+    return wait_job(base, token, kind, json.loads(raw)["id"], seconds)
+
+
+def wait_job(base: str, token: str, kind: str, job_id: str, seconds: float) -> dict[str, Any]:
     deadline = time.monotonic() + seconds
     while time.monotonic() < deadline:
         job = json.loads(call(base, f"/jobs/{job_id}", token=token)[1])
@@ -111,7 +119,8 @@ def run_job(base: str, token: str, kind: str, workspace: str, params: dict[str, 
     raise AssertionError("unreachable")
 
 
-def walk_a_tenant(base: str, a: dict[str, Any], b: dict[str, Any], scenario: str, operator: str, job_seconds: float) -> None:
+def walk_a_tenant(base: str, a: dict[str, Any], b: dict[str, Any], scenario: str, operator: str,
+                  job_seconds: float) -> dict[str, str]:
     status, raw = upload(base, a["token"], FIXTURE)
     step("org a uploads two files", status == 201, raw[:200] if status != 201 else "")
     upload_id = json.loads(raw)["id"]
@@ -138,20 +147,73 @@ def walk_a_tenant(base: str, a: dict[str, Any], b: dict[str, Any], scenario: str
              status == 404 and raw == same, status)
     status = call(base, "/jobs", {"kind": "run", "workspace": TENANT_SLUG, "params": {}}, token=b["token"])[0]
     step("org b cannot run it", status == 404, status)
+
+    run_job(base, a["token"], "ontology_propose", TENANT_SLUG, {}, job_seconds)
+    status, raw = call(base, f"/workspaces/{TENANT_SLUG}/ontology/proposal", token=a["token"])
+    step("an ontology is proposed", status == 200, raw[:200] if status != 200 else "")
+    status, raw = call(base, f"/workspaces/{TENANT_SLUG}/ontology/accept",
+                       {"proposal_id": json.loads(raw)["id"], "edits": []}, token=a["token"])
+    step("org a accepts it", status == 200, raw[:200] if status != 200 else "")
+    wait_job(base, a["token"], "accepted ontology run", json.loads(raw)["job_id"], job_seconds)
     print(f"tenant {a['org_id']} {TENANT_SLUG}", flush=True)
+    return {"upload_id": upload_id, "job_id": job["id"]}
+
+
+def what_org_a_sees(base: str, a: dict[str, Any], ids: dict[str, str]) -> dict[str, Any]:
+    """Everything the restart must bring back, read through the routes."""
+    def get(path: str) -> Any:
+        status, raw = call(base, path, token=a["token"])
+        step(f"read {path}", status == 200, raw[:200] if status != 200 else "")
+        return json.loads(raw) if path != f"/jobs/{ids['job_id']}/log" else raw.decode(errors="replace")
+
+    examples = get(f"/workspaces/{TENANT_SLUG}/ask/examples")
+    status, raw = call(base, f"/workspaces/{TENANT_SLUG}/ask", {"question": examples[0]["question"]}, token=a["token"])
+    answer = json.loads(raw) if status == 200 else {}
+    step("Ask answers from org a's own uploads", answer.get("status") == "answered" and "[ev:" in answer.get("answer", ""),
+         raw[:200])
+    listed = sorted(w["name"] for w in get("/workspaces") if w.get("kind") != "organization")
+    return {"workspaces": listed,
+            "upload": get(f"/uploads/{ids['upload_id']}"),
+            "proposal": get(f"/uploads/{ids['upload_id']}/proposal"),
+            "ontology": get(f"/workspaces/{TENANT_SLUG}/ontology/proposal")["id"],
+            "job_log": get(f"/jobs/{ids['job_id']}/log"),
+            "answer": [answer["answer"], answer["citations"]],
+            "audit_chain": get(f"/orgs/{a['org_slug']}/audit/chain")}
+
+
+def verify(base: str, path: pathlib.Path, packs: list[str]) -> None:
+    saved = json.loads(path.read_text())
+    a, ids = saved["org_a"], saved["ids"]
+    for pack in packs:
+        status, raw = call(base, f"/workspaces/{pack}/reports/evals", token=a["token"])
+        step(f"evals {pack} after the rebuild", status == 200 and json.loads(raw).get("passed") is True,
+             raw[:200] if status != 200 else "")
+    status, raw = call(base, "/auth/me", token=a["token"])
+    step("org a's session outlived the restart", status == 200 and json.loads(raw)["org_id"] == a["org_id"], status)
+    now = what_org_a_sees(base, a, ids)
+    for key, was in saved["seen"].items():
+        step(f"{key} came back intact", now[key] == was, "" if now[key] == was else f"was {str(was)[:160]} now {str(now[key])[:160]}")
+    print("durable state verified", flush=True)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--base", default="http://127.0.0.1:8000")
     ap.add_argument("--wait", type=float, default=180, help="seconds to wait for /readyz")
-    ap.add_argument("--packs", nargs="+", default=list(PACKS))
+    ap.add_argument("--packs", nargs="+", help=f"demo packs to read evals from (default {' '.join(PACKS)}; "
+                    "with --verify, none unless named)")
     ap.add_argument("--operator", default=OPERATOR, help="command prefix that runs python inside the API's environment")
     ap.add_argument("--job-seconds", type=float, default=300, help="seconds to wait for each job")
+    ap.add_argument("--state", type=pathlib.Path, help="write what org a sees here, for --verify after a restart")
+    ap.add_argument("--verify", type=pathlib.Path, help="only check that what --state saved came back")
     args = ap.parse_args()
     base = args.base.rstrip("/")
 
     wait_ready(base, args.wait)
+    if args.verify:
+        verify(base, args.verify, args.packs or [])
+        return
+    args.packs = args.packs or list(PACKS)
     step("/healthz", call(base, "/healthz")[0] == 200)
     status, raw = call(base, "/console/")
     step("console is built in", status == 200 and b"<html" in raw.lower(), status)
@@ -183,7 +245,10 @@ def main() -> None:
     step("org a sees it", call(base, f"/workspaces/{ws}/organization", token=a["token"])[0] == 200)
     step("org b gets a 404", call(base, f"/workspaces/{ws}/organization", token=b["token"])[0] == 404)
 
-    walk_a_tenant(base, a, b, ws, args.operator, args.job_seconds)
+    ids = walk_a_tenant(base, a, b, ws, args.operator, args.job_seconds)
+    if args.state:
+        seen = what_org_a_sees(base, a, ids)
+        args.state.write_text(json.dumps({"org_a": a, "ids": ids, "seen": seen}))
     print("smoke passed", flush=True)
 
 

@@ -74,7 +74,7 @@ jobs:
         run: |
           timeout 180 bash -c 'until curl -sf http://127.0.0.1:8000/readyz; do sleep 2; done'
           docker compose exec -T api ironwright run --pack all
-      - run: python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 30 | tee smoke.txt
+      - run: python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 30 --state smoke-state.json | tee smoke.txt
       - name: The catalog is in postgres, for the demo pack and the tenant
         run: |
           read -r _ org ws < <(grep '^tenant ' smoke.txt)
@@ -99,6 +99,24 @@ jobs:
         run: |
           test "$(docker compose exec -T api id -u)" = "10001"
           test "$(docker compose exec -T worker id -u)" = "10001"
+      # Cloudflare Containers lose their disk on every sleep. Do that here: remove api and
+      # worker and their volume, bring them back on an empty disk, and read org a's
+      # workspace, Ask answer, job log and audit chain again. Any difference fails.
+      - name: Wipe the disk, restart api and worker, and org a's state comes back
+        run: |
+          docker compose rm -sf api worker
+          docker volume rm ironwright_app-data
+          docker compose up -d api worker
+          test -z "$(docker compose exec -T api ls -A /data/tenants 2>/dev/null)"
+          python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 120 --verify smoke-state.json
+          read -r _ org ws < <(grep '^tenant ' smoke.txt)
+          docker compose exec -T api test -f "/data/tenants/$org/workspaces/$ws/workspace.yaml"
+      # The demo packs are not snapshotted. They come back from code, on a catalog that
+      # still holds their tables, and a tenant reads their evals again.
+      - name: The demo packs rebuild from code on the empty disk
+        run: |
+          docker compose exec -T api ironwright run --pack all
+          python deploy/hosted_smoke.py --base http://127.0.0.1:8000 --wait 30 --verify smoke-state.json --packs retail insurance_claims
       - if: failure()
         run: docker compose logs --no-color --tail 200
       - if: always()
@@ -119,7 +137,7 @@ jobs:
           done
           sleep 3
           pip install -e ".[dev]"
-          pytest -q -rs tests/test_hosted.py | tee out.txt
+          pytest -q -rs tests/test_hosted.py tests/test_durable.py | tee out.txt
           ! grep -q SKIPPED out.txt
 
   # The customer's whole journey on the compose stack, then a second org trying to reach all

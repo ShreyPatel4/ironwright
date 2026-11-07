@@ -233,6 +233,22 @@ def lake_uri() -> str | None:
     return uri.rstrip("/")
 
 
+def state_uri() -> str | None:
+    """Where tenant state is snapshotted, or None to keep it on local disk only.
+
+    s3://bucket[/prefix] for R2, MinIO or versitygw. file:///absolute/path for a
+    disk that outlives the container (and for tests). No trailing slash."""
+    uri = setting("STATE_URI")
+    if not uri:
+        return None
+    s3 = re.fullmatch(r"s3://[a-z0-9][a-z0-9.-]+(/[\w./-]*)?", uri)
+    local = re.fullmatch(r"file:///[\w./ -]*", uri)
+    rest = uri.split("://", 1)[1].rstrip("/")
+    if not (s3 or local) or any(p in (".", "..") for p in rest.split("/")):
+        raise ValueError("IRONWRIGHT_STATE_URI must look like s3://bucket/prefix or file:///path")
+    return uri.rstrip("/")
+
+
 def s3_properties() -> dict[str, str]:
     """PyIceberg file IO settings. Keys come from the standard AWS variables, and
     what is unset is left out so the driver's own credential chain still applies."""

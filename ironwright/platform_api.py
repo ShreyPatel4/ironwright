@@ -29,9 +29,9 @@ from . import ask as ask_mod
 from . import auth as auth_mod
 from . import boards as boards_mod
 from . import discovery as discovery_mod
+from . import durable, sqlguard, verification
 from . import escalation as escalation_mod
 from . import orgpolicy as orgpolicy_mod
-from . import sqlguard, verification
 from . import training as training_mod
 from . import workspaces as org_mod
 from . import workspaces_tenant as wt
@@ -339,6 +339,8 @@ def create_platform_app() -> FastAPI:
                   description="One spine over every workspace: runs, approvals, audit, verification.",
                   dependencies=[Depends(_gate)],
                   docs_url=None, redoc_url=None, openapi_url=None)
+    # Inside BindPrincipalHeader, so it shares the request state ctx() writes to.
+    app.add_middleware(durable.PersistAfterWrite)
     app.add_middleware(auth_mod.BindPrincipalHeader)
 
     @app.get("/workspaces")

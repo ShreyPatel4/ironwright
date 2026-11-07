@@ -18,7 +18,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
-from .. import otel_export
+from .. import durable, otel_export
 from ..config import private_dir, setting
 from ..obs.logging import emit
 from . import handlers
@@ -100,22 +100,25 @@ class Worker:
         started = time.perf_counter()
         emit("job.started", **_job_fields(got))
         try:
-            log = _job_log(got["org_id"], job_id)
-            try:
-                handler = handlers.HANDLERS.get(got["kind"])
-                if handler is None:
-                    raise handlers.JobError(f"no handler for kind {got['kind']}")
-                ctx = handlers.JobCtx(org_id=got["org_id"], principal=got["created_by"],
-                                      job_id=job_id, cancelled=cancelled)
-                result = handler(ctx, got["workspace"], got["params"], log)
-            except handlers.JobCancelled:
-                state = "cancelled"
-                log("cancelled")
-            except Exception as e:  # noqa: BLE001  any handler failure is the job's, not the worker's
-                state, error = "failed", f"{type(e).__name__}: {e}"[:2000]
-                error_type = type(e).__name__
-                log(f"failed: {error}")
-        except Exception as e:  # noqa: BLE001  the log itself could not be opened
+            # The job owns its org until it has persisted: hydrate first, persist last.
+            with durable.job_scope(got["org_id"]):
+                log = _job_log(got["org_id"], job_id)
+                try:
+                    handler = handlers.HANDLERS.get(got["kind"])
+                    if handler is None:
+                        raise handlers.JobError(f"no handler for kind {got['kind']}")
+                    ctx = handlers.JobCtx(org_id=got["org_id"], principal=got["created_by"],
+                                          job_id=job_id, cancelled=cancelled)
+                    result = handler(ctx, got["workspace"], got["params"], log)
+                except handlers.JobCancelled:
+                    state = "cancelled"
+                    log("cancelled")
+                except Exception as e:  # noqa: BLE001  any handler failure is the job's, not the worker's
+                    state, error = "failed", f"{type(e).__name__}: {e}"[:2000]
+                    error_type = type(e).__name__
+                    log(f"failed: {error}")
+                durable.after_job(got["org_id"], got["kind"], state)
+        except Exception as e:  # noqa: BLE001  the log could not be opened, or the org could not be hydrated
             state, error = "failed", f"{type(e).__name__}: {e}"[:2000]
             error_type = type(e).__name__
         finally:
