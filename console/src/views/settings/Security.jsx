@@ -51,6 +51,7 @@ function TwoStep({ onRotated, required }) {
   });
   const turnOff = () => act(async () => { await api.mfaDisable(code); setCode(""); await load(); });
   const fresh = () => act(async () => { setCodes((await api.mfaNewRecovery(code)).recovery_codes); setCode(""); await load(); });
+  const move = () => act(async () => { setPending(await api.mfaEnrol(code)); setCode(""); });
 
   return (
     <Section testid="security-mfa" title="Two-step sign in">
@@ -84,15 +85,17 @@ function TwoStep({ onRotated, required }) {
           </div>
         </>
       )}
-      {status?.enabled && (
+      {status?.enabled && !pending && (
         <>
           <p className="sub" data-testid="mfa-on">On. {status.recovery_left} recovery codes left.</p>
           {status.required_by.length > 0 && (
             <p className="note">{status.required_by.join(", ")} requires it, so it stays on.</p>)}
+          <p className="note">Each of these takes a current code, or a recovery code if you lost your phone.</p>
           <div className="row">
             <input aria-label="current code" autoComplete="one-time-code" inputMode="numeric"
                    onChange={(e) => setCode(e.target.value)} placeholder="current code" type="text" value={code} />
             <button className="btn ghost" disabled={busy || !code.trim()} onClick={fresh}>New recovery codes</button>
+            <button className="btn ghost" disabled={busy || !code.trim()} onClick={move}>Move to a new phone</button>
             {status.required_by.length === 0 && (
               <button className="btn ghost" disabled={busy || !code.trim()} onClick={turnOff}>Turn it off</button>)}
           </div>
